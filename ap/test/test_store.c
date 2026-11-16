@@ -1,6 +1,7 @@
 #include "tinytest.h"
 #include "esl_store.h"
 #include "esl_persist.h"
+#include "esl_clock.h"
 #include <stdlib.h>
 
 #define S(x) (const uint8_t *)(x), sizeof(x) - 1
@@ -93,7 +94,7 @@ static esl_content_t price(const char *name, const char *p)
 
 static size_t poll(esl_store_t *st, uint64_t mac, uint32_t shown, uint64_t now, uint8_t *reply)
 {
-    esl_poll_t p = {3, 2950, shown, ESL_POLL_F_IMAGE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {3, 2950, shown, ESL_POLL_F_IMAGE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
     return esl_store_on_poll(st, mac, &p, -61, now, NULL, reply);
 }
 
@@ -126,12 +127,217 @@ static uint32_t s_clock(void *ctx)
     return ((seenfake_t *)ctx)->clock;
 }
 
+/* Night mode and update window (#415) */
+static int hours_saved, hours_erased;
+static esl_hours_t hours_last;
+
+static void s_hours(void *ctx, const esl_hours_t *h)
+{
+    CHECK_INT(((seenfake_t *)ctx)->f.depth, 0); /* outside the lock */
+    if (h) {
+        hours_saved++;
+        hours_last = *h;
+    } else {
+        hours_erased++;
+    }
+}
+
+static uint16_t reply_next(const uint8_t *reply)
+{
+    return (uint16_t)(reply[ESL_OFF_NEXT_POLL] | reply[ESL_OFF_NEXT_POLL + 1] << 8);
+}
+
+#define DAY0 1767225600u /* 2026-01-01 00:00 UTC */
+#define AT(h, m) (DAY0 + (h) * 3600u + (m) * 60u - 3600u) /* local time in UTC+1 */
+
+static void test_store_hours(void)
+{
+    enum { CAP = 4 };
+    esl_store_t st = {0};
+    seenfake_t g = {0};
+    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, NULL, s_clock, NULL, NULL, NULL, NULL, NULL, NULL, NULL, s_hours};
+    uint8_t reply[ESL_MAX_PAYLOAD];
+    esl_hours_t h = {0}, got;
+    const uint64_t A = 0xA1, B = 0xB2;
+
+    /* spans, over midnight or not */
+    CHECK(esl_hours_in(22 * 60, 6 * 60, 23 * 60) && esl_hours_in(22 * 60, 6 * 60, 0) && esl_hours_in(22 * 60, 6 * 60, 359));
+    CHECK(!esl_hours_in(22 * 60, 6 * 60, 360) && !esl_hours_in(22 * 60, 6 * 60, 12 * 60));
+    CHECK(esl_hours_in(6 * 60, 8 * 60, 6 * 60) && !esl_hours_in(6 * 60, 8 * 60, 8 * 60) && !esl_hours_in(6 * 60, 8 * 60, 5 * 60));
+
+    esl_clock_set_utc_offset(3600);
+    esl_store_init(&st, CAP, &ops, 300);
+    g.clock = AT(23, 0);
+    poll(&st, A, 0, 1000, reply);
+    CHECK_INT(reply_next(reply), 300); /* no night mode: its interval */
+
+    /* 22:00-06:00, every 30 min */
+    h.night_from = 22 * 60;
+    h.night_to = 6 * 60;
+    h.night_poll_s = 1800;
+    esl_store_set_hours(&st, &h);
+    CHECK_INT(hours_saved, 1);
+    CHECK_INT(hours_last.night_poll_s, 1800);
+    g.clock = AT(23, 0);
+    poll(&st, A, 0, 2000, reply);
+    CHECK_INT(reply_next(reply), 1800);
+    CHECK_INT(esl_store_tag_poll_s(&st, A), 1800);
+    CHECK_INT(esl_store_tag_expect_s(&st, A), 1800);
+    g.clock = AT(5, 30); /* wakes at 06:00 exactly: still the night interval */
+    poll(&st, A, 0, 3000, reply);
+    CHECK_INT(reply_next(reply), 1800);
+    g.clock = AT(5, 31); /* would wake after the night: its own */
+    poll(&st, A, 0, 4000, reply);
+    CHECK_INT(reply_next(reply), 300);
+    CHECK_INT(esl_store_tag_expect_s(&st, A), 300);
+    g.clock = AT(5, 0);
+    poll(&st, A, 0, 5000, reply);
+    g.clock = AT(6, 10); /* morning: told 300 now, but it may sleep the night interval it got */
+    CHECK_INT(esl_store_tag_poll_s(&st, A), 300);
+    CHECK_INT(esl_store_tag_expect_s(&st, A), 1800);
+    poll(&st, A, 0, 6000, reply);
+    CHECK_INT(reply_next(reply), 300);
+    CHECK_INT(esl_store_tag_expect_s(&st, A), 300);
+    g.clock = AT(12, 0);
+    poll(&st, A, 0, 7000, reply);
+    CHECK_INT(reply_next(reply), 300);
+
+    /* the time not known: nothing changes */
+    g.clock = 0;
+    poll(&st, A, 0, 8000, reply);
+    CHECK_INT(reply_next(reply), 300);
+
+    /* a tag with a longer interval of its own keeps it */
+    esl_store_set_next_poll(&st, 3600);
+    g.clock = AT(1, 0);
+    poll(&st, B, 0, 9000, reply);
+    CHECK_INT(reply_next(reply), 3600);
+
+    /* no default (0): in night mode the tag is told the built-in one by day, so it does not
+       stay on the night interval */
+    esl_store_set_next_poll(&st, 0);
+    g.clock = AT(12, 0);
+    CHECK_INT(esl_store_tag_poll_s(&st, 0xC3), 0); /* not in the table: the default */
+    esl_poll_t plain = {3, 2950, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
+    esl_store_on_poll(&st, 0xC3, &plain, -60, 10000, NULL, reply);
+    CHECK_INT(reply_next(reply), ESL_TAG_BUILTIN_POLL_S);
+    g.clock = AT(2, 0);
+    esl_store_on_poll(&st, 0xC3, &plain, -60, 11000, NULL, reply);
+    CHECK_INT(reply_next(reply), 1800);
+
+    /* the other side of UTC */
+    esl_clock_set_utc_offset(-5 * 3600);
+    g.clock = DAY0 + 4 * 3600; /* 23:00 the day before, local */
+    esl_store_on_poll(&st, 0xC3, &plain, -60, 12000, NULL, reply);
+    CHECK_INT(reply_next(reply), 1800);
+    g.clock = DAY0 + 17 * 3600; /* 12:00 local */
+    esl_store_on_poll(&st, 0xC3, &plain, -60, 13000, NULL, reply);
+    CHECK_INT(reply_next(reply), ESL_TAG_BUILTIN_POLL_S);
+    esl_clock_set_utc_offset(3600);
+
+    /* update window 06:00-08:00 */
+    CHECK(!esl_store_image_held(&st, 1234)); /* not set */
+    h.window = true;
+    h.window_from = 6 * 60;
+    h.window_to = 8 * 60;
+    esl_store_set_hours(&st, &h);
+    CHECK_INT(hours_saved, 2);
+    g.clock = AT(12, 0);
+    CHECK(esl_store_image_held(&st, 1234));
+    CHECK(!esl_store_image_held(&st, 0)); /* shows nothing from the AP yet: not held */
+    g.clock = AT(7, 59);
+    CHECK(!esl_store_image_held(&st, 1234));
+    g.clock = AT(8, 0);
+    CHECK(esl_store_image_held(&st, 1234));
+    g.clock = 0;
+    CHECK(!esl_store_image_held(&st, 1234)); /* time unknown */
+
+    /* a window inside the night is reached by every tag: a tag told the night interval
+       at 22:05 is on its own interval when the window opens (review of #442) */
+    const esl_hours_t keep = h;
+    const int saved0 = hours_saved, erased0 = hours_erased;
+    esl_store_set_next_poll(&st, 600);
+    h.night_from = 22 * 60;
+    h.night_to = 6 * 60;
+    h.night_poll_s = 3600;
+    h.window_from = 3 * 60 + 15;
+    h.window_to = 3 * 60 + 45;
+    esl_store_set_hours(&st, &h);
+    for (uint32_t start = 0; start < 600; start += 50) {
+        uint32_t t = AT(22, 0) + start;
+        bool hit = false;
+        for (int i = 0; i < 100 && t < AT(3, 45) + 86400; i++) {
+            g.clock = t;
+            poll(&st, 0xD4, 0, 20000 + i, reply);
+            uint32_t sod = (t + 3600) % 86400;
+            hit = hit || (sod >= 3 * 3600 + 15 * 60 && sod < 3 * 3600 + 45 * 60);
+            t += reply_next(reply);
+        }
+        CHECK(hit);
+    }
+    g.clock = AT(3, 20); /* in the window: its own interval */
+    poll(&st, 0xD4, 0, 30000, reply);
+    CHECK_INT(reply_next(reply), 600);
+    g.clock = AT(2, 30); /* 45 min to the window: its own */
+    poll(&st, 0xD4, 0, 31000, reply);
+    CHECK_INT(reply_next(reply), 600);
+    g.clock = AT(2, 15); /* exactly an hour: the night interval */
+    poll(&st, 0xD4, 0, 32000, reply);
+    CHECK_INT(reply_next(reply), 3600);
+
+    /* a channel move just after night mode is turned off waits for a tag that may still
+       sleep the night interval (review of #442) */
+    esl_store_set_hours(&st, NULL);
+    esl_store_move_channel(&st, 20, false, false, 33000);
+    esl_channel_state_t cs;
+    esl_store_channel_state(&st, 33000, &cs);
+    CHECK(cs.due_s >= 2 * ESL_NIGHT_POLL_MAX_S);
+    esl_store_move_channel(&st, cs.channel, false, false, 33000); /* called off */
+    h = keep;
+    esl_store_set_hours(&st, &h);
+    hours_saved = saved0;
+    hours_erased = erased0;
+
+    /* stored form */
+    uint8_t blob[ESL_HOURS_LEN];
+    CHECK_INT(esl_hours_encode(&h, blob), ESL_HOURS_LEN);
+    memset(&got, 0, sizeof(got));
+    CHECK(esl_hours_decode(blob, sizeof(blob), &got));
+    CHECK(got.night_from == h.night_from && got.night_to == h.night_to && got.night_poll_s == h.night_poll_s &&
+          got.window && got.window_from == h.window_from && got.window_to == h.window_to);
+    CHECK(!esl_hours_decode(blob, sizeof(blob) - 1, &got));
+    blob[0] = 2; /* a later version */
+    CHECK(!esl_hours_decode(blob, sizeof(blob), &got));
+    blob[0] = 1;
+    blob[5] = 10; /* night poll 10 s: out of range */
+    blob[6] = 0;
+    CHECK(!esl_hours_decode(blob, sizeof(blob), &got));
+
+    /* both off: erased */
+    esl_store_set_hours(&st, NULL);
+    CHECK_INT(hours_erased, 1);
+    esl_store_get_hours(&st, &got);
+    CHECK(!got.night_poll_s && !got.window);
+    /* restored at boot without a save; a bad one is off */
+    esl_store_restore_hours(&st, &h);
+    CHECK_INT(hours_saved, 2);
+    esl_store_get_hours(&st, &got);
+    CHECK_INT(got.night_poll_s, 1800);
+    h.night_from = h.night_to;
+    esl_store_restore_hours(&st, &h);
+    esl_store_get_hours(&st, &got);
+    CHECK(!got.night_poll_s && !got.window);
+    CHECK_INT(g.f.depth, 0);
+    esl_clock_set_utc_offset(0);
+    esl_store_free(&st);
+}
+
 static void test_store_seen(void)
 {
     enum { CAP = 4 };
     esl_store_t st = {0};
     seenfake_t g = {0};
-    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, s_seen, s_clock, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, s_seen, s_clock, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_tag_t t;
     esl_store_free(&st);
@@ -159,7 +365,7 @@ static void test_store_seen(void)
     CHECK_INT(esl_store_save_seen(&st), 0); /* not heard since */
 
     /* other firmware: saved at once */
-    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {4, 2900, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
     esl_store_on_poll(&st, 0xA1, &p, -70, 62000, NULL, reply);
     CHECK_INT(g.writes, 3);
     CHECK_INT(g.rec.fw, 4);
@@ -193,7 +399,7 @@ static void test_store_seen(void)
     CHECK(!t.has_content);
     /* its first POLL with the same model and firmware writes nothing at once */
     int w = g.writes;
-    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p2 = {0x0401, 2600, 0, 0, ESL_MODEL_154, false, 0, false, 0, 0, 0, 0, false, 0};
     g.clock = 1792003600;
     esl_store_on_poll(&st2, 0xB2, &p2, -80, 5000, NULL, reply);
     CHECK_INT(g.writes, w);
@@ -285,7 +491,7 @@ static void test_store_grow(void)
 
     /* without memory the table stops growing: a new tag is then not added */
     nvsfake_t *n = calloc(1, sizeof(*n));
-    esl_store_ops_t ops = {n, NULL, NULL, n_save, NULL, NULL, NULL, NULL, NULL, n_load, n_alloc, NULL, NULL, NULL, NULL, NULL};
+    esl_store_ops_t ops = {n, NULL, NULL, n_save, NULL, NULL, NULL, NULL, NULL, n_load, n_alloc, NULL, NULL, NULL, NULL, NULL, NULL};
     n->chunks_left = 1;
     esl_store_init(&st, GROW_MAX, &ops, 0);
     for (unsigned i = 0; i < ESL_STORE_CHUNK; i++)
@@ -335,7 +541,7 @@ static void test_store_signal(void)
 
     esl_store_init(&st, 4, NULL, 0);
     /* a POLL without the link block: only the AP's RSSI */
-    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0, false, 0};
     esl_store_on_poll(&st, A, &p, -50, 0, NULL, reply);
     CHECK(esl_store_get(&st, A, &t));
     CHECK_INT(esl_tag_signal(&t, rssi, info), 1);
@@ -393,7 +599,7 @@ void test_store(void)
     enum { CAP = 4 };
     esl_store_t st = {0};
     fake_t f = {0};
-    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock, NULL, NULL, NULL};
+    esl_store_ops_t ops = {&f, f_lock, f_unlock, f_save, f_erase, NULL, NULL, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock, NULL, NULL, NULL, NULL};
     esl_set_result_t r;
     esl_tag_t t;
     uint8_t reply[ESL_MAX_PAYLOAD];
@@ -460,7 +666,7 @@ void test_store(void)
     CHECK_INT(t.image_id, 0);
 
     /* a tag without images cannot show content */
-    esl_poll_t old = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t old = {3, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0, false, 0};
     CHECK_INT(esl_store_on_poll(&st, A, &old, -61, 3500, NULL, reply), ESL_IDLE_LEN);
     esl_store_get(&st, A, &t);
     CHECK_INT(t.content_err, ESL_CERR_NO_IMAGE);
@@ -547,11 +753,11 @@ void test_store(void)
 
     /* ---- per-tag settings and the default interval ---- */
     fake_t g = {0};
-    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock, NULL, NULL, NULL};
+    esl_store_ops_t cops = {&g, f_lock, f_unlock, f_save, f_erase, f_cfg, f_next_poll, NULL, NULL, NULL, NULL, f_save_lock, f_save_unlock, NULL, NULL, NULL, NULL};
     esl_cfg_result_t cr;
     esl_store_free(&st);
     esl_store_init(&st, CAP, &cops, 0);
-    esl_tag_cfg_t c120 = {120, 0, 0, 0, 0, 0}, none = {0, 0, 0, 0, 0, 0};
+    esl_tag_cfg_t c120 = {120, 0, 0, 0, 0, 0, 0}, none = {0, 0, 0, 0, 0, 0, 0};
     CHECK_INT(esl_store_set_cfg(&st, A, &c120, &cr), ESL_STORE_OK);
     CHECK(cr.changed);
     CHECK(!cr.pending); /* not seen yet */
@@ -564,7 +770,7 @@ void test_store(void)
     /* old firmware (no cfg_ver): IDLE with its interval; new firmware: CONFIG until it confirms */
     n = poll(&st, A, 0, 100, reply);
     CHECK_MEM(reply, "\x02\x01\x78\x00", 4);
-    esl_poll_t np = {3, 2950, 0, ESL_POLL_F_IMAGE, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t np = {3, 2950, 0, ESL_POLL_F_IMAGE, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0, false, 0};
     n = esl_store_on_poll(&st, A, &np, -61, 200, NULL, reply);
     CHECK_INT(n, ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
@@ -626,5 +832,6 @@ void test_store(void)
     esl_store_free(&st);
 
     test_store_seen();
+    test_store_hours();
     test_store_grow();
 }

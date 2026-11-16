@@ -243,7 +243,7 @@ static void serial_task(void *arg)
         vTaskDelete(NULL);
     }
     size_t n = 0;
-    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+    ESL_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
         esp_task_wdt_reset();
         int c = get_byte(pdMS_TO_TICKS(IDLE_WAIT_MS));

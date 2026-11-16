@@ -29,6 +29,14 @@ if(NOT no_base)
     list(APPEND SDKCONFIG_DEFAULTS "boards/${board_base}/sdkconfig.defaults")
 endif()
 list(APPEND SDKCONFIG_DEFAULTS "boards/${BOARD}/sdkconfig.defaults")
+# -DSNIFFER=1: the same board as a sniffer that logs every frame and answers none
+# (sniffer.sdkconfig.defaults, docs/radio-sniffer.md). Not kept in the cache: every configure
+# has to ask for it again (build.py does), so a sniffer sdkconfig built without it warns below.
+set(esl_sniffer "${SNIFFER}")
+unset(SNIFFER CACHE)
+if(esl_sniffer)
+    list(APPEND SDKCONFIG_DEFAULTS "sniffer.sdkconfig.defaults")
+endif()
 # The chip comes from the board, not from a sdkconfig left in this folder by another build
 if(DEFINED ENV{IDF_TARGET} AND NOT "$ENV{IDF_TARGET}" STREQUAL "${board_target}")
     message(FATAL_ERROR "IDF_TARGET is $ENV{IDF_TARGET}, but board ${BOARD} is ${board_target}")
@@ -49,9 +57,9 @@ endif()
 # The board's layout limits ("limits" in board.json, boards/README.md) for the layout compiler
 # and renderer in esl_core; a limit the board does not set keeps the default in shared/proto.h
 # or esl_layout.h (the ESP32-C6's). web/build.py reads the same keys for the web renderer.
-set(limit_keys runs rects lines icons fileBytes jsonBytes)
+set(limit_keys runs rects lines icons fileBytes jsonBytes shapes)
 set(limit_macros ESL_DRAW_MAX_RUNS ESL_DRAW_MAX_RECTS ESL_DRAW_MAX_LINES ESL_DRAW_MAX_ICONS ESL_LBIN_MAX
-    ESL_LAYOUT_MAX_SIZE)
+    ESL_LAYOUT_MAX_SIZE ESL_DRAW_MAX_SHAPES)
 idf_build_set_property(COMPILE_DEFINITIONS "ESL_BOARD=\"${BOARD}\"" APPEND)
 string(JSON board_name ERROR_VARIABLE no_name GET "${board_json}" name)
 if(no_name OR board_name MATCHES "[\"\\]")
@@ -84,3 +92,9 @@ if(NOT no_psram AND board_psram GREATER 0)
 endif()
 
 project(esl_ap)
+# A build folder whose sdkconfig was made for the sniffer stays a sniffer: say so, so it is not
+# put on an AP that serves tags by mistake (docs/radio-sniffer.md)
+if(CONFIG_ESL_RADIO_SNIFFER AND NOT esl_sniffer)
+    message(WARNING "This is a sniffer build (CONFIG_ESL_RADIO_SNIFFER in ${SDKCONFIG}): it answers no tags. "
+                    "For the AP, build with python build.py <board>, or give idf.py its own -B folder and -D SDKCONFIG.")
+endif()

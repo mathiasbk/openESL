@@ -5,7 +5,7 @@
 #include "esl_json.h"
 #include "esl_proto.h"
 
-/* Firmware images for the tags, one per model (docs/tag-ota.md, krav T15).
+/* Firmware images for the tags, one per model (docs/tag-ota.md, requirement T15 in docs/requirements.md).
  *
  * An image is the OTA file build.py makes (openesl-ota.bin, in the releases
  * as openesl-tag-<model>-<version>-ota.bin): the ESL_FWF_* header, then the application. It is

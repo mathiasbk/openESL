@@ -122,3 +122,24 @@ test("the radio over WiFi: its commands and what its log says", () => {
   assert.equal(radioLine("W (9) radio: WiFi lost (reason 8), joining again"), null);
   assert.equal(radioLine("I (9) radio: heap: free 1000"), null);
 });
+
+test("the Linux AP: a card only when the page has its USB radio, flashing the C6 and then starting the program", () => {
+  assert.ok(!cards(info).some((c) => c.board.id === "linux"));
+  const withLinux = { ...info, linux_radios: [{ key: "usb-c6-usb", kind: "usb", id: "c6-usb", chip_family: "ESP32-C6", manifest: "radio-linux-c6-usb-manifest.json" }] };
+  const c = cards(withLinux).at(-1);
+  assert.equal(c.title, "Linux + C6 radio");
+  assert.deepEqual(c.chips, ["Linux", "C6 radio"]);
+  assert.equal(c.pic, "linux");
+  assert.equal(c.status, "experimental");
+  assert.ok(c.ready);
+  // its radios: the C6 on USB first, then the network radio; never the S3's radios on a cable
+  const rs = radiosFor(c.board, withLinux);
+  assert.deepEqual(rs.map((r) => r.key), ["usb-c6-usb", "net-c6"]);
+  assert.deepEqual(plan(c.board, rs[0]), {
+    flash: [{ kind: "flash", role: "radio", chip: "ESP32-C6", manifest: "radio-linux-c6-usb-manifest.json", title: "C6 radio", usbPort: false }],
+    connect: [{ kind: "linux" }],
+  });
+  assert.deepEqual(plan(c.board, rs[1]).connect, [{ kind: "linux" }, { kind: "join" }]);
+  // the S3 on a cable never gets the USB radio
+  assert.deepEqual(radiosFor(info.ap_boards[2], withLinux).map((r) => r.key), ["uart-c6", "uart-c6-lcd"]);
+});

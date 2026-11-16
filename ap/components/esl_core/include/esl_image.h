@@ -6,7 +6,7 @@
 #include "esl_store.h"
 
 /* Screen images for tags that show what the AP draws (POLL bit5, ESL_POLL_F_IMAGE;
- * docs/protokoll.md part 1, "Image transfer").
+ * docs/protocol.md part 1, "Image transfer").
  *
  * Nothing is stored: the AP has the source of every image (the tag's content and the
  * layout file for its model, or the picture a client sent, below), so the image is
@@ -133,7 +133,7 @@ uint32_t esl_image_prepare(esl_image_t *im, esl_store_t *st, esl_layouts_t *ls, 
 /* As esl_image_prepare(), but nothing is drawn here: when the tag's image is not in a
  * buffer yet, the tag is noted for esl_image_draw_later() and 0 is returned with *busy
  * set, so the tag is told to come back in ESL_IMAGE_BUSY_S and finds its image ready.
- * For a radio that must answer within the tag's listening window (20 ms, krav A3):
+ * For a radio that must answer within the tag's listening window (20 ms, requirement A3 in docs/requirements.md):
  * drawing a screen can take longer than that, and a reply that comes too late leaves
  * the tag where it was. The tag is drawn after the reply to the frame that noted it
  * (esl_radio_after), so at most one is noted at a time. */

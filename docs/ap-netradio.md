@@ -8,7 +8,8 @@ each on its own power supply, with no wire between them. Short name in code and 
 
 **Status: experimental, not secure yet.** Both ends have firmware: the S3 board `s3-n16r8-netradio` and the
 radio in `ap/netradio/`. It has run on one S3 and one C6 with two tags (below, "On hardware"), and new
-prices reached both screens. It is not in a release. **The link is plain TCP without a password**: any
+prices reached both screens. Its files are in every release since 0.6.0, and several radios per S3 (#259)
+since 0.10.0. **The link is plain TCP without a password**: any
 device on the network can connect to the S3 as its radio, or answer the radio as its AP. Use it only on a
 network you trust until pairing and TLS are done (step 3d, at the end).
 
@@ -131,7 +132,7 @@ for the WiFi signal at the C6 (it warns below −75 dBm). It keeps the C6's WiFi
 table is the radio's (a C6 that was an AP or this radio), and erases a blank C6 first. By hand:
 
 1. Build and flash the S3 as any AP board: `python ap/build.py s3-n16r8-netradio` (which also builds the
-   radio), then flash the S3 as in [ap-firmware.md](ap-firmware.md). It waits for the radio on TCP port
+   radio), then flash the S3 as in [history/ap-firmware-plan.md](history/ap-firmware-plan.md). It waits for the radio on TCP port
    4553 and announces itself on mDNS as `_openesl-ap._tcp`.
 2. Flash the C6 with `out/openesl-ap-netradio-c6.bin` at 0, or from `ap/netradio/build/` with
    `esptool.py --chip esp32c6 write_flash @flash_args`. Its NVS sits where the AP's does, so a C6 that
@@ -145,12 +146,18 @@ table is the radio's (a C6 that was an AP or this radio), and erases a blank C6 
    the radio, the cache and the link; it is also logged every minute.
 
 The radio takes the channel and PAN from the S3 when it connects, and keeps them for its next start.
+Until it has them it stays off the air (#447): a C6 fresh from the flasher, or one with its settings
+erased, neither listens nor sends on 802.15.4 until its AP's first CONFIG, so it never answers
+another AP's tags on the default channel while it is still looking for its own AP (`status` says
+`802.15.4 off`). The channel a C6 kept from an earlier life as an AP does not count: only one the
+radio got from its AP (`cfg/radio_ch`). A radio updated from before this has none yet, so after
+the update it stays off until its AP answers once, then starts on its saved channel as before.
 It also takes the S3's transmit power (`PUT /api/config` `"tx_power"`, in the same CONFIG), but not
 for its next start: until the S3 answers, its own `ESL_TX_POWER_DBM` applies. A new channel from the
 Settings page (`PUT /api/config` `"channel"`) reaches the radio the same way: each tag's state carries the
 channel the S3 announces (u16 at the end of the TAG message, 0 = the built-in one), so the radio's
 CONFIG tells the tags, and once they have it (or the time is up) the S3 sends a new CONFIG with the new
-channel and the radio retunes.
+channel and the radio retunes. After the channel comes the AP id (#390, u32; an older S3 sends none, 0): the radio puts it in CONFIG, and stays silent for a tag it has no state for whose POLL carries an id, so it never takes another AP's tag; the S3 decides from the radio's log (docs/protocol.md, "AP id"). Update the radio together with the S3.
 
 **When the S3 loses a radio:** a radio that is not connected, and has not been heard for 30 s
 (`ESL_RADIO_LOST_S`), is
@@ -164,6 +171,9 @@ connection shows at once; one that just goes quiet (no power) only when the S3 g
 the tags it serves get nothing new (they see the state it had cached, see Limits).
 
 ## Several radios
+
+The Linux AP takes network radios too, beside its own radio, which keeps place 0
+([linux-ap.md](linux-ap.md), "Network radios").
 
 One S3 can have up to **4 radios** (#259), each a C6 on the same WiFi network, each on a channel
 of its own, to cover a shop or a house that one radio cannot reach. Not tried on hardware yet:
@@ -185,7 +195,7 @@ with several C6 boards.
   tries first when it misses an answer) is the one of the radio that serves it. A tag no radio has heard since the S3 started is told to every radio, but
   its image goes ahead only when one radio is connected (each image costs a radio tag replies).
 - **Roaming.** A tag whose radio stops answering finds another the way it finds a moved AP
-  (docs/protokoll.md, "Finding the AP"): after three rounds without an answer it looks on the
+  (docs/protocol.md, "Finding the AP"): after three rounds without an answer it looks on the
   other channels, and the first radio that answers asks the S3 for it (as for a new tag: one or
   two wake-ups of 5 s), owns it from then on and tells it its channel. Nothing changes in the tag
   firmware; tags from before 0.9.0 cannot look on other channels and stay with the radio on the
@@ -270,7 +280,7 @@ WiFi RSSI −74 to −77 dBm, coex at the default, power save MIN (MAX made no d
 | 5 | Several radios per S3 (#259): up to 4, each on its own channel, each tag served by the radio that last heard it ("Several radios" above) | done on the PC, not tried on hardware |
 | 5b | Pick the radio that hears a tag best (by RSSI), never switched mid-image | |
 
-Release files will have their own names so they are not mixed up with the cabled radio:
+The release files have their own names so they are not mixed up with the cabled radio:
 `openesl-ap-esp32s3-n16r8-netradio-<version>.bin` and `openesl-ap-netradio-esp32c6-<version>.bin`.
 
 **Alternative: Ethernet.** A C6 with a W5500 (SPI Ethernet, possibly PoE) uses no 2.4 GHz for the link,

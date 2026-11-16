@@ -7,7 +7,7 @@
 
 uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
                          uint32_t shown_id, uint8_t flags, uint16_t cfg_ver,
-                         uint8_t rx_rssi, uint8_t rx_lqi, uint8_t lost, uint8_t link_flags)
+                         uint8_t rx_rssi, uint8_t rx_lqi, uint8_t lost, uint8_t link_flags, uint32_t ap_id)
 {
     out[ESL_OFF_TYPE] = ESL_MSG_POLL;
     out[ESL_OFF_VER] = ESL_PROTO_VER;
@@ -21,7 +21,8 @@ uint8_t proto_build_poll(uint8_t *out, uint16_t fw_ver, uint16_t battery_mv,
     out[ESL_POLL_OFF_RX_LQI] = rx_lqi;
     out[ESL_POLL_OFF_LOST] = lost;
     out[ESL_POLL_OFF_LINKF] = link_flags;
-    return ESL_POLL_LEN_LINK;
+    ESL_PUT_U32(out + ESL_POLL_OFF_APID, ap_id);        /* #390 */
+    return ESL_POLL_LEN_APID;
 }
 
 uint8_t proto_build_fw_req(uint8_t *out, uint16_t fw_ver, uint16_t pos, uint32_t crc, uint8_t max)
@@ -64,6 +65,7 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
     r->cfg_lost_ap_s = 0;
     r->cfg_long_poll_s = 0;
     r->cfg_long_after_min = 0;
+    r->cfg_ap_id = 0;
     r->cfg_channel = 0;
 
     if (len < ESL_IDLE_LEN)
@@ -116,11 +118,13 @@ int8_t proto_parse_reply(const uint8_t *p, uint8_t len, proto_reply_t *r)
             r->cfg_long_poll_s = ESL_GET_U16(p + ESL_CONFIG_OFF_LONG_POLL);
             r->cfg_long_after_min = ESL_GET_U16(p + ESL_CONFIG_OFF_LONG_AFTER);
         }
-        if (len >= ESL_CONFIG_LEN) {      /* and one from before the channel 16 */
+        if (len >= ESL_CONFIG_LEN_CHANNEL) {      /* and one from before the channel 16 */
             uint16_t ch = ESL_GET_U16(p + ESL_CONFIG_OFF_CHANNEL);
             if (ch >= ESL_CHANNEL_MIN && ch <= ESL_CHANNEL_MAX)
                 r->cfg_channel = (uint8_t)ch;
         }
+        if (len >= ESL_CONFIG_LEN)                /* and one from before the AP id 18 */
+            r->cfg_ap_id = ESL_GET_U32(p + ESL_CONFIG_OFF_APID);
         return PROTO_OK;
     }
     return PROTO_E_TYPE;

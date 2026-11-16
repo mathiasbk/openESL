@@ -3,6 +3,7 @@
 import base64
 import datetime
 import csv
+import glob
 import io
 import json
 import os
@@ -30,8 +31,10 @@ class FakeAp(BaseHTTPRequestHandler):
     ota = {}
     ota_rollback = False
     tagfw = {}
+    ap_fw = "0.1.0"
     images = {}
     fonts = None   # name -> font file; None: an AP without font files (404)
+    other_aps = []
 
     def log_message(self, *a):
         pass
@@ -48,9 +51,41 @@ class FakeAp(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n)) if n else None
 
+    def _tagfw_model(self):
+        """GET /api/tag-firmware/1.54 for the image uploaded to the fake (the only model it takes)."""
+        if "to" not in FakeAp.tagfw:
+            return None
+        img = {"model": "1.54", "version": "0.3.0", "size": 53248, "crc": "1234ABCD", "to": FakeAp.tagfw["to"],
+               "tags": FakeAp.tagfw.get("tags", {"updated": 0, "pending": 1, "failed": 0, "no_ota": 0,
+                                                 "not_chosen": 3})}
+        if FakeAp.tagfw.get("old_ap"):  # an AP from before "to" (0.4.4) has no "to" field
+            del img["to"]
+        return img
+
+    def do_DELETE(self):
+        if not self._auth():
+            return
+        self.calls.append((self.path, None))
+        if self.path == "/api/tag-firmware/1.54" and "to" in FakeAp.tagfw:
+            del FakeAp.tagfw["to"]
+            return self._send(200, {"model": "1.54", "deleted": True})
+        self._send(404, {"error": "no tag firmware for this model"})
+
     def do_POST(self):
         if not self._auth():
             return
+        if self.path.startswith("/api/tag-firmware/"):
+            self.calls.append((self.path, None))
+            if FakeAp.tagfw.get("old_ap"):
+                return self._send(405, {"error": "method not allowed"})
+            to = self.path.split("?to=")[1]
+            if self._tagfw_model() is None or not self.path.startswith("/api/tag-firmware/1.54?"):
+                return self._send(404, {"error": "no tag firmware for this model"})
+            if to == "all" or FakeAp.tagfw["to"] == "all":
+                FakeAp.tagfw["to"] = "all"
+            elif to not in FakeAp.tagfw["to"]:
+                FakeAp.tagfw["to"].append(to)
+            return self._send(200, self._tagfw_model())
         if self.path == "/api/ota":
             n = int(self.headers.get("Content-Length", 0))
             image = self.rfile.read(n)
@@ -75,7 +110,7 @@ class FakeAp(BaseHTTPRequestHandler):
     def _set(self, mac, c):
         if c.get("at"):
             FakeAp.sched.append(dict(c, mac=mac))
-            return {"mac": mac, "scheduled": True, "at": c["at"]}
+            return {"mac": mac, "scheduled": True, "at": c["at"], **({"repeat": c["repeat"]} if c.get("repeat") else {})}
         cid = abs(hash(json.dumps(c, sort_keys=True))) % 2**32 or 1
         old = self.tags.get(mac, {})
         changed = old.get("content_id") != cid
@@ -120,9 +155,13 @@ class FakeAp(BaseHTTPRequestHandler):
             self._send(200, self.config)
         elif self.path == "/api/ota":
             self._send(200, FakeAp.ota)
+        elif self.path.startswith("/api/tag-firmware/"):
+            img = self._tagfw_model() if self.path == "/api/tag-firmware/1.54" else None
+            self._send(200 if img else 404, img or {"error": "no tag firmware for this model"})
         elif self.path == "/api/tag-firmware":
             self._send(200, {"max_size": 61456, "part_max": 24576, "images": FakeAp.tagfw.get("images", [
                 {"model": "2.9", "version": None},
+                self._tagfw_model() or
                 {"model": "1.54", "version": "0.3.0", "size": 53248, "crc": "1234ABCD", "to": "all",
                  "tags": {"updated": 2, "pending": 1, "failed": 0, "no_ota": 1}}])})
         elif self.path.startswith("/api/health"):
@@ -131,9 +170,9 @@ class FakeAp(BaseHTTPRequestHandler):
                          "battery_mv": t["battery_mv"]} for m, t in self.tags.items() if t["battery_mv"] < 2500]
             self._send(200, {"problems": problems, "ok": not problems, "tags": len(self.tags),
                              "with_problems": len(problems), "silent": 0, "unseen": 0, "draw_failed": 0,
-                             "low_battery": len(problems), "content_error": 0})
+                             "low_battery": len(problems), "content_error": 0, "other_aps": FakeAp.other_aps})
         elif self.path == "/api/tags":
-            self._send(200, {"ap": {"fw": "0.1.0", "uptime_s": 10, "channel": 25, "max_tags": 64},
+            self._send(200, {"ap": {"fw": FakeAp.ap_fw, "uptime_s": 10, "channel": 25, "max_tags": 64},
                              "tags": list(self.tags.values())})
         elif self.path.startswith("/api/tags/") and self.path.endswith("/image"):
             mac = self.path.split("/")[3]
@@ -157,10 +196,22 @@ class FakeAp(BaseHTTPRequestHandler):
             self.calls.append((self.path, self.headers.get("Content-Type"), len(part)))
             q = dict(x.split("=") for x in self.path.split("?")[1].split("&"))
             FakeAp.tagfw["data"] = FakeAp.tagfw.get("data", b"")[:int(q["offset"])] + part
+            if q["offset"] == "0":  # an AP from before "to" (the fake's old_ap) offers it to all
+                to = q.get("to", "all")
+                FakeAp.tagfw["to"] = "all" if to == "all" or FakeAp.tagfw.get("old_ap") else [to]
             if len(FakeAp.tagfw["data"]) < int(q["total"]):
                 return self._send(200, {"received": len(FakeAp.tagfw["data"]), "total": int(q["total"])})
             return self._send(200, {"model": "1.54", "version": "0.3.0", "size": n, "crc": "00000000",
                                     "received": int(q["total"]), "total": int(q["total"])})
+        if self.path.startswith("/api/tags/") and self.path.endswith("/draw"):
+            body = self._body()
+            mac = self.path.split("/")[3]
+            self.calls.append((self.path, body))
+            if getattr(FakeAp, "before_draw", False):  # an AP before 0.11.0
+                return self._send(400, {"error": "mac must be 16 hex digits"})
+            if mac not in self.tags:
+                return self._send(404, {"error": "unknown tag"})
+            return self._send(200, self._set(mac, {"layout": "image", "fields": [], "picture": len(json.dumps(body))}))
         if self.path.startswith("/api/tags/") and "/image" in self.path:
             n = int(self.headers.get("Content-Length", 0))
             data = self.rfile.read(n)
@@ -196,6 +247,21 @@ class FakeAp(BaseHTTPRequestHandler):
                 FakeAp.config["tz"] = body["tz"] or None
             if "ntp" in body:
                 FakeAp.config["ntp"] = body["ntp"] or FakeAp.config["builtin_ntp"]
+            if "lang" in body:
+                if "lang" not in FakeAp.config:
+                    return self._send(422, {"error": "this AP has no language setting"})
+                FakeAp.config["lang"] = body["lang"] or "en"
+            if ("ap_id" in body or "adopt" in body) and "ap_id" not in FakeAp.config:
+                return self._send(422, {"error": "this AP has no AP id"})
+            if "ap_id" in body:
+                FakeAp.config["ap_id"] = body["ap_id"]
+            if "adopt" in body:
+                FakeAp.config["adopt"] = body["adopt"]
+            if ("night" in body or "update_window" in body) and "night" not in FakeAp.config:
+                return self._send(422, {"error": "this AP has no clock: no night mode or update window"})
+            for k in ("night", "update_window"):
+                if k in body:
+                    FakeAp.config[k] = body[k]
             self._send(200, FakeAp.config)
         elif self.path == "/api/wifi":
             FakeAp.wifi = {"mode": "sta", "ssid": body.get("ssid", FakeAp.wifi.get("ssid")) or None,
@@ -298,7 +364,9 @@ class ClientTest(unittest.TestCase):
         FakeAp.images = {}
         FakeAp.wifi = {}
         FakeAp.tagfw = {}
+        FakeAp.ap_fw = "0.1.0"
         FakeAp.fonts = None
+        FakeAp.other_aps = []
 
     def run_cli(self, *args):
         out = io.StringIO()
@@ -341,6 +409,19 @@ class ClientTest(unittest.TestCase):
                                                               "problems": ["radio_lost"], "lost_s": 300}]})
         self.assertEqual(rc, 1)
         self.assertIn("  radio 0 (C6 on the cable, 000098880E7177C8) not answering for 5 min\n", buf.getvalue())
+        # a C6 over WiFi from before 0.11.0 (#390): still ok, but said
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            rc = esl_client.print_health({"problems": [], "ok": True, "tags": 1, "with_problems": 0,
+                                          "old_radios": [{"radio": 0, "id": "000098880E71A3AC", "fw": 1002}]})
+        self.assertEqual(rc, 0)
+        self.assertIn("  radio 0 (C6 over WiFi, 000098880E71A3AC) has firmware 0.10.2, too old for the AP id: this AP's own"
+                      " tags show settings pending and it answers other APs' tags; update it to the AP's version\n",
+                      buf.getvalue())
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            esl_client.print_health({"ok": True, "old_radios": [{"radio": 1, "id": "000098880E71A3AD", "fw": 0}]})
+        self.assertIn("  radio 1 (C6 over WiFi, 000098880E71A3AD) too old for the AP id:", buf.getvalue())
 
         rc, out = self.run_cli("config")
         self.assertEqual((rc, out), (0, "poll_s 0 (menuconfig 0), webhook off\n"))
@@ -376,6 +457,41 @@ class ClientTest(unittest.TestCase):
         self.assertIn("time zone CET-1CEST,M3.5.0,M10.5.0/3, NTP no.pool.ntp.org", out)
         rc, out = self.run_cli("config", "--tz", "", "--ntp", "")
         self.assertEqual(FakeAp.calls[-1], ("/api/config", {"tz": None, "ntp": None}))
+        FakeAp.config["lang"] = "en"
+        rc, out = self.run_cli("config", "--lang", "nb")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"lang": "nb"}))
+        self.assertIn("dates in Norwegian", out)
+
+    def test_hours_config(self):
+        """Night mode and update window (#415)"""
+        FakeAp.config.update({"night": None, "update_window": None, "night_now": False, "update_window_open": True})
+        rc, out = self.run_cli("config")
+        self.assertIn("no night mode, no update window", out)
+        rc, out = self.run_cli("config", "--night", "22:00-06:00/1800", "--update-window", "06:00-08:00")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"night": {"from": "22:00", "to": "06:00", "poll_s": 1800},
+                                                            "update_window": {"from": "06:00", "to": "08:00"}}))
+        self.assertIn("night mode 22:00-06:00 every 1800 s, update window 06:00-08:00", out)
+        rc, out = self.run_cli("config", "--night", "off")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"night": None}))
+        with self.assertRaises(SystemExit), redirect_stderr(io.StringIO()):
+            self.run_cli("config", "--night", "22:00-06:00")  # no interval
+        # backed up and put back, onto an AP that has them
+        FakeAp.config["night"] = {"from": "23:00", "to": "05:00", "poll_s": 900}
+        cli = esl_client.Client(self.url, TOKEN)
+        b = esl_client.backup(cli)
+        self.assertEqual(b["config"]["night"], {"from": "23:00", "to": "05:00", "poll_s": 900})
+        self.assertEqual(b["config"]["update_window"], {"from": "06:00", "to": "08:00"})
+        self.setUp()
+        FakeAp.config.update({"night": None, "update_window": None})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertEqual(FakeAp.config["night"], {"from": "23:00", "to": "05:00", "poll_s": 900})
+        self.assertEqual(FakeAp.config["update_window"], {"from": "06:00", "to": "08:00"})
+        # onto an older AP: a note
+        self.setUp()
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertTrue(any("night mode and the update window were not restored" in l for l in lines), lines)
 
     def test_backup_and_restore_clock(self):
         FakeAp.config.update({"ntp": "no.pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": "CET-1CEST,M3.5.0,M10.5.0/3"})
@@ -398,6 +514,73 @@ class ClientTest(unittest.TestCase):
         # the AP's own NTP server is kept as None
         FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None})
         self.assertEqual(esl_client.backup(cli)["config"], {"poll_s": 0, "webhook": None, "tz": None, "ntp": None})
+        # the date language (0.11.0): kept, and set again; an older AP gets a note
+        FakeAp.config["lang"] = "nb"
+        b = esl_client.backup(cli)
+        self.assertEqual(b["config"]["lang"], "nb")
+        self.setUp()
+        FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None, "lang": "en"})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertEqual(FakeAp.config["lang"], "nb")
+        self.setUp()
+        FakeAp.config.update({"ntp": "pool.ntp.org", "builtin_ntp": "pool.ntp.org", "tz": None})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertIn("note: the date language was not restored; this AP's firmware has no language setting (0.11.0 and later)", lines)
+
+    def test_backup_and_restore_ap_id(self):
+        # #390: the id goes in the backup and back on a new AP, which then needs no adopt
+        FakeAp.config.update({"ap_id": "1A2B3C4D", "adopt": None, "adopt_until": None})
+        cli = esl_client.Client(self.url, TOKEN)
+        b = esl_client.backup(cli)
+        self.assertEqual(b["ap"]["ap_id"], "1A2B3C4D")
+        self.setUp()
+        FakeAp.config.update({"ap_id": "99990000", "adopt": "all", "adopt_until": None})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertIn("AP id: 1A2B3C4D", lines)
+        self.assertEqual((FakeAp.config["ap_id"], FakeAp.config["adopt"]), ("1A2B3C4D", None))
+        # the AP the backup came from still answers its tags here: refused, unless --force
+        self.setUp()
+        FakeAp.config.update({"ap_id": "77778888", "adopt": None, "adopt_until": None})
+        FakeAp.other_aps = [{"ap_id": "1A2B3C4D", "tags": 5, "polls": 40, "seen_s_ago": 30, "lost_long": False,
+                             "answered_s_ago": 30}]
+        lines, ok = esl_client.restore(cli, b)
+        self.assertFalse(ok)
+        self.assertEqual(FakeAp.config["ap_id"], "77778888")
+        self.assertTrue(any("still answers its tags here" in line for line in lines), lines)
+        # turned off a few minutes ago: its tags poll here without an answer (lost 1 and more), so it is taken
+        FakeAp.other_aps[0].update({"answered_s_ago": 400})
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertEqual(FakeAp.config["ap_id"], "1A2B3C4D")
+        FakeAp.config["ap_id"] = "77778888"
+        FakeAp.other_aps[0].update({"answered_s_ago": 30})
+        lines, ok = esl_client.restore(cli, b, force=True)
+        self.assertEqual(FakeAp.config["ap_id"], "1A2B3C4D")
+        # the same AP again: nothing sent, so an adopt that runs stays
+        FakeAp.config["adopt"] = "BEEF0002"
+        lines, ok = esl_client.restore(cli, b)
+        self.assertEqual(FakeAp.config["adopt"], "BEEF0002")
+        # a second AP with the same setup keeps its own
+        self.setUp()
+        FakeAp.config.update({"ap_id": "55556666", "adopt": None, "adopt_until": None})
+        lines, ok = esl_client.restore(cli, b, copy=True)
+        self.assertEqual(FakeAp.config["ap_id"], "55556666")
+        self.assertTrue(any("keeps its own id 55556666" in line for line in lines), lines)
+        # an AP without it: a note
+        self.setUp()
+        lines, ok = esl_client.restore(cli, b)
+        self.assertTrue(ok, lines)
+        self.assertTrue(any("has no AP id" in line for line in lines), lines)
+        # config --adopt, and what config shows
+        FakeAp.config.update({"ap_id": "1A2B3C4D", "adopt": None, "adopt_until": None})
+        _, out = self.run_cli("config", "--adopt", "BEEF0002")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"adopt": "BEEF0002"}))
+        self.assertIn("AP id 1A2B3C4D, adopting the lost tags of AP BEEF0002", out)
+        self.run_cli("config", "--adopt", "null")
+        self.assertEqual(FakeAp.calls[-1], ("/api/config", {"adopt": None}))
 
     def test_log_and_report(self):
         self.run_cli("price", "00000123456789A8", "Milk", "24.90")
@@ -437,6 +620,50 @@ class ClientTest(unittest.TestCase):
         b9 = next(l for l in out.splitlines() if l.startswith("00000123456789B9"))
         self.assertIn("     3 ", b9)         # 3 rounds, no problems
 
+    def test_draw(self):
+        lay = {"name": "room", "fields": ["room", "next"],
+               "elements": [{"type": "ellipse", "x": 0, "y": 0, "w": 20, "h": 20}]}
+        # draw_body: a layout file (by name, with its icons), one layout, a draw body; --field by name
+        f = {"format": "esl-layouts", "version": 1, "model": "2.9", "icons": {"i": {"w": 8, "h": 1, "data": "/w=="}},
+             "layouts": [lay, dict(lay, name="other")]}
+        self.assertEqual(esl_client.draw_body(f, "room"), {"layout": lay, "icons": f["icons"]})
+        with self.assertRaisesRegex(ValueError, "--layout"):
+            esl_client.draw_body(f)
+        with self.assertRaisesRegex(ValueError, "no layout x"):
+            esl_client.draw_body(f, "x")
+        self.assertEqual(esl_client.draw_body(lay, None, {"room": "R2"}), {"layout": lay, "fields": {"room": "R2"}})
+        body = {"layout": lay, "fields": ["R1", "Free"]}
+        self.assertEqual(esl_client.draw_body(body, None, {"next": "Busy"})["fields"], {"room": "R1", "next": "Busy"})
+        self.assertEqual(esl_client.draw_body(body), body)
+        with self.assertRaisesRegex(ValueError, "list of layouts"):
+            esl_client.draw_body({"layouts": ["room"]})
+
+        self.run_cli("text", "00000123456789A8", "x")
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as tf:
+            json.dump(f, tf)
+        try:
+            rc, out = self.run_cli("draw", "00000123456789A8", tf.name, "--layout", "room", "--field", "room=Rom 2")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("changed", out)
+            self.assertEqual(FakeAp.calls[-1], ("/api/tags/00000123456789A8/draw",
+                                                {"layout": lay, "icons": f["icons"], "fields": {"room": "Rom 2"}}))
+            rc, out = self.run_cli("draw", "00000123456789A8", tf.name)
+            self.assertEqual(rc, 2)
+            rc, out = self.run_cli("draw", "00000123456789A8", tf.name, "--layout", "room", "--field", "room")
+            self.assertEqual(rc, 2)
+            rc, out = self.run_cli("draw", "00000123456789FF", tf.name, "--layout", "room")
+            self.assertEqual(rc, 2)
+            FakeAp.before_draw = True
+            try:
+                rc, out = self.run_cli("draw", "00000123456789A8", tf.name, "--layout", "room")
+                self.assertEqual(rc, 2)
+                with self.assertRaisesRegex(esl_client.ApiError, "older than 0.11.0"):
+                    esl_client.Client(self.url, TOKEN).draw("00000123456789A8", {"layout": lay})
+            finally:
+                FakeAp.before_draw = False
+        finally:
+            os.unlink(tf.name)
+
     def test_image(self):
         self.run_cli("text", "00000123456789A8", "x")
         png = esl_client.PNG_SIGNATURE + b"rest of the file"
@@ -455,6 +682,193 @@ class ClientTest(unittest.TestCase):
             rc, out = self.run_cli("image", "00000123456789A8", f.name)
             self.assertEqual(rc, 0, out)
             self.assertEqual(FakeAp.calls[-1][:2], ("/api/tags/00000123456789A8/image", "application/octet-stream"))
+
+    def test_battery(self):
+        # a 2.9" tag read every day for 30 days: 2600 (2.6 V or more) for 10 days, 2550 from day 10,
+        # 2450 from day 20 (a bounce back to 2550 on day 25 must not count as a new step), and three
+        # screen updates; a 1.54" tag that reports 0; a round the AP did not answer
+        def row(day, mac, model, mv, shown):
+            return [f"2026-11-{day:02d} 08:00:00", str(day * 86400), "", mac, model, "30", mv, "-60",
+                    shown, shown, "0", "0", ""]
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "log.csv")
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["time", "ap_uptime_s", "ap_reset", "mac", "model", "seen_s_ago", "battery_mv", "rssi",
+                            "content_id", "shown_content_id", "pending", "draw_failed", "problems"])
+                for day in range(1, 31):
+                    mv = "2600" if day <= 10 else "2550" if day <= 20 or day == 25 else "2450"
+                    w.writerow(row(day, "00000123456789A8", "2.9", mv, "1" if day < 5 else "2" if day < 15 else "3"))
+                    w.writerow(row(day, "00000123456789B9", "1.54", "0", "7"))
+                w.writerow(["2026-11-30 09:00:00", "", "no answer", "", "", "", "", "", "", "", "", "", "timeout"])
+            out_csv = os.path.join(d, "batt.csv")
+            out_html = os.path.join(d, "batt.html")
+            rc, out = self.run_cli("battery", path, "--csv", out_csv, "--low-mv", "2400", "--html", out_html)
+            with open(out_csv, newline="") as f:
+                table = {r["mac"]: r for r in csv.DictReader(f)}
+            with open(out_html, encoding="utf-8") as f:
+                html = f.read()
+        self.assertEqual(rc, 0)
+        self.assertIn("2600 mV since the log started, 2550 mV from 2026-11-11 08:00, 2450 mV from 2026-11-21 08:00", out)
+        self.assertIn("falling 10.0 mV/day", out)          # 100 mV in the 10 days between the two steps
+        self.assertIn("about 5 days until 2400 mV", out)   # (2450 - 2400) / 10
+        self.assertIn("no battery reading (0 = the tag cannot measure it)", out)
+        a8 = table["00000123456789A8"]
+        self.assertEqual((a8["first_mv"], a8["last_mv"], a8["min_mv"], a8["steps"], a8["draws"]), ("2600", "2450", "2450", "2", "2"))
+        self.assertEqual(a8["days"], "29.0")
+        self.assertEqual(a8["polls"], str(29 * 1440))
+        self.assertEqual(table["00000123456789B9"]["first_mv"], "")
+        self.assertEqual(html.count("<svg"), 1)                  # a chart for the 2.9" only
+        self.assertEqual(html.count("<circle"), 3)               # its three steps
+        self.assertEqual(html.count("<polygon"), 2)              # its two screen updates
+        self.assertIn("about 5.0 days to low", html)
+        self.assertIn("<td>00000123456789B9</td>", html)         # the 1.54" is in the table
+        # a log that starts below 2600: the first reading has no known time, so one more step gives no rate
+        # (the tag may have sat at 2500 for weeks); the second does, and "already below" shows up in the HTML
+        with tempfile.TemporaryDirectory() as d:
+            path = os.path.join(d, "log.csv")
+            with open(path, "w", newline="") as f:
+                w = csv.writer(f)
+                w.writerow(["time", "ap_uptime_s", "ap_reset", "mac", "model", "seen_s_ago", "battery_mv", "rssi",
+                            "content_id", "shown_content_id", "pending", "draw_failed", "problems"])
+                for day in range(1, 31):
+                    mv = "2550" if day <= 10 else "2450" if day <= 20 else "2350"
+                    w.writerow(row(day, "00000123456789A8", "" if day == 1 else "2.9", mv, "1"))
+            rc, out = self.run_cli("battery", path, "--low-mv", "2450", "--html", os.path.join(d, "b.html"))
+            with open(os.path.join(d, "b.html"), encoding="utf-8") as f:
+                html2 = f.read()
+        self.assertIn("2550 mV since the log started, 2450 mV from 2026-11-11 08:00, 2350 mV from 2026-11-21 08:00", out)
+        self.assertIn("falling 10.0 mV/day", out)                # from the two steps seen, not from the log start
+        self.assertIn("already below 2450 mV", out)
+        self.assertIn("already below the low line", html2)
+        self.assertIn("<td>2.9</td>", html2)                     # the model from the first row that has one
+
+    LOG_HEADER = ["time", "ap_uptime_s", "ap_reset", "mac", "model", "seen_s_ago", "battery_mv", "rssi",
+                  "content_id", "shown_content_id", "pending", "draw_failed", "problems"]
+
+    def write_log(self, d, rows, header=None):
+        path = os.path.join(d, "log.csv")
+        with open(path, "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(header or self.LOG_HEADER)
+            w.writerows(rows)
+        return path
+
+    def test_battery_figures_match_power_budget(self):
+        # the charge count must use the same figures as tools/power-budget, or the two disagree
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "power_budget", os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "power-budget", "power_budget.py"))
+        pb = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pb)
+        p = pb.defaults()
+        self.assertAlmostEqual(esl_client.BATT_POLL_MC, pb.per_poll_mc(p, True), places=2)
+        self.assertAlmostEqual(esl_client.BATT_DRAW_MC, pb.per_update_mc(p), delta=0.5)
+        self.assertEqual(esl_client.BATT_SLEEP_UA, p["sleep_ua"])
+        self.assertEqual(esl_client.BATT_CELL_MAH, p["cell_mah"])
+
+    def test_battery_charge_count(self):
+        # one 2.9" tag over exactly one day at 60 s with one screen update:
+        # 1440 polls * 0.08 + 22 + 3 uA * 86400 s = 396.4 mC = 0.110 mAh, 4.59 uA on average
+        rows = [["2026-11-01 08:00:00", "1", "", "00000123456789A8", "2.9", "30", "2600", "-60", "1", "1", "0", "0", ""],
+                ["2026-11-02 08:00:00", "2", "", "00000123456789A8", "2.9", "30", "2600", "-60", "2", "2", "0", "0", ""]]
+        with tempfile.TemporaryDirectory() as d:
+            lines, table, series = esl_client.battery_analysis(esl_client.read_log(self.write_log(d, rows)))
+        row = table[0]
+        self.assertEqual((row["polls"], row["draws"], row["charge_mah"], row["avg_ua"]), (1440, 1, 0.11, 4.59))
+        # 2 cells * 620 mAh * 0.7, with 1 % a year self-discharge on top of the average current
+        self.assertEqual(row["years_at_this_rate"], 16.5)
+        self.assertIsNone(row["mv_per_day"])
+        self.assertIn("2.6 V or more for the whole log", "\n".join(lines))
+        # --poll-s changes the poll count
+        _, table, _ = esl_client.battery_analysis([dict(zip(self.LOG_HEADER, r)) for r in rows], poll_s=300)
+        self.assertEqual(table[0]["polls"], 288)
+
+    def test_battery_edge_cases(self):
+        with tempfile.TemporaryDirectory() as d:
+            # no tags: only rounds the AP did not answer
+            path = self.write_log(d, [["2026-11-01 08:00:00", "", "no answer", "", "", "", "", "", "", "", "", "", "timeout"]])
+            rc, out = self.run_cli("battery", path)
+            self.assertEqual(rc, 0)
+            self.assertIn("no tags in the log", out)
+            # a single round: no time span, so no average and no years, and nothing divides by zero
+            path = self.write_log(d, [["2026-11-01 08:00:00", "1", "", "00000123456789A8", "2.9", "30", "2450", "-60",
+                                       "1", "1", "0", "0", ""]])
+            rc, out = self.run_cli("battery", path, "--html", os.path.join(d, "one.html"))
+            self.assertEqual(rc, 0, out)
+            self.assertIn("2450 mV since the log started", out)
+            self.assertIn("the rate needs two steps seen in the log", out)
+            # an older log without the battery and content columns still reads
+            path = self.write_log(d, [["2026-11-01 08:00:00", "00000123456789A8", "2.9"],
+                                      ["2026-11-03 08:00:00", "00000123456789A8", "2.9"]], header=["time", "mac", "model"])
+            rc, out = self.run_cli("battery", path)
+            self.assertEqual(rc, 0, out)
+            self.assertIn("2.0 days in the log", out)
+            self.assertIn("no battery reading", out)
+            # errors: a missing file, a CSV that is not a log, a bad time stamp
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc, _ = self.run_cli("battery", os.path.join(d, "missing.csv"))
+                self.assertEqual(rc, 2)
+                rc, _ = self.run_cli("battery", self.write_log(d, [["1", "2"]], header=["a", "b"]))
+                self.assertEqual(rc, 2)
+                rc, _ = self.run_cli("battery", self.write_log(d, [["yesterday", "00000123456789A8"]], header=["time", "mac"]))
+                self.assertEqual(rc, 2)
+            self.assertIn("not a time from esl_client.py log: 'yesterday'", err.getvalue())
+
+    def test_battery_long_log(self):
+        # a row a minute for 4 days: 2600 for a day, then 2550, a bounce to 2600 for an hour, 2450 from
+        # day 3. Only the change points are kept, and the result is the same as for a log with one row
+        # per change (apart from the time span, which both have)
+        start = datetime.datetime(2026, 11, 1, 8, 0, 0)
+        def mv_at(m):
+            if m < 1440:
+                return "2600"
+            if 2000 <= m < 2060:
+                return "2600"
+            return "2550" if m < 2 * 1440 else "2450"
+        full, changes, last = [], [], None
+        for m in range(4 * 1440 + 1):
+            r = [(start + datetime.timedelta(minutes=m)).strftime("%Y-%m-%d %H:%M:%S"), str(m * 60), "",
+                 "00000123456789A8", "2.9", "30", mv_at(m), "-60", "1", "1", "0", "0", ""]
+            full.append(r)
+            if r[6] != last or m == 4 * 1440:
+                changes.append(r)
+                last = r[6]
+        with tempfile.TemporaryDirectory() as d:
+            rows = esl_client.iter_log(self.write_log(d, full))
+            self.assertNotIsInstance(rows, list)              # read lazily, not all into memory
+            lines_full, table_full, series_full = esl_client.battery_analysis(rows)
+        lines_ch, table_ch, series_ch = esl_client.battery_analysis([dict(zip(self.LOG_HEADER, r)) for r in changes])
+        self.assertEqual(len(series_full["00000123456789A8"]["mv"]), 5)   # 2600, 2550, 2600, 2550, 2450
+        self.assertEqual(series_full["00000123456789A8"]["mv"], series_ch["00000123456789A8"]["mv"])
+        self.assertEqual(table_full[0]["steps"], 2)
+        self.assertEqual(table_full[0]["min_mv"], 2450)
+        self.assertEqual({k: v for k, v in table_full[0].items()}, {k: v for k, v in table_ch[0].items()})
+        self.assertEqual(lines_full[1:], lines_ch[1:])     # the first line counts the rounds
+
+    def test_battery_poll_s(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = self.write_log(d, [["2026-11-01 08:00:00", "00000123456789A8", "2.9"]], header=["time", "mac", "model"])
+            for bad in ("0", "-60"):
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    rc, _ = self.run_cli("battery", path, "--poll-s", bad)
+                self.assertEqual(rc, 2)
+                self.assertIn("--poll-s must be 1 or more", err.getvalue())
+
+    def test_battery_html_escapes(self):
+        # the page is built from the log's text: a hostile model or MAC must not become markup
+        rows = [{"time": "2026-11-01 08:00:00", "mac": "<script>x</script>", "model": "\"><img src=x>",
+                 "battery_mv": "2550", "ap_reset": "", "shown_content_id": "1"},
+                {"time": "2026-11-02 08:00:00", "mac": "<script>x</script>", "model": "2.9",
+                 "battery_mv": "2450", "ap_reset": "", "shown_content_id": "1"}]
+        _, table, series = esl_client.battery_analysis(rows)
+        page = esl_client.battery_html(table, series)
+        self.assertNotIn("<script>", page)
+        self.assertNotIn("<img", page)
+        self.assertIn("&lt;script&gt;x&lt;/script&gt;", page)
+        self.assertIn("aria-label=\"battery of &lt;script&gt;", page)
 
     def test_backup_and_restore(self):
         layout = {"format": "esl-layouts", "version": 1, "model": "2.9",
@@ -475,11 +889,13 @@ class ClientTest(unittest.TestCase):
         FakeAp.wifi = {"mode": "sta", "ssid": "Butikken", "connected": True, "hostname": "butikk"}
         future = int(time.time()) + 3600
         FakeAp.sched = [{"mac": "00000123456789A8", "at": future, "layout": "price", "fields": ["Milk", "19.90"]},
-                        {"mac": "00000123456789A8", "at": 1700000000, "layout": "price", "fields": ["Old", "1"]}]
+                        {"mac": "00000123456789A8", "at": 1700000000, "layout": "price", "fields": ["Old", "1"]},
+                        {"mac": "00000123456789A9", "at": 1700000000, "repeat": "weekly", "layout": "text",
+                         "fields": ["Friday offer"]}]
         with tempfile.TemporaryDirectory() as d:
             path = os.path.join(d, "ap.json")
             rc, out = self.run_cli("backup", path)
-            self.assertEqual((rc, out), (0, f"{path}: 3 tags, 1 layout files, 2 scheduled\n"))
+            self.assertEqual((rc, out), (0, f"{path}: 3 tags, 1 layout files, 3 scheduled\n"))
             with open(path, encoding="utf-8") as f:
                 b = json.load(f)
             self.assertEqual(b["format"], "openesl-backup")
@@ -491,12 +907,14 @@ class ClientTest(unittest.TestCase):
                 {"mac": "00000123456789A9", "layout": "text", "fields": ["Open", "9-21"], "price_highlight": False,
                  "frame": True, "config": {"poll_s": 300}},
                 {"mac": "00000123456789B1", "image": base64.b64encode(raw).decode()}])
-            self.assertEqual([e["at"] for e in b["scheduled"]], [1700000000, future])
+            self.assertEqual([e["at"] for e in b["scheduled"]], [1700000000, 1700000000, future])
+            self.assertEqual(b["scheduled"][1]["repeat"], "weekly")
             self.assertEqual(b["ap"]["hostname"], "butikk")
             self.assertEqual(b["tag_firmware"], [{"model": "1.54", "version": "0.3.0", "crc": "1234ABCD", "to": "all",
                                                   "waiting": 1}])
 
-            # A fresh AP (as after erase-flash): everything comes back, except the entry whose time has passed.
+            # A fresh AP (as after erase-flash): everything comes back, except the entry whose time has passed
+            # (a weekly one does: the AP starts it at its next time).
             # Its name and the tag firmware are not set; restore says how.
             self.setUp()
             FakeAp.wifi = {"mode": "setup", "ssid": None, "connected": False, "hostname": "openesl-77c8"}
@@ -504,24 +922,24 @@ class ClientTest(unittest.TestCase):
             rc, out = self.run_cli("restore", path, "--dry-run")
             self.assertEqual(rc, 0)
             self.assertIn("note: the old AP offered 1.54 tag firmware 0.3.0 to all its tags (1 not updated yet); send "
-                          "it again with tag-ota and the release's openesl-tag-1.54-v<release>-ota.bin whose firmware "
-                          "is 0.3.0", out)
+                          "it again with tag-ota openesl-tag-1.54-v<release>-ota.bin --all, from the release whose 1.54 "
+                          "firmware is 0.3.0", out)
             self.assertIn("note: the old AP was called butikk (butikk.local), this one openesl-77c8; to keep the "
                           "old name: wifi --hostname butikk", out)
             self.assertIn("tags: 2 with content, 1 with a picture, 1 with their own settings", out)
-            self.assertIn("scheduled: 1 (1 skipped, their time has passed)", out)
+            self.assertIn("scheduled: 2 (1 skipped, their time has passed)", out)
             self.assertIn("nothing sent", out)
             self.assertEqual(FakeAp.calls, [])
             # the tag with the picture has not polled the fresh AP yet: it gets it the next time
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 1, out)
             self.assertIn("warning: 1 pictures wait until their tags have polled this AP", out)
-            self.assertIn("restored: 1 layout files, 1 tag settings, 2 tags, 1 scheduled", out)
+            self.assertIn("restored: 1 layout files, 1 tag settings, 2 tags, 2 scheduled", out)
             FakeAp.tags["00000123456789B1"] = dict(FakeAp.tags["00000123456789A8"], mac="00000123456789B1")
             FakeAp.sched = []  # the fake keeps each entry sent, the AP the last per time
             rc, out = self.run_cli("restore", path)
             self.assertEqual(rc, 0, out)
-            self.assertIn("restored: 1 layout files, 1 tag settings, 3 tags, 1 scheduled", out)
+            self.assertIn("restored: 1 layout files, 1 tag settings, 3 tags, 2 scheduled", out)
             self.assertEqual(FakeAp.images["00000123456789B1"], raw)
             self.assertEqual(FakeAp.config["poll_s"], 120)
             self.assertEqual(FakeAp.config["webhook"], "http://10.0.0.5:8080/esl")
@@ -530,7 +948,9 @@ class ClientTest(unittest.TestCase):
             self.assertEqual(sorted(FakeAp.tags), ["00000123456789A8", "00000123456789A9", "00000123456789B1"])
             self.assertEqual(FakeAp.tags["00000123456789A8"]["fields"], ["Milk", "24.90"])
             self.assertTrue(FakeAp.tags["00000123456789A8"]["price_highlight"])
-            self.assertEqual(FakeAp.sched, [{"mac": "00000123456789A8", "at": future, "layout": "price",
+            self.assertEqual(FakeAp.sched, [{"mac": "00000123456789A9", "at": 1700000000, "repeat": "weekly",
+                                             "layout": "text", "fields": ["Friday offer"]},
+                                            {"mac": "00000123456789A8", "at": future, "layout": "price",
                                              "fields": ["Milk", "19.90"]}])
             self.assertIsNotNone(FakeAp.time)  # set before the scheduled entry was sent
             paths = [c[0] for c in FakeAp.calls]
@@ -547,7 +967,7 @@ class ClientTest(unittest.TestCase):
             self.assertNotIn("note: ", out)
 
             # The tag firmware note: none when this AP offers the model already (a newer version must not be
-            # taken back) or no tag was waiting; for chosen tags it points to the dashboard, not tag-ota
+            # taken back) or no tag was waiting; for chosen tags it names them
             cli = esl_client.Client(self.url, TOKEN)
             FakeAp.tagfw = {"images": [{"model": "1.54", "version": "0.4.0", "crc": "0000FFFF", "to": "all"}]}
             self.assertEqual(esl_client.restore_notes(cli, b), [])
@@ -557,8 +977,8 @@ class ClientTest(unittest.TestCase):
             notes = esl_client.restore_notes(cli, dict(b, tag_firmware=[dict(b["tag_firmware"][0],
                                                                              to=["00000123456789A8"])]))
             self.assertEqual(len(notes), 1)
-            self.assertIn("to 1 chosen tag (1 not updated yet); upload it on the dashboard and tick the same tags, "
-                          "or PUT /api/tag-firmware?to=<MAC>", notes[0])
+            self.assertIn("to 1 chosen tag (1 not updated yet); send it again to the same tags with tag-ota "
+                          "openesl-tag-1.54-v<release>-ota.bin --to 00000123456789A8, from the release", notes[0])
 
             # A broken "ap" or "tag_firmware" is refused before anything is sent
             for key, bad in (("ap", "x"), ("tag_firmware", {})):
@@ -662,20 +1082,83 @@ class ClientTest(unittest.TestCase):
         self.assertIn("error: 00000123456789A8: HTTP 415", lines[-1])
         self.assertIn("0 tags were restored before it", lines[-1])
 
+    def test_restore_backup_from_releases(self):
+        """#307: what "backup" of every release since 0.8.2 wrote (compat/, make_backup.py) still restores."""
+        files = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(__file__)), "compat", "v*-backup.json")))
+        self.assertTrue(files)
+        for path in files:
+            with self.subTest(os.path.basename(path)):
+                self.setUp()  # a fresh AP, as after erase-flash; the tag with the picture has polled it
+                FakeAp.tags["00000123456789B1"] = {"mac": "00000123456789B1", "content_id": 0, "model": "2.9"}
+                rc, out = self.run_cli("restore", path)
+                self.assertEqual(rc, 0, out)
+                self.assertIn("restored: 1 layout files, 1 tag settings, 4 tags, 1 scheduled", out)
+                self.assertEqual(FakeAp.config["poll_s"], 120)
+                self.assertEqual(FakeAp.layouts["2.9"]["layouts"][0]["name"], "shelf")
+                self.assertEqual(FakeAp.tag_cfg, {"00000123456789A9": {"poll_s": 300}})
+                self.assertEqual(FakeAp.tags["00000123456789A8"]["fields"], ["Milk 1 L", "24.90"])
+                self.assertTrue(FakeAp.tags["00000123456789A8"]["price_highlight"])
+                self.assertTrue(FakeAp.tags["00000123456789A9"]["frame"])
+                self.assertEqual(FakeAp.tags["00000123456789AA"]["layout"], "shelf")
+                self.assertEqual(FakeAp.images["00000123456789B1"], bytes(range(256)) * 18 + bytes(128))
+                self.assertEqual([(e["mac"], e["at"]) for e in FakeAp.sched], [("00000123456789A8", 4102444800)])
+
+    def test_restore_dashboard_backups_from_releases(self):
+        """#307: what the dashboard of every release since 0.9.0 wrote (web/test/compat/,
+        make_backup.mjs) restores with esl-client too: it is the same format."""
+        here = os.path.dirname(os.path.abspath(__file__))
+        files = sorted(glob.glob(os.path.join(here, "..", "..", "web", "test", "compat", "v*-dashboard-backup.json")))
+        self.assertTrue(files)
+        for path in files:
+            with open(path, encoding="utf-8") as f:
+                b = json.load(f)
+            with self.subTest(os.path.basename(path)):
+                self.setUp()
+                FakeAp.fonts = {}
+                for t in b["tags"]:
+                    if "image" in t:  # the tag with the picture has polled
+                        FakeAp.tags[t["mac"]] = {"mac": t["mac"], "content_id": 0, "model": "2.9"}
+                rc, out = self.run_cli("restore", path)
+                self.assertEqual(rc, 0, out)
+                content = [t for t in b["tags"] if "layout" in t]
+                self.assertIn(f"restored: {len(b['layouts'])} layout files, 1 tag settings, {len(content) + 1} tags, "
+                              f"{len(b['scheduled'])} scheduled", out)
+                self.assertEqual(FakeAp.config["poll_s"], b["config"]["poll_s"])
+                self.assertEqual(FakeAp.fonts, b.get("fonts", {}))
+                self.assertEqual(FakeAp.layouts, b["layouts"])
+                self.assertEqual(FakeAp.tag_cfg, {t["mac"]: t["config"] for t in b["tags"] if "config" in t})
+                for t in content:
+                    for k in ("layout", "fields", "price_highlight", "frame"):
+                        if k in t:
+                            self.assertEqual(FakeAp.tags[t["mac"]][k], t[k], (t["mac"], k))
+                for t in b["tags"]:
+                    if "image" in t:
+                        self.assertEqual(FakeAp.images[t["mac"]], base64.b64decode(t["image"]))
+                self.assertEqual([(e["mac"], e["at"]) for e in FakeAp.sched], [(e["mac"], e["at"]) for e in b["scheduled"]])
+
     def test_tag_ota(self):
         rc, out = self.run_cli("tag-ota")
         self.assertEqual(rc, 0)
         self.assertEqual(out, "  2.9: no firmware\n"
-                              " 1.54: 0.3.0 (53248 bytes, CRC 1234ABCD), tags: 2 updated, 1 pending, 0 failed, 1 without OTA\n")
+                              " 1.54: 0.3.0 (53248 bytes, CRC 1234ABCD) for all tags: 2 updated, 1 pending, 0 failed, "
+                              "1 without OTA\n")
         data = b"OSFW" + bytes([1, 2]) + (30000).to_bytes(2, "little") + bytes(8) + bytes(range(256)) * 160
         FakeAp.tagfw = {}
         with tempfile.NamedTemporaryFile(suffix=".bin") as f:
             f.write(data)
             f.flush()
-            rc, out = self.run_cli("tag-ota", f.name)
+            # without saying who gets it, nothing is sent: one tag first, or --all
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc, out = self.run_cli("tag-ota", f.name)
+            self.assertEqual(rc, 2)
+            self.assertIn("say which 1.54 tags get it: --to MAC (one tag first", err.getvalue())
+            self.assertEqual(FakeAp.calls, [])
+            rc, out = self.run_cli("tag-ota", f.name, "--all")
         self.assertEqual(rc, 0)
-        self.assertIn("sending 1.54 firmware 3.0.0 (40976 bytes)", out)
-        self.assertIn("the AP offers 1.54 firmware 0.3.0 to the tags", out)
+        self.assertIn("sending 1.54 firmware 3.0.0 (40976 bytes) to every 1.54 tag", out)
+        self.assertIn("the AP offers 1.54 firmware 0.3.0;", out)
+        self.assertIn(" 1.54: 0.3.0 (53248 bytes, CRC 1234ABCD) for all tags:", out)
         self.assertEqual(FakeAp.tagfw["data"], data)
         parts = [c for c in FakeAp.calls if c[0].startswith("/api/tag-firmware?")]
         self.assertEqual([c[0] for c in parts], [f"/api/tag-firmware?offset={o}&total=40976"
@@ -684,8 +1167,120 @@ class ClientTest(unittest.TestCase):
         with tempfile.NamedTemporaryFile(suffix=".bin") as f:
             f.write(b"\x02\x00" + bytes(100))   # the flasher image, not the OTA file
             f.flush()
-            rc, out = self.run_cli("tag-ota", f.name)
+            with redirect_stderr(io.StringIO()):
+                rc, out = self.run_cli("tag-ota", f.name, "--all")
         self.assertEqual(rc, 2)
+
+    def test_tag_ota_staged(self):
+        """#306: new firmware to one tag first, then to more, then to all."""
+        data = b"OSFW" + bytes([1, 2]) + (30000).to_bytes(2, "little") + bytes(8) + bytes(range(256)) * 160
+        for mac, model in (("00000123456789A8", "1.54"), ("00000123456789A9", "1.54"), ("00000123456789B1", "2.9")):
+            FakeAp.tags[mac] = {"mac": mac, "model": model}
+        FakeAp.ap_fw = "0.10.0"
+        with tempfile.NamedTemporaryFile(suffix=".bin") as f:
+            f.write(data)
+            f.flush()
+            # a tag the AP does not know, or of another model: nothing is sent
+            for to, msg in (("00000123456789FF", "the AP does not know 00000123456789FF"),
+                            ("00000123456789A8,00000123456789B1", "00000123456789B1 is a 2.9 tag, not 1.54")):
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    rc, out = self.run_cli("tag-ota", f.name, "--to", to)
+                self.assertEqual(rc, 2)
+                self.assertIn(msg, err.getvalue())
+            self.assertEqual([c for c in FakeAp.calls if "tag-firmware" in c[0]], [])
+            with redirect_stderr(io.StringIO()):
+                with self.assertRaises(SystemExit):  # --to and --all together
+                    self.run_cli("tag-ota", f.name, "--to", "00000123456789A8", "--all")
+                self.assertEqual(self.run_cli("tag-ota", f.name, "--model", "2.9", "--all")[0], 2)
+
+            rc, out = self.run_cli("tag-ota", f.name, "--to", "00:00:01:23:45:67:89:a8")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("to 00000123456789A8 ...", out)
+            self.assertIn("for 1 chosen tag (00000123456789A8): 0 updated, 1 pending, 0 failed, 0 without OTA, "
+                          "3 not chosen", out)
+            parts = [c[0] for c in FakeAp.calls if c[0].startswith("/api/tag-firmware?")]
+            self.assertEqual(parts, [f"/api/tag-firmware?offset={o}&total=40976&to=00000123456789A8"
+                                     for o in range(0, 40976, esl_client.TAGFW_PART)])
+            self.assertEqual(FakeAp.tagfw["to"], ["00000123456789A8"])
+
+            # widening to all before any tag runs it is refused, unless forced
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc, out = self.run_cli("tag-ota", "--model", "1.54", "--all")
+            self.assertEqual(rc, 2)
+            self.assertIn("no 1.54 tag runs 0.3.0 yet", err.getvalue())
+            self.assertEqual(FakeAp.tagfw["to"], ["00000123456789A8"])
+
+            # it has installed: the status says what is next; one more tag, then all
+            FakeAp.tagfw["tags"] = {"updated": 1, "pending": 0, "failed": 0, "no_ota": 0, "not_chosen": 3}
+            rc, out = self.run_cli("tag-ota")
+            self.assertIn("once it has polled about 10 times without problems: tag-ota --model 1.54 --all", out)
+            rc, out = self.run_cli("tag-ota", "--to", "00000123456789A9")
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(FakeAp.tagfw["to"], ["00000123456789A8", "00000123456789A9"])
+            self.assertIn("for 2 chosen tags (00000123456789A8, 00000123456789A9)", out)
+            rc, out = self.run_cli("tag-ota", "--model", "1.54", "--all")
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(FakeAp.tagfw["to"], "all")
+            self.assertIn("/api/tag-firmware/1.54?to=all", [c[0] for c in FakeAp.calls])
+
+            # several tags at once: the first with the upload, the rest one by one
+            FakeAp.calls.clear()
+            rc, out = self.run_cli("tag-ota", f.name, "--to", "00000123456789A8,00000123456789A9")
+            self.assertEqual(rc, 0, out)
+            self.assertEqual(FakeAp.tagfw["to"], ["00000123456789A8", "00000123456789A9"])
+            self.assertIn("/api/tag-firmware/1.54?to=00000123456789A9", [c[0] for c in FakeAp.calls])
+
+            # more tags for an image that is offered to all already: nothing changes, nothing is stopped
+            FakeAp.tagfw["to"] = "all"
+            FakeAp.calls.clear()
+            rc, out = self.run_cli("tag-ota", "--to", "00000123456789A8")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("offered to every 1.54 tag already", out)
+            self.assertEqual(FakeAp.tagfw["to"], "all")
+            self.assertEqual(FakeAp.calls, [])  # no POST, no DELETE
+
+            # an AP from before "to" (0.4.4) is refused before anything is sent
+            FakeAp.ap_fw = "0.4.3"
+            FakeAp.calls.clear()
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc, out = self.run_cli("tag-ota", f.name, "--to", "00000123456789A8")
+            self.assertEqual(rc, 2)
+            self.assertIn("the AP runs 0.4.3, which cannot offer tag firmware to chosen tags", err.getvalue())
+            self.assertEqual([c for c in FakeAp.calls if "tag-firmware" in c[0]], [])
+            FakeAp.ap_fw = "0.10.0"
+
+            # an AP that still ignores "to" (no "to" in its reply, 405 on POST): the update is taken back
+            FakeAp.tagfw["old_ap"] = True
+            for to in ("00000123456789A8", "00000123456789A8,00000123456789A9"):
+                err = io.StringIO()
+                with redirect_stderr(err):
+                    rc, out = self.run_cli("tag-ota", f.name, "--to", to)
+                self.assertEqual(rc, 1, to)
+                self.assertIn("the AP may offer it to every 1.54 tag, not the ones chosen", err.getvalue())
+                self.assertIn("so the update is stopped again", err.getvalue())
+                self.assertEqual(FakeAp.calls[-1], ("/api/tag-firmware/1.54", None))
+                self.assertNotIn("to", FakeAp.tagfw)
+            del FakeAp.tagfw["old_ap"]
+
+            # a tag whose model the AP does not know yet: sent, with a warning
+            FakeAp.tags["00000123456789B2"] = {"mac": "00000123456789B2", "model": None}
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc, out = self.run_cli("tag-ota", f.name, "--to", "00000123456789B2")
+            self.assertEqual(rc, 0, out)
+            self.assertIn("does not know the model of 00000123456789B2 yet", err.getvalue())
+            FakeAp.calls.clear()
+            self.assertEqual(self.run_cli("tag-ota", "--delete", "1.54")[0], 0)
+
+            # no image for the model on the AP
+            err = io.StringIO()
+            with redirect_stderr(err):
+                rc, out = self.run_cli("tag-ota", "--to", "00000123456789A8")
+            self.assertEqual(rc, 2)
+            self.assertIn("the AP has no 1.54 firmware", err.getvalue())
 
     def test_ota(self):
         rc, out = self.run_cli("ota")
@@ -792,8 +1387,29 @@ class ClientTest(unittest.TestCase):
     def test_date_fields(self):
         self.assertEqual(esl_client.date_fields(datetime.date(2026, 10, 17), ["Velkommen"]),
                          ["Lørdag", "17. oktober 2026", "Velkommen"])
+        self.assertEqual(esl_client.date_fields(datetime.date(2026, 10, 29), ["Welcome"], "en"),
+                         ["Thursday", "29 October 2026", "Welcome"])
+
+    def test_date_lang(self):
+        # the AP's, as its own date fields; else this computer's
+        self.assertEqual(esl_client.date_lang({"lang": "nb"}, {"LANG": "en_US.UTF-8"}), "nb")
+        self.assertEqual(esl_client.date_lang({"lang": "en"}, {"LANG": "nb_NO.UTF-8"}), "en")
+        self.assertEqual(esl_client.date_lang({"tz": None}, {"LANG": "nb_NO.UTF-8"}), "nb")
+        self.assertEqual(esl_client.date_lang(None, {"LANG": "en_GB.UTF-8", "LC_TIME": "nn_NO"}), "nb")
+        self.assertEqual(esl_client.date_lang({}, {"LANG": "no"}), "nb")
+        self.assertEqual(esl_client.date_lang({}, {"LANG": "C.UTF-8"}), "en")
+        self.assertEqual(esl_client.date_lang({}, {}), "en")
+        self.assertEqual(esl_client.date_lang({"lang": None}, {"LANG": "nb_NO.UTF-8"}), "nb")   # not chosen
+        self.assertEqual(esl_client.date_lang({}, {"LANG": "Norwegian_Norway.1252"}), "nb")   # as Windows names it
+
+    def test_date_in_the_aps_language(self):
+        FakeAp.config["lang"] = "en"
+        rc, out = self.run_cli("date", "0000000000000001")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(FakeAp.calls[-1][1]["fields"], esl_client.date_fields(datetime.date.today(), (), "en"))
 
     def test_date_today(self):
+        FakeAp.config["lang"] = "nb"
         rc, out = self.run_cli("date", "0000000000000001", "Velkommen", "--frame")
         self.assertEqual(rc, 0, out)
         path, body = FakeAp.calls[0]
@@ -802,6 +1418,7 @@ class ClientTest(unittest.TestCase):
                                 "fields": esl_client.date_fields(datetime.date.today(), ["Velkommen"])})
 
     def test_date_days_are_scheduled_at_midnight(self):
+        FakeAp.config["lang"] = "nb"
         rc, out = self.run_cli("date", "0000000000000001", "--days", "3")
         self.assertEqual(rc, 0, out)
         self.assertEqual(FakeAp.calls[0][0], "/api/time")   # the AP's clock is checked first
@@ -944,8 +1561,22 @@ class ClientTest(unittest.TestCase):
         self.run_cli("price", "0000000000000001", "Melk", "21.90", "--at", "2030-01-03")
         self.assertEqual([p for p, _ in FakeAp.calls].count("/api/time"), 1)
         rc, out = self.run_cli("schedule")
-        self.assertIn("2030-01-02 07:00  0000000000000001", out)
+        self.assertIn("2030-01-02 07:00  once    0000000000000001", out)
         self.assertIn("2 of 256 scheduled", out)
+
+    def test_schedule_repeat(self):
+        err = io.StringIO()
+        with redirect_stderr(err):
+            rc, out = self.run_cli("price", "0000000000000001", "Tilbud", "9.90", "--at", "2030-01-04 16:00",
+                                   "--repeat", "weekly")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("the AP has no time zone set", err.getvalue())
+        self.assertEqual(FakeAp.calls[-1][1]["repeat"], "weekly")
+        self.assertIn("scheduled for 2030-01-04 16:00, then weekly", out)
+        rc, out = self.run_cli("schedule")
+        self.assertIn("2030-01-04 16:00  weekly  0000000000000001", out)
+        with self.assertRaises(SystemExit):
+            self.run_cli("price", "0000000000000001", "Tilbud", "9.90", "--repeat", "daily")
 
     def test_sync_at(self):
         path = self.write("mac,layout,name,price,at\n"

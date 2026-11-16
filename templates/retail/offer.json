@@ -10,7 +10,7 @@
     "badge": "Badge text, e.g. Offer or Sale",
     "name": "Product name",
     "price": "Offer price",
-    "before": "The price before, as text (e.g. Before 49,90)",
+    "before": "The price before, as text (e.g. Before 49.90)",
     "note": "A short note, e.g. how long the offer lasts"
   },
   "variants": {
@@ -19,7 +19,7 @@
         "name": "offer",
         "description": "Inverted badge, name and note on the left, the offer price large on the right with the price before under it",
         "fields": ["badge", "name", "price", "before", "note"],
-        "_sample": ["OFFER", "Product name", "29,90", "Before 49,90", "Until Sunday"],
+        "_sample": ["OFFER", "Product name", "29.90", "Before 49.90", "Until Sunday"],
         "elements": [
           { "type": "text", "field": "badge", "x": 4, "y": 4, "w": 140, "h": 32, "fonts": ["medium", "small"], "lines": 1, "color": "invert" },
           { "type": "text", "field": "name", "x": 6, "y": 42, "w": 140, "h": 52, "fonts": ["medium", "small"], "lines": 2 },
@@ -36,7 +36,7 @@
         "name": "offer",
         "description": "Inverted badge, name, the offer price large with the price before and a note under it",
         "fields": ["badge", "name", "price", "before", "note"],
-        "_sample": ["OFFER", "Product name", "29,90", "Before 49,90", "Until Sunday"],
+        "_sample": ["OFFER", "Product name", "29.90", "Before 49.90", "Until Sunday"],
         "elements": [
           { "type": "text", "field": "badge", "x": 4, "y": 4, "w": 192, "h": 32, "fonts": ["medium", "small"], "align": "center", "lines": 1, "color": "invert" },
           { "type": "text", "field": "name", "x": 6, "y": 42, "w": 188, "h": 50, "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 2 },

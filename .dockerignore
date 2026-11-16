@@ -1,0 +1,8 @@
+# docker build -f ap/linux/Dockerfile .: only what openesl-ap is built from
+.git
+**/build
+**/build-*
+**/node_modules
+sim/build
+fw
+out

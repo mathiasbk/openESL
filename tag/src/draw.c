@@ -46,12 +46,19 @@ bool draw_add_rect(draw_scene_t *s, uint16_t x0, uint8_t y0, uint16_t x1, uint8_
     return true;
 }
 
+/*
+ * Walks the runs with a pointer. Indexed as s->run[i], SDCC 4.5.0 (--model-large
+ * --stack-auto) reused the registers holding &s->run[0] inside the loop, so from the second
+ * run on it wrote to the wrong address: a second pass over the same scene (the UC-type
+ * display path streams it twice) came out as garbage. Checked in the s51 simulator.
+ */
 void draw_begin(draw_scene_t *s)
 {
-    uint8_t i;
-    for (i = 0; i < s->nruns; i++) {
-        s->run[i].ci = 0;
-        s->run[i].cx = s->run[i].x;
+    draw_run_t *r = s->run;
+    uint8_t n = s->nruns;
+    for (; n; n--, r++) {
+        r->ci = 0;
+        r->cx = r->x;
     }
     s->last_x = 0;
 }

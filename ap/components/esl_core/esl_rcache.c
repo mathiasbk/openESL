@@ -36,7 +36,7 @@ static esl_rtag_t *find_tag(esl_rcache_t *rc, uint64_t mac)
 static bool same_state(const esl_rtag_state_t *a, const esl_rtag_state_t *b)
 {
     return a->next_poll_s == b->next_poll_s && a->has_cfg == b->has_cfg &&
-           (!a->has_cfg || esl_tag_cfg_version(&a->cfg) == esl_tag_cfg_version(&b->cfg)) &&
+           (!a->has_cfg || (esl_tag_cfg_version(&a->cfg) == esl_tag_cfg_version(&b->cfg) && a->cfg.ap_id == b->cfg.ap_id)) &&
            a->image_id == b->image_id && a->fw_ver == b->fw_ver && a->image_failed == b->image_failed &&
            a->fw_failed == b->fw_failed;
 }
@@ -274,6 +274,13 @@ static uint8_t *unknown_waits(esl_rcache_t *rc, uint64_t mac)
 static size_t on_poll(esl_rcache_t *rc, esl_rtag_t *t, uint64_t mac, const esl_poll_t *poll, uint8_t *out)
 {
     if (!t) {
+        /* A tag that belongs to an AP (#390) and is not lost for a week: the radio cannot tell
+           whether that AP is this one, or whether the host adopts it, so it stays silent. An
+           answer would end the tag's search for its own AP. The frame is in the log, so the host
+           sees it; when the tag is its own (or adopted) it is put in the table, and the radio has
+           its state for the next round. */
+        if (poll->has_apid && poll->ap_id && !(poll->link_flags & ESL_POLL_LF_ANY_AP))
+            return 0;
         /* a tag the host has not told it about (new, or the radio restarted); once it
            has waited enough, the default interval */
         if (rc->n_tags >= rc->max_tags) {
@@ -296,7 +303,9 @@ static size_t on_poll(esl_rcache_t *rc, esl_rtag_t *t, uint64_t mac, const esl_p
     if (t->s.fw_ver && poll->fw_ver == t->s.fw_ver)
         t->fw_failed = 0;
 
-    if (t->s.has_cfg && poll->has_cfg_ver && poll->cfg_ver != esl_tag_cfg_version(&t->s.cfg))
+    if (t->s.has_cfg && poll->has_cfg_ver &&
+        (poll->cfg_ver != esl_tag_cfg_version(&t->s.cfg) ||
+         (t->s.cfg.ap_id && poll->has_apid && poll->ap_id != t->s.cfg.ap_id)))   /* as esl_tag_cfg_pending() */
         return esl_config_msg_build(out, next, &t->s.cfg);
 
     uint32_t id = t->s.image_id;
@@ -360,16 +369,23 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
                 t->image_taken = im->id;
             n = image_block(rc, im, ireq.id == im->id ? ireq.pos : 0, ireq.max, t->s.next_poll_s, reply);
             rc->mid_mac = f.src_mac;
+        } else if (!t) {
+            /* not told of it: maybe another AP's tag (#398), whose download an IDLE would cut
+               off. Silent, and not asked for (a neighbour's download would fill the wants, as
+               its POLL does not): the host sees it in the log, and its own tag polls again */
+            return 0;
         } else {
-            if (!t || t->s.image_id)
-                want(rc, f.src_mac, t ? t->s.image_id : 0, 0);
-            n = esl_idle_build(reply, t ? t->s.next_poll_s : rc->default_poll_s);
+            if (t->s.image_id)
+                want(rc, f.src_mac, t->s.image_id, 0);
+            n = esl_idle_build(reply, t->s.next_poll_s);
         }
         esl_blocks_poll_soon(reply, n); /* as esl_radio_handle() */
     } else if (esl_fw_req_parse(f.payload, f.payload_len, &freq)) {
         rc->stats.blocks++;
+        if (!t)
+            return 0; /* as IMG_REQ above: maybe another AP's tag (#398) */
         const esl_rfw_t *fw = fw_for(rc, freq.model);
-        if (t && fw && t->s.fw_ver == fw->ver) {
+        if (fw && t->s.fw_ver == fw->ver) {
             bool same = freq.ver == fw->ver && freq.crc == fw->crc;
             if (same)
                 t->fw_taken = fw->ver;
@@ -378,9 +394,9 @@ size_t esl_rcache_handle(esl_rcache_t *rc, const uint8_t *psdu, size_t psdu_len,
                 rc->mid_mac = f.src_mac;
         }
         if (!n) {
-            if (t && t->s.fw_ver)
+            if (t->s.fw_ver)
                 want(rc, f.src_mac, 0, freq.model);
-            n = esl_idle_build(reply, t ? t->s.next_poll_s : rc->default_poll_s);
+            n = esl_idle_build(reply, t->s.next_poll_s);
         }
         esl_blocks_poll_soon(reply, n);
     } else if (esl_poll_parse(f.payload, f.payload_len, &poll)) {

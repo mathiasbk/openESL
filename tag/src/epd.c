@@ -1,10 +1,11 @@
 /*
- * epd.c - the SSD16xx display over bit-banged SPI.
+ * epd.c - the SSD16xx display over bit-banged SPI, with a fallback for boards that carry a
+ * UC-type controller (UC8151 family) instead (EPD_UC_INIT in the panel header, see below).
  *
  * UNCONFIRMED: the controller on the ST-GM29XX2 is not confirmed (phase 0). The
  * command codes below are the common ones in the SSD1680 family and must be checked
  * against the datasheet of the controller actually fitted, before they are entered
- * in docs/kildelogg.md. The same applies to polarity (EPD_BW_INVERT) and RAM
+ * in docs/sources.md. The same applies to polarity (EPD_BW_INVERT) and RAM
  * direction (EPD_DATA_ENTRY).
  * No custom waveform: the update uses the display's OTP waveform.
  *
@@ -40,6 +41,14 @@
 #define CMD_SOFT_START      0x0C
 #define CMD_UPDATE_CTRL1    0x21
 #define CMD_WRITE_TEMP      0x1A
+
+/* UC-type controller (UC8151 family), used when the panel header defines EPD_UC_INIT */
+#define UC_DTM1             0x10   /* old image */
+#define UC_DRF              0x12   /* display refresh */
+#define UC_DTM2             0x13   /* new image */
+#define UC_POF              0x02   /* power off */
+#define UC_DSLP             0x07   /* deep sleep, with the check code 0xA5 */
+#define UC_VDCS             0x82   /* VCOM DC setting */
 
 #define EPD_BW_INVERT       1      /* 1 = the black plane stores 1 for white */
 #define EPD_BUSY_TIMEOUT_MS 30000u /* a red update takes 15-20 s */
@@ -105,10 +114,41 @@ static bool wait_busy(uint16_t timeout_ms)
     return true;
 }
 
-/* The refresh itself (2.9 s, up to 20 s with red) is waited out awake. 0.9.0 slept a second
-   at a time here (#261): the panel then stopped partway and left a grey, washed-out image
-   with the old one showing through, while the tag reported it as shown (1.54" and 2.9",
-   2026-10-30). */
+/*
+ * The refresh after master activation (0x20). BUSY goes high a moment after the command,
+ * not at once, so it is first awaited (a refresh that never raises it did not run). The
+ * end then counts only once BUSY has stayed low for REFRESH_LOW_MS in a row: a single low
+ * reading while the booster switches is not the end. Taking either for the end sent deep
+ * sleep into a running refresh, which stops the panel partway: dark with faint text, or
+ * half drawn with the old picture showing through (1.54").
+ * The refresh itself (2.9 s, up to 20 s with red) is waited out awake: 0.9.0 slept a second
+ * at a time here (#261), which stopped the panel partway in the same way.
+ */
+#define REFRESH_START_MS    100u
+#define REFRESH_LOW_MS      10u
+
+static bool wait_refresh(void)
+{
+    uint16_t ms = EPD_BUSY_TIMEOUT_MS;
+    uint8_t t, low = 0;
+
+    for (t = 0; t < REFRESH_START_MS && !hal_epd_busy(); t++)
+        hal_delay_ms(1);
+    if (t == REFRESH_START_MS)
+        return false;
+    while (low < REFRESH_LOW_MS) {
+        if (hal_epd_busy())
+            low = 0;
+        else
+            low++;
+        if (!ms--)
+            return false;
+        hal_delay_ms(1);
+        if ((ms & 0x3FF) == 0)
+            hal_wdt_kick();
+    }
+    return true;
+}
 
 #if EPD_TRANSPOSE
 #define RAM_X_BYTES     ((DRAW_W + 7) / 8)   /* RAM X = layout x, 8 pixels per byte */
@@ -205,14 +245,14 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
     }
 }
 #else
-/* Streams one plane: red = 0 gives the black plane, 1 gives the red plane. */
-static void stream_plane(draw_scene_t *s, uint8_t red)
+/* Streams one plane after the RAM write command c: red = 0 gives the black plane, 1 gives
+   the red plane. */
+static void stream_plane_cmd(draw_scene_t *s, uint8_t red, uint8_t c)
 {
     uint16_t x;
     uint8_t i, b;
 
-    set_cursor();
-    cmd(red ? CMD_WRITE_RED : CMD_WRITE_BW);
+    cmd(c);
     hal_epd_dc(1);
     if (s)
         draw_begin(s);
@@ -229,6 +269,12 @@ static void stream_plane(draw_scene_t *s, uint8_t red)
             hal_wdt_kick();
     }
     hal_epd_cs(1);
+}
+
+static void stream_plane(draw_scene_t *s, uint8_t red)
+{
+    set_cursor();
+    stream_plane_cmd(s, red, red ? CMD_WRITE_RED : CMD_WRITE_BW);
 }
 #endif
 
@@ -252,11 +298,23 @@ static void init_panel(void)
     }
 }
 
-/* s = 0: the image in the SPI flash */
-static bool update(draw_scene_t *s)
+/*
+ * Deep sleep for whichever controller is fitted: hal_epd_power() cannot switch the display
+ * off on the ZBS243, so every exit ends here. 0x10 0x01 is SSD-type deep sleep (on a UC-type
+ * controller: one byte into the old-image RAM, harmless); 0x07 0xA5 is UC-type deep sleep
+ * (an SSD-type controller is asleep by then and ignores it).
+ */
+static void sleep_any(void)
 {
-    bool ok;
+    cmd(CMD_DEEP_SLEEP);
+    data(0x01);
+    cmd(UC_DSLP);
+    data(0xA5);
+    hal_epd_power(0);
+}
 
+static void hw_reset(void)
+{
     hal_epd_power(1);
     hal_epd_cs(1);
     hal_epd_sck(0);
@@ -264,10 +322,105 @@ static bool update(draw_scene_t *s)
     hal_delay_ms(10);
     hal_epd_rst(1);
     hal_delay_ms(10);
+}
+
+#ifdef EPD_UC_INIT
+/*
+ * Some boards of the same tag carry a UC-type controller (UC8151 family) instead of the
+ * SSD-type one: the stock firmware has a driver for each and picks one from flash 0xFC0B
+ * (docs/st-gm16xx2.md), which our flasher erases. The two are told apart by BUSY, which
+ * is active high on SSD-type and active low on UC-type: once out of reset an SSD-type
+ * controller holds it low, a UC-type one high. The init values are the stock firmware's
+ * for this panel (EPD_UC_INIT in the panel header).
+ */
+#if EPD_TRANSPOSE || MODEL_HAS_RED
+#error "the UC-type path streams one black/white plane in gate line order"
+#endif
+static const uint8_t __code uc_init[] = { EPD_UC_INIT };
+static bool uc_panel;          /* the display has answered as UC-type */
+
+/* UC-type: BUSY is low while busy */
+static bool uc_wait_ready(uint16_t timeout_ms)
+{
+    while (!hal_epd_busy()) {
+        if (!timeout_ms--)
+            return false;
+        hal_delay_ms(1);
+        if ((timeout_ms & 0x3FF) == 0)
+            hal_wdt_kick();
+    }
+    return true;
+}
+
+static bool update_uc(draw_scene_t *s)
+{
+    bool ok = false;
+    uint8_t i = 0, n;
+    uint8_t t;
+
+    hw_reset();
+    if (!uc_wait_ready(100)) {
+        sleep_any();
+        return false;
+    }
+    while (i < sizeof(uc_init)) {
+        cmd(uc_init[i++]);
+        n = uc_init[i++];
+        if (!n)
+            uc_wait_ready(1000);       /* power on */
+        for (; n; n--)
+            data(uc_init[i++]);
+    }
+    stream_plane_cmd(s, 0, UC_DTM1);
+    stream_plane_cmd(s, 0, UC_DTM2);
+    cmd(UC_DRF);
+    /* The refresh pulls BUSY low: a line that stays high is no display at all */
+    for (t = 0; t < 200 && hal_epd_busy(); t++)
+        hal_delay_ms(1);
+    if (t < 200)
+        ok = uc_wait_ready(EPD_BUSY_TIMEOUT_MS);
+
+    cmd(UC_VDCS);
+    data(0x00);
+    cmd(UC_POF);
+    uc_wait_ready(1000);
+    sleep_any();                       /* must always be in deep sleep, or the battery drains */
+    return ok;
+}
+
+/* After hw_reset(): BUSY still high after 100 ms means a UC-type controller (or none) */
+static bool busy_says_uc(void)
+{
+    uint8_t t;
+    for (t = 0; t < 100; t++) {
+        if (!hal_epd_busy())
+            return false;
+        hal_delay_ms(1);
+    }
+    return true;
+}
+#endif
+
+/* s = 0: the image in the SPI flash */
+static bool update(draw_scene_t *s)
+{
+    bool ok;
+
+#ifdef EPD_UC_INIT
+    if (uc_panel)
+        return update_uc(s);
+#endif
+    hw_reset();
+#ifdef EPD_UC_INIT
+    if (busy_says_uc()) {
+        uc_panel = update_uc(s);
+        return uc_panel;
+    }
+#endif
 
     cmd(CMD_SW_RESET);
     if (!wait_busy(1000)) {
-        hal_epd_power(0);
+        sleep_any();
         return false;
     }
 
@@ -286,15 +439,13 @@ static bool update(draw_scene_t *s)
     cmd(CMD_UPDATE_CTRL2);
     data(EPD_UPDATE_SEQ);
     cmd(CMD_MASTER_ACTIVATE);
-    ok = wait_busy(EPD_BUSY_TIMEOUT_MS);
+    ok = wait_refresh();
 
 #ifdef EPD_SLEEP_CTRL1
     cmd(CMD_UPDATE_CTRL1);
     data(EPD_SLEEP_CTRL1);
 #endif
-    cmd(CMD_DEEP_SLEEP);               /* must always be in deep sleep, or the battery drains */
-    data(0x01);
-    hal_epd_power(0);
+    sleep_any();                       /* must always be in deep sleep, or the battery drains */
     return ok;
 }
 

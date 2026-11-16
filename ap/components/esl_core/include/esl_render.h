@@ -8,7 +8,7 @@
 /* Draws a tag's screen on the AP: the content (layout, flags and fields) placed with
  * the model's built-in layouts or one from its compiled layout file, into a 1-bit
  * image in screen coordinates, column by column as the tag's draw_column() gives it
- * (docs/protokoll.md, "Image transfer"); the tag's epd layer rotates, transposes and
+ * (docs/protocol.md, "Image transfer"); the tag's epd layer rotates, transposes and
  * inverts it for its panel.
  *
  * One drawing for every model: the tag's fonts and column format, with the fitting and

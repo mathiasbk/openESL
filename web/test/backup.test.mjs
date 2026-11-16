@@ -3,120 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { makeBackup, restoreBackup, parseBackup, backupSummary, backupName, BACKUP_FORMAT } from "../js/backup.js";
-
-const PIC = Buffer.from(Uint8Array.from({ length: 16 }, (_, i) => i)).toString("base64");
-
-class FakeAp {
-  constructor({ clock = true, webhook = true } = {}) {
-    this.clock = clock;
-    this.hasWebhook = webhook;
-    this.config = { poll_s: 0, builtin_poll_s: 0, webhook: null };
-    if (clock) Object.assign(this.config, { ntp: "pool.ntp.org", builtin_ntp: "pool.ntp.org", tz: null });
-    this.layouts = {};   // model -> file
-    this.tags = new Map(); // mac -> { mac, model, content, config }
-    this.scheduled = [];
-    this.time = 1792065600;
-    this.calls = [];
-    this.fonts = null;   // name -> font file; null: an AP without font files
-  }
-  tag(mac) {
-    if (!this.tags.has(mac)) this.tags.set(mac, { mac, model: null, content: null, config: {} });
-    return this.tags.get(mac);
-  }
-  check(c) {
-    if (c.layout !== "text" && c.layout !== "price" && c.layout !== "image" && !Object.values(this.layouts).some((f) => f.layouts?.[c.layout]))
-      throw new Error("422: layout not in the file");
-  }
-  setContent(mac, c) {
-    this.check(c);
-    const { at, ...content } = c;
-    if (at && at > this.time) this.scheduled.push({ mac, at, ...content });
-    else this.tag(mac).content = content;
-  }
-  async call(method, path, body) {
-    this.calls.push(method + " " + path);
-    let m;
-    if (method === "GET" && path === "/api/tags")
-      return {
-        ap: { fw: "0.8.1", board: "s3-n16r8-c6", board_name: "ESP32-S3 + C6 on cable", channel: 25, time: this.time, poll_s: this.config.poll_s },
-        tags: [...this.tags.values()].map((t) => ({ mac: t.mac, model: t.model, content_id: t.content ? 7 : 0,
-          config: { poll_s: null, max_poll_s: null, lost_ap_s: null, long_poll_s: null, long_after_min: null, ...t.config } })),
-      };
-    if (method === "GET" && path === "/api/config") return { ...this.config };
-    if (method === "PUT" && path === "/api/config") {
-      for (const k of Object.keys(body)) {
-        if (!(k in this.config) || k.startsWith("builtin")) throw new Error("422: unknown");
-        if (k === "webhook" && !this.hasWebhook) throw new Error("422: this AP has no webhook");
-      }
-      for (const [k, v] of Object.entries(body)) this.config[k] = v === null && "builtin_" + k in this.config ? this.config["builtin_" + k] : v;
-      return { ...this.config };
-    }
-    if (method === "GET" && path === "/api/wifi") return { hostname: "openesl", ssid: "home" };
-    if (method === "PUT" && path === "/api/time") return {};
-    if (method === "GET" && path === "/api/layouts")
-      return { layouts: ["2.9", "1.54"].map((model) => ({ model, version: this.layouts[model] ? 1 : null })) };
-    if ((m = path.match(/^\/api\/layouts\/(.+)$/))) {
-      const model = decodeURIComponent(m[1]);
-      if (method === "GET") return this.layouts[model];
-      if (body.fonts?.some((f) => !this.fonts?.[f])) throw new Error("422: unknown font");
-      this.layouts[model] = body;
-      return { model, changed: true };
-    }
-    if (this.fonts && method === "GET" && path === "/api/fonts")
-      return { fonts: Object.keys(this.fonts).map((name, slot) => ({ name, slot, used_by: [] })) };
-    if (this.fonts && (m = path.match(/^\/api\/fonts\/(.+)$/))) {
-      const name = decodeURIComponent(m[1]);
-      if (method === "GET") return this.fonts[name];
-      this.fonts[name] = body;
-      return { font: { name }, replaced: false, redrawn: [] };
-    }
-    if (method === "GET" && path === "/api/tag-firmware")
-      return { images: [{ model: "2.9", version: 82, crc: 1234, tags: { pending: 1, failed: 0, done: 3 } }, { model: "1.54", version: null }] };
-    if (method === "GET" && path === "/api/schedule") return { time: this.time, scheduled: this.scheduled };
-    if (method === "PUT" && path === "/api/tags") {
-      body.tags.forEach((t) => this.check(t)); // all or nothing, as the AP
-      for (const { mac, ...c } of body.tags) this.setContent(mac, c);
-      return { results: [] };
-    }
-    if ((m = path.match(/^\/api\/tags\/([0-9A-F]{16})\/config$/)) && method === "PUT") {
-      this.tag(m[1]).config = { ...body };
-      return {};
-    }
-    if ((m = path.match(/^\/api\/tags\/([0-9A-F]{16})\/image$/)) && method === "GET") {
-      const t = this.tags.get(m[1]);
-      return { mac: t.mac, width: 4, height: 32, red: false, data: t.content.picture };
-    }
-    if ((m = path.match(/^\/api\/tags\/([0-9A-F]{16})$/))) {
-      if (method === "GET") {
-        const t = this.tags.get(m[1]);
-        return { mac: t.mac, fields: [], price_highlight: false, frame: false, ...t.content, picture: undefined };
-      }
-      this.setContent(m[1], body);
-      return {};
-    }
-    throw new Error("404: " + method + " " + path);
-  }
-  async send(method, path, bytes) {
-    this.calls.push(method + " " + path);
-    const m = path.match(/^\/api\/tags\/([0-9A-F]{16})\/image$/);
-    const t = this.tags.get(m[1]);
-    if (!t?.model) return { status: 409, body: new TextEncoder().encode('{"error":"model not known"}') };
-    t.content = { layout: "image", fields: [], picture: Buffer.from(bytes).toString("base64") };
-    return { status: 200, body: new TextEncoder().encode("{}") };
-  }
-}
-
-function filledAp() {
-  const ap = new FakeAp();
-  ap.config = { ...ap.config, poll_s: 120, webhook: "http://hook.local/", tz: "CET-1CEST,M3.5.0,M10.5.0/3" };
-  ap.layouts["2.9"] = { layouts: { shelf: { fields: 3 } } };
-  Object.assign(ap.tag("0000000000000001"), { model: "2.9", content: { layout: "shelf", fields: ["Milk", "24.90", "1 L"], price_highlight: true } });
-  Object.assign(ap.tag("0000000000000002"), { model: "2.9", content: { layout: "image", fields: [], picture: PIC } });
-  Object.assign(ap.tag("0000000000000003"), { model: "1.54", config: { poll_s: 600 } });
-  ap.tag("0000000000000004").model = "1.54"; // nothing of its own: not in the backup
-  ap.scheduled.push({ mac: "0000000000000001", at: ap.time + 3600, layout: "shelf", fields: ["Milk", "19.90", "Offer"], price_highlight: true, frame: false });
-  return ap;
-}
+import { FakeAp, filledAp, PIC } from "./fake_backup_ap.mjs";
 
 test("a backup holds settings, layouts, content, pictures, own settings and scheduled content", async () => {
   const steps = [];
@@ -173,7 +60,8 @@ test("a file from esl_client.py backup goes back too, and scheduled entries in t
     format: "openesl-backup", version: 1, taken: "2026-10-20T10:00:00+00:00", ap: { fw: "0.7.0", channel: 25, hostname: "butikk" },
     config: { poll_s: 60, webhook: null }, layouts: {},
     tags: [{ mac: "0000000000000001", layout: "text", fields: ["Hello"] }],
-    scheduled: [{ mac: "0000000000000001", at: 1000, layout: "text", fields: ["Old"] }],
+    scheduled: [{ mac: "0000000000000001", at: 1000, layout: "text", fields: ["Old"] },
+      { mac: "0000000000000001", at: 1000, repeat: "weekly", layout: "text", fields: ["Friday"] }],
     tag_firmware: [],
   });
   const ap = new FakeAp();
@@ -182,7 +70,8 @@ test("a file from esl_client.py backup goes back too, and scheduled entries in t
   assert.equal(ap.config.poll_s, 60);
   assert.equal(ap.config.tz, null, "left as it was");
   assert.deepEqual(ap.tags.get("0000000000000001").content, { layout: "text", fields: ["Hello"] });
-  assert.equal(ap.scheduled.length, 0);
+  // a weekly one goes back: the AP starts it at its next time
+  assert.deepEqual(ap.scheduled.map((e) => e.repeat), ["weekly"]);
   assert.ok(r.notes.some((n) => /1 scheduled entries skipped/.test(n)));
   assert.ok(r.notes.some((n) => /called butikk/.test(n)));
 });
@@ -249,4 +138,60 @@ test("font files go in the backup and back before the layout files", async () =>
   assert.deepEqual(ap.fonts, { text28: font });
   assert.ok(ap.calls.indexOf("PUT /api/fonts/text28") < ap.calls.indexOf("PUT /api/layouts/2.9"));
   assert.throws(() => parseBackup(JSON.stringify({ ...b, fonts: [] })), /fonts/);
+});
+
+test("the date language (AP 0.11.0) is kept, and left out on an AP without it", async () => {
+  const from = filledAp();
+  from.config.lang = "nb";
+  const b = parseBackup(JSON.stringify(await makeBackup(from)));
+  assert.equal(b.config.lang, "nb");
+  const ap = new FakeAp();
+  ap.config.lang = "en";
+  await restoreBackup(ap, b);
+  assert.equal(ap.config.lang, "nb");
+  const old = new FakeAp(); // firmware before 0.11.0: no lang, and nothing sent for it
+  await restoreBackup(old, b);
+  assert.ok(!("lang" in old.config));
+});
+
+test("the AP id (#390): kept in the backup, put back on replace, kept as it is on copy", async () => {
+  const src = filledAp();
+  Object.assign(src.config, { ap_id: "1A2B3C4D", adopt: null, adopt_until: null });
+  const b = parseBackup(JSON.stringify(await makeBackup(src)));
+  assert.equal(b.ap.ap_id, "1A2B3C4D");
+
+  // a new AP: the id of the old one, and the adopt a new AP starts with is ended
+  const ap = new FakeAp();
+  Object.assign(ap.config, { ap_id: "99990000", adopt: "all", adopt_until: null });
+  let r = await restoreBackup(ap, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.deepEqual(r.failed, []);
+  assert.equal(ap.config.ap_id, "1A2B3C4D");
+  assert.equal(ap.config.adopt, null);
+  assert.ok(r.done.some((l) => /AP id: 1A2B3C4D/.test(l)));
+  r = await restoreBackup(ap, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.ok(r.done.some((l) => /already 1A2B3C4D/.test(l)), "run again: nothing to change");
+
+  // the AP the backup came from still answers its labels here: the id is not taken
+  const near = new FakeAp();
+  Object.assign(near.config, { ap_id: "77778888", adopt: null, adopt_until: null });
+  near.health = { other_aps: [{ ap_id: "1A2B3C4D", tags: 5, polls: 40, seen_s_ago: 30, lost_long: false, answered_s_ago: 30 }] };
+  r = await restoreBackup(near, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.equal(near.config.ap_id, "77778888");
+  assert.ok(r.failed.some((l) => /still answers its labels here/.test(l)));
+  near.health.other_aps[0].answered_s_ago = 400; // turned off a few minutes ago: its labels miss it, taken
+  r = await restoreBackup(near, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.equal(near.config.ap_id, "1A2B3C4D");
+
+  // a second AP with the same setup keeps its own id
+  const two = new FakeAp();
+  Object.assign(two.config, { ap_id: "55556666", adopt: null, adopt_until: null });
+  r = await restoreBackup(two, b, { parts: { layouts: false, tags: false, scheduled: false, ap_id: "copy" } });
+  assert.equal(two.config.ap_id, "55556666");
+  assert.ok(r.notes.some((l) => /keeps its own id 55556666/.test(l)));
+
+  // an AP without the id: a note, nothing sent
+  const old = new FakeAp();
+  r = await restoreBackup(old, b, { parts: { layouts: false, tags: false, scheduled: false } });
+  assert.ok(!("ap_id" in old.config));
+  assert.ok(r.notes.some((l) => /no AP id/.test(l)));
 });

@@ -70,6 +70,10 @@ void esl_rowners_init(esl_rowners_t *o, esl_rowner_t *by_slot, unsigned n);
 uint8_t esl_rowners_get(const esl_rowners_t *o, esl_store_t *st, uint64_t mac);
 /* Tags the radio owns now. */
 unsigned esl_rowners_count(const esl_rowners_t *o, uint8_t radio);
+/* The radio heard the tag at at_ms (host's clock): it owns the tag, unless another radio
+ * heard it later. esl_rhost_replay does this for the frames in a radio's log; a host with
+ * a radio of its own (the Linux AP's, in place 0) calls it for each frame that radio hears. */
+void esl_rowners_heard(esl_rowners_t *o, esl_store_t *st, uint64_t mac, uint8_t radio, uint64_t at_ms);
 /* The radio is gone for good (forgotten on the host): its tags are nobody's. */
 void esl_rowners_forget(esl_rowners_t *o, uint8_t radio);
 

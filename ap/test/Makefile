@@ -21,7 +21,7 @@ BIN  := build/esl_tests
 .PHONY: all test sameas openapi clean
 all: test
 
-$(BIN): $(SRCS) $(wildcard $(CORE)/include/*.h) $(wildcard $(COPROC)/include/*.h) ../../shared/proto.h tinytest.h
+$(BIN): $(SRCS) $(wildcard $(CORE)/include/*.h) $(wildcard $(CORE)/*.h) $(wildcard $(COPROC)/include/*.h) ../../shared/proto.h tinytest.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(SRCS) $(LDFLAGS) -o $@
 
@@ -33,14 +33,14 @@ test: $(BIN) sameas
 # One layout file for several models (#181): the core built with sameas/models_gen.h, which
 # has models that share a file, in place of shared/models_gen.h (whose guard it takes)
 SAMEAS := build/esl_tests_sameas
-$(SAMEAS): $(wildcard $(CORE)/*.c) $(wildcard $(COPROC)/*.c) $(wildcard sameas/*) $(wildcard $(CORE)/include/*.h) ../../shared/proto.h tinytest.h
+$(SAMEAS): $(wildcard $(CORE)/*.c) $(wildcard $(COPROC)/*.c) $(wildcard sameas/*) $(wildcard $(CORE)/include/*.h) $(wildcard $(CORE)/*.h) ../../shared/proto.h tinytest.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) -include sameas/models_gen.h $(wildcard $(CORE)/*.c) $(wildcard $(COPROC)/*.c) sameas/test_sameas.c $(TAG_SRCS) $(LDFLAGS) -o $@
 
 sameas: $(SAMEAS)
 	./$(SAMEAS)
 
-build/api_host: $(wildcard $(CORE)/*.c) openapi/api_host.c $(wildcard $(CORE)/include/*.h) ../../shared/proto.h
+build/api_host: $(wildcard $(CORE)/*.c) openapi/api_host.c $(wildcard $(CORE)/include/*.h) $(wildcard $(CORE)/*.h) ../../shared/proto.h
 	@mkdir -p build
 	$(CC) $(CFLAGS) $(wildcard $(CORE)/*.c) $(TAG_SRCS) openapi/api_host.c $(LDFLAGS) -o $@
 

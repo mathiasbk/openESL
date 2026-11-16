@@ -5,7 +5,9 @@ See also the [FAQ](FAQ).
 ## The access point
 
 
-**The flasher does not find the board.** Hold **BOOT** while you plug it in, and use Chrome or Edge on a computer. Close anything else that has the port open (`esl_client.py serve`, a serial monitor).
+**The flasher does not find the board.** Hold **BOOT** while you plug it in, and use Chrome, Edge or Firefox 151+ on a computer. Close anything else that has the port open (`esl_client.py serve`, a serial monitor).
+
+**Flash tag times out on Windows in Firefox.** Firefox on Windows opens a D1 mini with a CH340 chip but gets no answer from it. Use Chrome or Edge there; Firefox on Linux works.
 
 **I lost the API token.** Set a new one over USB, which needs no old token: the [Set up](https://mathiasbk.github.io/openESL/#setup) tab, or `esl_client.py --serial /dev/ttyACM0 wifi --new-token NEWTOKEN`.
 
@@ -17,7 +19,7 @@ See also the [FAQ](FAQ).
 
 **The web page cannot reach my AP over WiFi.** That is on purpose in browsers: a page on https may not call a plain http address on your network. Open the dashboard on the AP itself (`http://openesl.local/dashboard`), or connect over USB. To send a layout, use **WiFi → Open my AP** in the designer's Send dialog: it opens the AP's own page with the file ([Getting layouts onto the AP](Getting-layouts-onto-the-AP)). Developers can also run the bridge (`esl_client.py serve`).
 
-**Open my AP opens the dashboard, but no layout file shows up.** The AP's firmware is older than this feature (before 0.9.0): update it from the Dashboard's Firmware card, or send over USB. Also check that the tab really is your AP (the address), and that the browser did not block the new tab.
+**Open my AP opens the dashboard, but no layout file shows up.** The AP's firmware is older than this feature (before 0.9.0): update it from the Dashboard's Firmware page, or send over USB. Also check that the tab really is your AP (the address), and that the browser did not block the new tab.
 
 **I flashed the AP and everything is gone.** It was flashed with **Erase and flash as new** on the Flash AP tab, or with the single `.bin` at 0x0. Restore from your backup (`esl_client.py restore ap.json`). See [Flashing the AP](Flashing-the-access-point#flashing-again-without-losing-anything).
 **The S3 + C6 AP is on the network, but no label shows up.** The C6 radio does not hear the S3, or the S3 does not hear the C6. Read the C6's log on its USB port: [Checking the link](ESP32-S3-and-C6#checking-the-link) tells which wire is wrong from what it says. The usual faults are TX and RX not crossed, a loose GND, and the C6's TX in the S3's GPIO16 instead of GPIO18.
@@ -31,6 +33,10 @@ See also the [FAQ](FAQ).
 **The label does not show what I sent.** Look it up on the dashboard: it says what the label is waiting for or what is wrong. A label shows new content at its next poll, so allow a minute or so. A label on firmware 0.4.x cannot show screens from a 0.5.0 AP; update it ([Firmware updates](Updating-labels)).
 
 **The dashboard says "drawing failed", or the screen stays blank.** The label hears the AP, but its display did not finish drawing. On the few labels this has happened to, the cause was hardware: the display's cable or the display itself. Take the label apart and reseat the display cable; if it still fails, the display is likely broken. Its page under [Supported labels](Supported-labels) lists what is known for that model.
+
+**A label keeps polling, and the AP says it answers, but the label never takes the answer.** Something between the AP's answer and the label is wrong: the answer is too late, on another channel, or not in the form the label accepts. For developers, [how a tag behaves on the radio](https://github.com/mathiasbk/openESL/blob/master/docs/tag-radio.md) lists what the label accepts and when, and [the radio sniffer](https://github.com/mathiasbk/openESL/blob/master/docs/radio-sniffer.md) turns a spare ESP32-C6 into a listener that shows every frame and its timing.
+
+**A label did not restart when I took the battery out.** A sleeping label uses so little power that it can run on its own capacitors for a while. Leave the battery out for a minute or more.
 
 **The battery shows 0.** The [1.54"](SoluM-1.54-ST-GM16XX2#known-issues) cannot measure its battery voltage yet, so it reports 0 (unknown).
 

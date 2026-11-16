@@ -14,7 +14,7 @@
  * ESL_LAYOUT_FILE + n: layout n of the model's layout file, up to ESL_MAX_FIELDS fields
  * ESL_LAYOUT_NAMED: what the API stores for a layout from the layout file. It
  *   names the layout; esl_render looks it up in the file for the tag's model
- *   (docs/protokoll.md part 3). */
+ *   (docs/protocol.md part 3). */
 #define ESL_LAYOUT_NAMED 0xFF
 #define ESL_LAYOUT_NAME_MAX 31
 /* ESL_LAYOUT_IMAGE: a picture a client sent (PUT /api/tags/{mac}/image), shown as it is.

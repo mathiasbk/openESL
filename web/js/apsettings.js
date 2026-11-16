@@ -1,12 +1,12 @@
 // apsettings.js - the Settings page of the dashboard, a menu of groups shown one at a time:
-// General (the AP's name, time zone and the tags' poll interval), Network (WiFi, webhook and NTP
-// server), Radio (the channel and the transmit power, on an AP with a radio), Security (the API token) and
+// General (the AP's name, time zone and the tags' poll interval), Hours (night mode and update
+// window, #415), Network (WiFi, webhook and NTP server), Radio (the channel and the transmit power, on an AP with a radio), Security (the API token) and
 // Backup (js/backup.js). Through the same client as the
 // rest of the dashboard (GET/PUT /api/config, /api/wifi, PUT /api/time). A group of settings
 // has one Save, shown with Undo only once something in it differs from what the AP has.
 import { checkToken, newToken, checkHostname, checkWifi, describeWifi } from "./apserial.js";
 import { fmtInterval, parsePoll, pollNote, POLL_PRESETS, TAG_BUILTIN_POLL_S, txOptions, parseTx, txWarning, TX_NOTE,
-  channelOptions, channelMove, channelBlock, CHANNEL_NOTE } from "./dashdata.js";
+  channelOptions, channelMove, channelBlock, CHANNEL_NOTE, adoptText, otherApText } from "./dashdata.js";
 import { makeBackup, restoreBackup, parseBackup, backupSummary, backupName } from "./backup.js";
 import { modelName } from "./models.js";
 
@@ -67,6 +67,35 @@ export function clockSkew(apTime, nowS) {
   return `${t} ${d < 0 ? "behind" : "ahead of"} this computer`;
 }
 
+// Night mode and update window (#415) as the fields compare them: "22:00-06:00/1800" and
+// "06:00-08:00", "" for off; spanBody gives PUT /api/config the object (null for off)
+export const NIGHT_PRESETS = [600, 900, 1800, 3600];
+export function spanText(s, withPoll = false) {
+  if (!s) return "";
+  return `${s.from}-${s.to}` + (withPoll ? `/${s.poll_s}` : "");
+}
+export function spanBody(text) {
+  const m = /^(\d\d:\d\d)-(\d\d:\d\d)(?:\/(\d+))?$/.exec(text || "");
+  if (!m) return null;
+  return m[3] ? { from: m[1], to: m[2], poll_s: Number(m[3]) } : { from: m[1], to: m[2] };
+}
+// A window shorter than the tags' poll interval (pollS, 0: the tags' own 60 s) is missed by
+// some tags every day: a hint to show, "" when it is long enough
+export function windowWarning(text, pollS) {
+  const w = spanBody(text);
+  if (!w) return "";
+  const min = (t) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+  const len = ((min(w.to) - min(w.from) + 1440) % 1440) * 60, poll = pollS || TAG_BUILTIN_POLL_S;
+  return len < poll ? `The window is shorter than the poll interval (${fmtInterval(poll)}): some tags will miss it each day.` : "";
+}
+// The fields to that text, or { error }: on needs two times that differ
+export function readSpan(on, from, to, what, pollS) {
+  if (!on) return "";
+  if (!/^\d\d:\d\d$/.test(from) || !/^\d\d:\d\d$/.test(to)) return { error: `${what}: choose when it starts and ends.` };
+  if (from === to) return { error: `${what}: the start and the end must differ.` };
+  return `${from}-${to}` + (pollS ? `/${pollS}` : "");
+}
+
 // What the AP has for the settings on the page, as the fields show them: "" for none or
 // built in, 0 for the tags' own poll default. Keys the AP does not have are left out
 // (an AP without WiFi has no name, older firmware no time zone or NTP server, an AP
@@ -76,11 +105,16 @@ export function currentSettings(last) {
   const c = last?.config || {}, cur = {};
   if (last?.wifi) cur.hostname = last.wifi.hostname || "";
   if ("tz" in c) cur.tz = c.tz || "";
+  if ("lang" in c) cur.lang = c.lang || ""; // null: not chosen (English on the AP)
   if (last?.list) cur.poll_s = last.list.ap.poll_s || 0;
   if (last?.config) cur.webhook = c.webhook || "";
   if ("ntp" in c) cur.ntp = c.ntp && c.ntp !== c.builtin_ntp ? c.ntp : "";
   if (Number.isInteger(c.tx_power)) cur.tx_power = c.tx_power;
   if (Number.isInteger(c.channel)) cur.channel = Number.isInteger(c.channel_next) ? c.channel_next : c.channel;
+  if ("night" in c) { // 0.11.0 and later (#415)
+    cur.night = spanText(c.night, true);
+    cur.update_window = spanText(c.update_window);
+  }
   return cur;
 }
 
@@ -94,11 +128,14 @@ export function settingsChanges(chosen, current) {
 export function configBody(changes, config = {}) {
   const body = {};
   if ("tz" in changes) body.tz = changes.tz || null;
+  if ("lang" in changes) body.lang = changes.lang || null;
   if ("ntp" in changes) body.ntp = changes.ntp || null;
   if ("webhook" in changes) body.webhook = changes.webhook || null;
   if ("poll_s" in changes) body.poll_s = changes.poll_s === config.builtin_poll_s ? null : changes.poll_s;
   if ("tx_power" in changes) body.tx_power = changes.tx_power === config.builtin_tx_power ? null : changes.tx_power;
   if ("channel" in changes) body.channel = changes.channel === config.builtin_channel ? null : changes.channel;
+  if ("night" in changes) body.night = spanBody(changes.night);
+  if ("update_window" in changes) body.update_window = spanBody(changes.update_window);
   return body;
 }
 
@@ -122,14 +159,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     }
   };
 
-  // ---- the two views of the dashboard, and the menu of groups ----
-  const views = [...document.querySelectorAll("#dash-views button")];
-  const showView = (v) => {
-    for (const b of views) b.setAttribute("aria-pressed", String(b.dataset.view === v));
-    $("dash-overview").hidden = v !== "overview";
-    $("dash-settings").hidden = v !== "settings";
-  };
-  for (const b of views) b.addEventListener("click", () => showView(b.dataset.view));
+  // ---- the menu of groups ----
   const tabs = [...document.querySelectorAll(".set-nav button")];
   const showPane = (name) => {
     for (const t of tabs) {
@@ -247,6 +277,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
         const err = checkTz(r.tz);
         if (err) return { error: err };
       }
+      if ("lang" in cur) r.lang = $("set-lang").value;
       const p = pollSel.value === "other" ? parsePoll($("set-poll-s").value) : { poll_s: Number(pollSel.value) };
       if (p.error) return p;
       r.poll_s = p.poll_s;
@@ -257,6 +288,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       const preset = TZ_PRESETS.some(([tz]) => tz === cur.tz);
       tzSel.value = preset ? cur.tz : "other";
       $("set-tz").value = preset ? "" : cur.tz ?? "";
+      $("set-lang").value = cur.lang ?? "";
       const pp = [...pollSel.options].some((o) => o.value === String(cur.poll_s));
       pollSel.value = pp ? String(cur.poll_s) : "other";
       $("set-poll-s").value = pp ? "" : cur.poll_s;
@@ -268,12 +300,14 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       // the name last: the AP rejoins the network with it
       if ("hostname" in c) await client.call("PUT", "/api/wifi", { hostname: c.hostname });
       return "Saved." + ("poll_s" in c ? " The tags take the new interval at their next poll." : "") +
+        ("lang" in c ? " Tags with a date field are drawn again in the new language at their next poll." : "") +
         ("hostname" in c ? ` The AP rejoins the network as ${c.hostname}.local; this page may lose it for a few seconds.` : "");
     },
   });
   function renderClock() {
     const c = last.config || {}, ap = last.list.ap;
     $("set-tz-field").hidden = !("tz" in c);
+    $("set-lang-field").hidden = !("lang" in c); // from AP firmware 0.11.0
     if (!("tz" in c)) $("set-tz-other").hidden = true;
     let line;
     if (!("time" in ap)) line = "This AP has no clock (built without scheduling).";
@@ -302,6 +336,68 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       say("set-general-msg", "Not set: " + e.message, "error");
     }
   }));
+
+  // ---- Hours: night mode and update window (#415), on an AP that has them ----
+  const nightSel = $("set-night-poll");
+  for (const v of NIGHT_PRESETS) nightSel.append(new Option(`at most every ${fmtInterval(v)}`, String(v)));
+  const showHours = () => {
+    $("set-night-times").hidden = !$("set-night-on").checked;
+    $("set-win-times").hidden = !$("set-win-on").checked;
+  };
+  const hours = group($("set-hours"), "set-hours-msg", {
+    read() {
+      showHours();
+      const night = readSpan($("set-night-on").checked, $("set-night-from").value, $("set-night-to").value, "Night mode",
+        Number(nightSel.value));
+      if (night.error) return night;
+      const win = readSpan($("set-win-on").checked, $("set-win-from").value, $("set-win-to").value, "Update window");
+      if (win.error) return win;
+      return { night, update_window: win };
+    },
+    fill(cur) {
+      const n = spanBody(cur.night), w = spanBody(cur.update_window);
+      $("set-night-on").checked = !!n;
+      $("set-night-from").value = n?.from || "22:00";
+      $("set-night-to").value = n?.to || "06:00";
+      if (n && ![...nightSel.options].some((o) => o.value === String(n.poll_s)))
+        nightSel.append(new Option(`at most every ${fmtInterval(n.poll_s)}`, String(n.poll_s)));
+      nightSel.value = String(n?.poll_s || 1800);
+      $("set-win-on").checked = !!w;
+      $("set-win-from").value = w?.from || "06:00";
+      $("set-win-to").value = w?.to || "08:00";
+      showHours();
+    },
+    async save(client, c) {
+      await client.call("PUT", "/api/config", configBody(c, last.config));
+      const said = [];
+      if ("night" in c) said.push(c.night ? "The tags take the night interval at their first poll in the night."
+        : "Night mode is off: the tags are back on their interval at their next poll.");
+      if ("update_window" in c) said.push(c.update_window ? "New content waits for the window; tags that show nothing yet get theirs at once."
+        : "No update window: new content goes out at the next poll.");
+      const warn = windowWarning(c.update_window, last.list.ap.poll_s);
+      if (warn) said.push(warn);
+      return "Saved. " + said.join(" ");
+    },
+  });
+  function renderHours() {
+    const c = last.config || {}, ap = last.list.ap;
+    const has = "night" in c;
+    $("set-tab-hours").hidden = !has;
+    if (!has) {
+      if (!$("set-hours").hidden) showPane("general");
+      return;
+    }
+    const now = [];
+    if (!ap.time) now.push("The AP does not know the time yet: neither applies until it does.");
+    else {
+      if (c.night_now) now.push("It is night now.");
+      if (c.update_window && !c.update_window_open) {
+        const waiting = (last.list.tags || []).filter((t) => t.pending).length;
+        now.push(`The update window is closed now${waiting ? `: ${plural(waiting, "tag waits", "tags wait")} for new content` : ""}.`);
+      }
+    }
+    $("set-hours-now").textContent = now.join(" ");
+  }
 
   // ---- Network: WiFi (joined at once), webhook and NTP server (one Save) ----
   const netcfg = group($("set-netcfg"), "set-netcfg-msg", {
@@ -469,6 +565,44 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     },
   });
 
+  // ---- Radio: labels of other APs (#390): this AP's id, and adopt ----
+  const adoptSel = $("set-adopt-sel");
+  const ADOPT_NOTE = "Each AP has its own id, and a label answers only to the AP it belongs to, so a neighbouring AP " +
+    "does not take it while its own is off for a while. To move labels here from an AP that is gone, take them over: " +
+    "a label is taken once it has been without its own AP for an hour. It stops by itself after 14 days.";
+  const renderAdopt = () => {
+    const c = last?.config, others = last?.health?.other_aps || [];
+    $("set-adopt-field").hidden = !c?.ap_id;
+    if (!c?.ap_id) return;
+    const opts = [["", "Off: only this AP's own labels"], ["all", "Take over lost labels of any AP"],
+      ...others.map((a) => [a.ap_id, `Take over lost labels of AP ${a.ap_id}`])];
+    if (c.adopt && c.adopt !== "all" && !others.some((a) => a.ap_id === c.adopt))
+      opts.push([c.adopt, `Take over lost labels of AP ${c.adopt}`]);
+    const keep = document.activeElement === adoptSel ? adoptSel.value : c.adopt || "";
+    const key = JSON.stringify(opts);
+    if (adoptSel.dataset.opts !== key) { // rebuilt only when they change: that closes an open list
+      adoptSel.replaceChildren(...opts.map(([v, t]) => new Option(t, v)));
+      adoptSel.dataset.opts = key;
+    }
+    adoptSel.value = keep;
+    $("set-adopt-note").textContent = [`This AP's id is ${c.ap_id}.`, adoptText(c), ADOPT_NOTE].filter(Boolean).join(" ");
+    $("set-adopt-others").replaceChildren(...others.map((a) => Object.assign(document.createElement("li"), { textContent: otherApText(a) })));
+  };
+  $("set-adopt-go").addEventListener("click", () => busy($("set-adopt-go"), async () => {
+    const client = getClient();
+    if (!client) return;
+    const v = adoptSel.value || null;
+    if (v === (last?.config?.adopt || null)) // again would start the 14 days over
+      return say("set-radio-msg", v ? "Already on: it ends by itself after 14 days." : "Already off.", "ok");
+    try {
+      await client.call("PUT", "/api/config", { adopt: v });
+      say("set-radio-msg", v ? "Saved. Labels are taken over once they have been without their own AP for an hour." : "Saved. Only this AP's own labels are answered.", "ok");
+      refresh();
+    } catch (e) {
+      say("set-radio-msg", "Not saved: " + e.message, "error");
+    }
+  }));
+
   // ---- Security: the API token ----
   $("set-token-gen").addEventListener("click", () => {
     $("set-token-new").value = newToken();
@@ -554,6 +688,8 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       `layout files for ${s.layouts.map(modelName).join(", ") || "no model"}, ` +
       (s.fonts.length ? `font files ${s.fonts.join(", ")}, ` : "") + `${s.scheduled} scheduled. ` +
       "What is on the AP for the same tags and models is replaced; other tags are left as they are.";
+    $("bk-apid").hidden = !loaded.ap?.ap_id;
+    $("bk-apid-replace").checked = true;
     $("bk-ask").hidden = false;
     $("bk-log-box").hidden = true;
     say("bk-msg", "");
@@ -566,6 +702,7 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
     const client = getClient();
     if (!client || !loaded) return;
     const parts = Object.fromEntries(["settings", "layouts", "tags", "scheduled"].map((k) => [k, $("bk-p-" + k).checked]));
+    parts.ap_id = $("bk-apid-copy").checked ? "copy" : "replace";
     say("bk-msg", "Restoring …");
     try {
       const r = await restoreBackup(client, loaded, { parts, progress: showProgress });
@@ -591,23 +728,26 @@ export function initSettings({ getClient, refresh, overUsb = () => false, onToke
       $("set-host-field").hidden = !w;
       $("set-tab-security").hidden = !w;
       if (!w && !$("set-security").hidden) showPane("general");
-      const radioSet = Number.isInteger(last.config?.tx_power) || Number.isInteger(last.config?.channel);
+      const radioSet = Number.isInteger(last.config?.tx_power) || Number.isInteger(last.config?.channel) || !!last.config?.ap_id;
       $("set-tab-radio").hidden = !radioSet;
       if (!radioSet && !$("set-radio").hidden) showPane("general");
       renderClock();
+      renderHours();
       renderNet();
       general.render();
+      hours.render();
       netcfg.render();
       radio.render();
+      renderAdopt();
     },
     // a new connection: what was typed for the old AP is dropped
     reset() {
-      general.dirty = netcfg.dirty = radio.dirty = false;
+      general.dirty = hours.dirty = netcfg.dirty = radio.dirty = false;
       editWifi(false);
       loaded = null;
       $("bk-ask").hidden = true;
       $("bk-log-box").hidden = true;
-      for (const id of ["set-general-msg", "set-netcfg-msg", "set-radio-msg", "set-wifi-msg", "set-token-msg", "bk-msg"]) say(id, "");
+      for (const id of ["set-general-msg", "set-hours-msg", "set-netcfg-msg", "set-radio-msg", "set-wifi-msg", "set-token-msg", "bk-msg"]) say(id, "");
     },
   };
 }

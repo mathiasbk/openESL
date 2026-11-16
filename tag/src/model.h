@@ -9,7 +9,7 @@
  * epd.c streams the columns to the display controller.
  *
  * The two supported tags are black/white only (no red): the SoluM ST-GM29XX2, 2.9",
- * 296 x 128, and the SoluM ST-GM16XX2, 1.54", 200 x 200 (docs/krav.md G6).
+ * 296 x 128, and the SoluM ST-GM16XX2, 1.54", 200 x 200 (docs/requirements.md G6).
  * MODEL_HAS_RED = 0 for both: draw.c only fills the black plane (highlighting is an
  * inverted field, white on black) and epd.c sends only the black plane. The SoluM
  * ST-GR29000 (2.9" black/white/red, experimental, #255) has MODEL_HAS_RED = 1: the image

@@ -8,6 +8,8 @@
 #include "esp_mac.h"
 #include "esp_random.h"
 #include "esp_system.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/semphr.h"
 #include "nvs_flash.h"
 #include "sdkconfig.h"
 
@@ -15,6 +17,29 @@ static const char *TAG = "app";
 
 static esl_store_t store;
 static esl_api_t api;
+
+/* Jobs (#421): a job per PUT /api/tags batch, in RAM. The API and the webhook's task
+   (health.c) both read them, so they have their own lock. Tags in all kept jobs: 16
+   bytes each, so a board without PSRAM keeps fewer (3.2 KB at most). */
+#if CONFIG_SPIRAM
+#define JOBS_TAGS (ESL_JOBS_MAX * ESL_JOB_TAGS_MAX)
+#else
+#define JOBS_TAGS 200
+#endif
+static esl_jobs_t jobs;
+static SemaphoreHandle_t jobs_mutex;
+
+static void jobs_lock(void *ctx)
+{
+    (void)ctx;
+    xSemaphoreTake(jobs_mutex, portMAX_DELAY);
+}
+
+static void jobs_unlock(void *ctx)
+{
+    (void)ctx;
+    xSemaphoreGive(jobs_mutex);
+}
 static char ssid[33], password[65], token[129], hostname[33];
 
 static const char *reset_reason_name(esp_reset_reason_t r)
@@ -42,10 +67,10 @@ void app_main(void)
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
         ESP_LOGW(TAG, "NVS partition reformatted, stored tag content is lost");
-        ESP_ERROR_CHECK(nvs_flash_erase());
+        ESL_CHECK(nvs_flash_erase());
         err = nvs_flash_init();
     }
-    ESP_ERROR_CHECK(err);
+    ESL_CHECK(err);
 
     const char *version = esp_app_get_description()->version;
     ESP_LOGI(TAG, "OpenESL AP %s, PAN 0x%04X, max %d tags", version, CONFIG_ESL_PAN_ID, CONFIG_ESL_MAX_TAGS);
@@ -55,11 +80,11 @@ void app_main(void)
     else
         ESP_LOGW(TAG, "reset reason: %s", why);
 
-    ESP_ERROR_CHECK(store_nvs_init(&store, CONFIG_ESL_MAX_TAGS, CONFIG_ESL_NEXT_POLL_S));
+    ESL_CHECK(store_nvs_init(&store, CONFIG_ESL_MAX_TAGS, CONFIG_ESL_NEXT_POLL_S));
 
 #if CONFIG_ESL_RADIO_SNIFFER
     /* Sniffer only: no WiFi, so nothing competes with the radio. */
-    ESP_ERROR_CHECK(radio_start(&store, NULL, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
+    ESL_CHECK(radio_start(&store, NULL, CONFIG_ESL_CHANNEL, CONFIG_ESL_PAN_ID));
     return;
 #endif
 
@@ -89,10 +114,17 @@ void app_main(void)
     store_nvs_set_clock(api.sched);
 #endif
     api.store = &store;
+    api.apid = store_nvs_apid();
     /* GET /api/tags?since= (#270): a since from before this restart gets the whole list */
     static esl_api_changes_t changes;
     changes.boot = esp_random();
     api.changes = &changes;
+    static StaticSemaphore_t jobs_mutex_buf;
+    jobs_mutex = xSemaphoreCreateMutexStatic(&jobs_mutex_buf);
+    esl_jobs_init(&jobs, esp_random(), JOBS_TAGS); /* a job number from before a restart is not a new one's */
+    jobs.lock = jobs_lock;
+    jobs.unlock = jobs_unlock;
+    api.jobs = &jobs;
     api.token = token;
     static esl_api_lock_t lock;
     api.lock = &lock;
@@ -115,8 +147,8 @@ void app_main(void)
     /* A pointer per model; each stored file takes its JSON and its compiled size from the heap. */
     api.layouts = calloc(1, sizeof(esl_layouts_t));
     if (!api.layouts)
-        ESP_ERROR_CHECK(ESP_ERR_NO_MEM);
-    ESP_ERROR_CHECK(layouts_nvs_init(api.layouts));
+        ESL_CHECK(ESP_ERR_NO_MEM);
+    ESL_CHECK(layouts_nvs_init(api.layouts));
     /* Content that does not fit the stored files is held back, as after an upload (#186) */
     for (uint8_t m = 1; m < ESL_MODEL_COUNT; m++) {
         unsigned bad = esl_store_check_layout(&store, api.layouts, m, NULL, NULL);
@@ -137,18 +169,21 @@ void app_main(void)
     if (image_mem) {
         esl_image_init(&images, image_mem, NULL);
         esl_radio_set_image(&images);
-        /* Drawn after the reply, not in the tag's 20 ms listening window (krav A3) */
+        /* Drawn after the reply, not in the tag's 20 ms listening window (requirement A3 in docs/requirements.md) */
         esl_radio_set_draw_later(true);
     } else {
         ESP_LOGE(TAG, "no memory for the image buffers (%u bytes)", (unsigned)esl_image_mem_size());
     }
     api_handle_init();
+#if CONFIG_ESL_RADIO_DRIVER_IEEE802154
+    api.remote = remote_start(true); /* a SoluM remote as a button (docs/solum-remote.md) */
+#endif
 #if CONFIG_ESL_WEBHOOK
     api.notify = health_start(&api);
 #endif
-    ESP_ERROR_CHECK(http_api_start(&api));
+    ESL_CHECK(http_api_start(&api));
 #if CONFIG_ESL_SERIAL_API
-    ESP_ERROR_CHECK(serial_api_start(&api));
+    ESL_CHECK(serial_api_start(&api));
 #endif
 
 #if CONFIG_ESL_DISPLAY || CONFIG_ESL_RADIO_DRIVER_UART
@@ -159,7 +194,7 @@ void app_main(void)
 
     esl_channel_state_t ch;
     esl_store_channel_state(&store, 0, &ch);
-    ESP_ERROR_CHECK(radio_start(&store, api.layouts, ch.channel, CONFIG_ESL_PAN_ID));
+    ESL_CHECK(radio_start(&store, api.layouts, ch.channel, CONFIG_ESL_PAN_ID));
     /* The tag table is the one thing that grows with the number of tags (store_nvs.c
        stops it before WiFi and HTTP run short); this shows how much
        room is left for it. */

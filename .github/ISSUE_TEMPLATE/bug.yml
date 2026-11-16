@@ -30,6 +30,7 @@ body:
         - Web page / dashboard
         - Flasher
         - esl-client or other tools
+        - Home Assistant integration
         - Docs
   - type: input
     id: hardware
@@ -40,4 +41,4 @@ body:
     id: logs
     attributes:
       label: Logs and pictures
-      description: Serial output from the AP, the response from the API, a photo of the tag.
+      description: Serial output from the AP, the response from the API, a photo of the tag. For the Home Assistant integration, attach the tag's or AP's diagnostics file (device page, ⋮ → Download diagnostics).

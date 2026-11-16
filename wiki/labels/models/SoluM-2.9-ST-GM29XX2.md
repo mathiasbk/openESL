@@ -21,7 +21,7 @@ The larger of the two labels: a wide screen with room for a product name, a big 
 | Radio | 802.15.4 on 2.4 GHz, the same as every OpenESL label |
 | Battery | two CR2450 in parallel (3 V) |
 | Battery reading | yes, shown on the [Dashboard](Dashboard) |
-| Battery life | about 16 years calculated with a poll every 60 s and one new screen a day, so the shelf life of the cells (about 10 years) is the limit ([power budget](https://github.com/mathiasbk/openESL/blob/master/docs/strombudsjett.md)) |
+| Battery life | about 16 years calculated with a poll every 60 s and one new screen a day, so the shelf life of the cells (about 10 years) is the limit ([power budget](https://github.com/mathiasbk/openESL/blob/master/docs/power-budget.md)) |
 | MAC | 8 bytes, the second last is `3B`, e.g. `000001C287FC3B1A` |
 | Updates over the air | yes ([Updating labels](Updating-labels)) |
 

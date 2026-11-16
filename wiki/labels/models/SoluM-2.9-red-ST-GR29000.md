@@ -19,7 +19,7 @@ OpenESL builds firmware for it and the AP draws red for it, but nobody has run i
 | Chip | ZBS243 (8051 core with an 802.15.4 radio) |
 | Radio | 802.15.4 on 2.4 GHz, the same as every OpenESL label |
 | MAC | 8 bytes; the flasher puts `3C` second last (OpenESL's code for this model) |
-| A new screen | slower than black/white: a refresh with red takes about 15-20 s. One new screen a day still gives about 14 years on two CR2450, against 16.5 on the black/white 2.9" (calculated, [power budget](https://github.com/mathiasbk/openESL/blob/master/docs/strombudsjett.md)); many a day cost about six times as much as on black/white |
+| A new screen | slower than black/white: a refresh with red takes about 15-20 s. One new screen a day still gives about 14 years on two CR2450, against 16.5 on the black/white 2.9" (calculated, [power budget](https://github.com/mathiasbk/openESL/blob/master/docs/power-budget.md)); many a day cost about six times as much as on black/white |
 | Updates over the air | yes, the same as the other labels (not tried yet) |
 
 ## How to recognise it

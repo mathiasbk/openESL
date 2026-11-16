@@ -5,7 +5,7 @@ Each label is flashed once over its test pads, in the [jig](Flashing-jig). After
 ## What you need
 
 - The jig with a D1 mini running ZBS_Flasher, plugged in by USB. [Building the flasher](Building-the-flasher) shows how to build and wire it.
-- Chrome or Edge on a computer.
+- Chrome, Edge or Firefox 151+ on a computer. On Windows, Firefox gets no answer from a D1 mini with a CH340 chip: use Chrome or Edge there.
 - The label with its battery taken out, so the test pads are free.
 
 ## From the web page

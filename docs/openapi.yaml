@@ -8,7 +8,7 @@ info:
   description: |
     Any software (the client) calls this small REST API on the access point (AP) when
     content changes. The AP never calls the client. It sends the content to the tags over
-    802.15.4 radio the next time each tag polls ([docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md), part 1).
+    802.15.4 radio the next time each tag polls ([docs/protocol.md](https://github.com/mathiasbk/openesl/blob/master/docs/protocol.md), part 1).
 
     **Reaching the AP.** Over WiFi the client must be on the same network as the AP (or a
     VPN). Give the AP a fixed IP (DHCP reservation) or use the mDNS name `openesl.local`.
@@ -56,8 +56,8 @@ info:
     | `507` | the tag table or the schedule is full, or NVS has no room for the content |
 
     **Text** is sent as UTF-8. The AP draws what its fonts have: they are Latin-1, so æøå,
-    `°`, `½` and the like work, dashes and curly quotes become their plain forms, and other
-    characters (`€`, emoji) become `?`. Text that is too long gives `422`: the fields share
+    `°`, `½` and the like work, dashes and curly quotes become their plain forms, `€` becomes
+    `EUR` and `™` `TM` (from 0.11.0; `?` before), and other characters (emoji) become `?`. Text that is too long gives `422`: the fields share
     256 bytes, one length byte per field plus the text after the conversion to Latin-1 (one
     byte per character), so at most 255 bytes in one field, 250 with six fields and 240 with
     sixteen (`ESL_CONTENT_FIELD_SPACE` in `shared/proto.h`; `textBytes` in `GET
@@ -142,7 +142,7 @@ tags:
       content (`"layout": "shelf"`). The AP checks the file against the model's screen and
       what it can draw, so a file that is accepted always draws; the AP draws each tag's
       screen with it and sends the tag the image. The format is in the `LayoutFile` schema below and,
-      with every rule, in [docs/protokoll.md](https://github.com/mathiasbk/openesl/blob/master/docs/protokoll.md) part 3.
+      with every rule, in [docs/protocol.md](https://github.com/mathiasbk/openesl/blob/master/docs/protocol.md) part 3.
       The built-in layouts `price` and `text` can always be used, with or without a file.
   - name: Font files
     description: |
@@ -164,6 +164,15 @@ tags:
       template: [docs/data-sources.md](https://github.com/mathiasbk/openesl/blob/master/docs/data-sources.md).
       MET Norway's data is CC BY 4.0: show "MET Norway" where the forecast is shown (the weather
       template does).
+
+  - name: Remote
+    description: |
+      A SoluM ESL remote (SLT-RC004) as a wireless button with three buttons: W, left and right.
+      The AP hears its presses on channel 11, either because the AP runs on channel 11, or
+      because `listen` is on and the radio visits channel 11 for 14 ms every 48 ms (which costs
+      the tags some battery). Each press is kept in `presses` and posted to `webhook`. The C6 as
+      the AP's own radio only (boards `c6`, `c6-lcd`, `c5`); the others answer `404`. How it works:
+      [docs/solum-remote.md](https://github.com/mathiasbk/openesl/blob/master/docs/solum-remote.md).
 
 paths:
   /api/tags:
@@ -210,6 +219,12 @@ paths:
         for the daily price job: send everything every time, and only what changed is drawn.
         Rows with `at` are scheduled (see `PUT /api/tags/{mac}`); the same MAC may be in the
         batch once per `at`.
+
+        From 0.11.0 the batch is a job (#421): the reply starts with its number, `job`, and
+        `GET /api/jobs/{n}` says per tag whether it got the content (delivered), failed, timed
+        out after `timeout_s` or was replaced. With `notify` the AP posts the job to its
+        webhook once it has ended. Older firmware, and an AP with no memory for the job,
+        leave `job` out or answer null; the batch is stored the same.
       requestBody:
         required: true
         content:
@@ -229,9 +244,16 @@ paths:
                     - { mac: "00000123456789B2", layout: price, fields: ["Butter 500 g", "44.90", "Offer"], price_highlight: true, at: 1792069200 }
                     - { mac: "00000123456789B2", layout: price, fields: ["Butter 500 g", "54.90", "NOK 109.80/kg"], at: 1792072800 }
                     - { mac: "00000123456789C3", layout: price, fields: ["Cheese 1 kg", "99.00", "Offer"], at: 1792069200 }
+              followed:
+                summary: A job with a two-hour timeout, posted to the webhook when it ends
+                value:
+                  timeout_s: 7200
+                  notify: true
+                  tags:
+                    - { mac: "00000123456789A8", layout: price, fields: ["Semi-skimmed milk 1 L", "22.90", "NOK 22.90/L"] }
       responses:
         "200":
-          description: One line per tag, in the order sent
+          description: The job's number, and one line per tag, in the order sent
           content:
             application/json:
               schema: { $ref: "#/components/schemas/BatchResult" }
@@ -243,6 +265,61 @@ paths:
         "500": { $ref: "#/components/responses/ServerError" }
         "409": { $ref: "#/components/responses/NoTime" }
         "507": { $ref: "#/components/responses/TableFull" }
+
+  /api/jobs:
+    get:
+      tags: [Content]
+      operationId: listJobs
+      summary: The jobs the AP keeps, oldest first, without their tags
+      description: |
+        The last 16 batches of `PUT /api/tags` (fewer on a board without PSRAM, which keeps
+        200 tags between them), in RAM only: a restart forgets them. 0.11.0 and later.
+      responses:
+        "200":
+          description: The jobs
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [jobs]
+                properties:
+                  jobs:
+                    type: array
+                    maxItems: 16
+                    items: { $ref: "#/components/schemas/JobSummary" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+
+  /api/jobs/{n}:
+    parameters:
+      - name: n
+        in: path
+        required: true
+        description: The job's number, from the reply to `PUT /api/tags`
+        schema: { type: string, pattern: "^[1-9][0-9]{0,9}$" }
+        example: "1"
+    get:
+      tags: [Content]
+      operationId: getJob
+      summary: What became of each tag of a batch
+      description: |
+        Each tag of the batch, in the order sent, with its `state`: `accepted` (stored, not
+        shown yet; the only state that changes), `delivered` (the tag reported this content's
+        image as shown), `failed` (with `error`: not stored, or the tag cannot show it),
+        `timed_out` (not shown within `timeout_s`), `replaced` (the tag got other content, or
+        was deleted, first) or `scheduled` (it had `at`; not followed). The job is `pending`
+        while a tag is `accepted`, then `done`. The webhook gets the same, with
+        `"event":"job"` first, when the batch asked for it with `notify`. 0.11.0 and later.
+      responses:
+        "200":
+          description: The job and its tags
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Job" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "No such job: pushed out by newer ones, from before a restart, or not a number", content: { application/json: { schema: { $ref: "#/components/schemas/Error" }, example: { error: "unknown job: the AP keeps only its last jobs, and not over a restart" } } } }
+        "429": { $ref: "#/components/responses/Locked" }
 
   /api/tags/{mac}:
     parameters:
@@ -299,10 +376,10 @@ paths:
                 value: { layout: shelf, fields: ["Coffee 500 g", "49.90", "NOK 99.80/kg", "Offer"], price_highlight: true }
               by_name:
                 summary: The fields by name, so a new field order in the layout file does not move them
-                value: { layout: vare-priser, fields: { price: "192,25", price_ex: "153,80", name: "Lower ball joint, cat. 3/2", brand: "Kramp" } }
+                value: { layout: vare-priser, fields: { price: "192.25", price_ex: "153.80", name: "Garden hose 25 m", brand: "Brand" } }
               two_prices:
-                summary: Price inc. and ex. VAT (layout vare-priser, fields brand, name, info, price, price_ex)
-                value: { layout: vare-priser, fields: ["Kramp", "Lower ball joint, cat. 3/2", "1626-160602/439", "192,25", "153,80"], price_highlight: true }
+                summary: Price incl. and excl. VAT (layout vare-priser, fields brand, name, info, price, price_ex)
+                value: { layout: vare-priser, fields: ["Brand", "Garden hose 25 m", "1234-5678", "192.25", "153.80"], price_highlight: true }
               scheduled:
                 summary: A new price from 13:00 UTC on 2026-10-15
                 value: { layout: price, fields: ["Semi-skimmed milk 1 L", "22.90", "NOK 22.90/L"], at: 1792069200 }
@@ -446,7 +523,7 @@ paths:
       summary: The screen the AP draws for a tag
       description: |
         The tag's content drawn by the AP, the bytes a tag that shows images gets
-        (protokoll.md, "Image transfer"). A tag that draws itself shows the same pixels. Drawn
+        (protocol.md, "Image transfer"). A tag that draws itself shows the same pixels. Drawn
         on each request and not kept; for previews such as the dashboard.
 
         `data` is base64 of the raw image: the black plane, then the red plane when `red`
@@ -579,6 +656,104 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+  /api/tags/{mac}/draw:
+    parameters:
+      - $ref: "#/components/parameters/mac"
+    put:
+      tags: [Tags]
+      operationId: drawTag
+      summary: Draw a one-off design on a tag, without a layout file
+      description: |
+        For a screen made for one tag at one time (a dashboard from home automation, a
+        door sign, a message): the body holds one layout as a layout file has it (`fields`
+        and `elements`, every element type a layout file takes), the `icons` it uses and the
+        text of its fields. Nothing has to be uploaded first.
+
+        The AP checks the layout for the tag's model with the same rules and limits as
+        `PUT /api/layouts/{model}` (the same 422 messages), draws it at once and keeps the
+        screen as the tag's picture, as `PUT /api/tags/{mac}/image` does: the same NVS
+        cost (about 5 KB a tag, less for screens with large areas of one colour), the same
+        `content_id` and `changed` rules, and `GET /api/tags/{mac}` then shows `layout:
+        "image"`. So date fields (`{date}`, `{week}`, ...) are filled in when it is drawn and
+        are not redrawn every day, and formatted numbers (`decimals`, `thousands`) keep the
+        decimal sign of `lang` at that moment; use a layout file for either to follow. Content set later replaces it.
+
+        The layout's `name` may be left out. `fields` is a list (in the layout's order) or
+        an object keyed by the layout's field names, as for `PUT /api/tags/{mac}`; it may be
+        left out when the layout only draws shapes and fixed text. The tag must have polled
+        once, so its model is known. An AP older than 0.11.0 answers 400 ("mac must be 16 hex digits"), as it reads `draw` as part of the MAC.
+
+        Size: the layout and its icons may take as many bytes as a layout file
+        (`max_size` in `GET /api/layouts`), but the whole body is read as at most 1024
+        JSON values (every string, number, list and object counts), which a very large
+        layout can pass before it reaches the byte limit. Either answers 413; upload a
+        design that big as a layout file instead.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/DrawRequest" }
+            examples:
+              door:
+                summary: A meeting room sign with a ring and a heading
+                value:
+                  layout:
+                    name: room
+                    fields: [room, next]
+                    elements:
+                      - { type: rect, x: 0, y: 0, w: 296, h: 30, color: black }
+                      - { type: text, field: room, x: 4, y: 0, w: 288, h: 30, fonts: [medium, small], valign: middle, lines: 1, color: white }
+                      - { type: ellipse, x: 8, y: 40, w: 60, h: 60, border: 3 }
+                      - { type: polygon, x: 20, y: 52, w: 36, h: 36, points: [[18, 0], [35, 35], [0, 35]] }
+                      - { type: text, field: next, x: 80, y: 40, w: 210, h: 60, fonts: [medium, small], lines: 2 }
+                  fields: { room: Meeting room 2, next: "Free until 14:00" }
+      responses:
+        "200":
+          description: Drawn and stored; the tag fetches it at its next poll
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SetResult" }
+        "400":
+          description: A bad MAC, no body, broken JSON, or a body that is not an object
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "429": { $ref: "#/components/responses/Locked" }
+        "404": { $ref: "#/components/responses/UnknownTag" }
+        "409":
+          description: The tag's model is not known yet (it has not polled), or the tag was deleted or changed while it was drawn
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "413":
+          description: The body is larger than a layout file, or has more than 1024 JSON values
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: |
+            An unknown key, a layout the AP cannot draw on this model (the message is the
+            layout compiler's, as for `PUT /api/layouts/{model}`), a field the layout does not
+            have, or a barcode, QR code or number that does not fit its box
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "501":
+          description: This AP keeps no pictures
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "503":
+          description: No memory to draw it
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "507":
+          description: No room in NVS for the picture (32 KB is kept free for other content), or the tag table is full
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
   /api/tags/{mac}/config:
     parameters:
       - $ref: "#/components/parameters/mac"
@@ -662,8 +837,9 @@ paths:
         that is waiting. `ntp` and `tz` set the AP's clock (NTP server and time zone). A key
         left out keeps its value; at least one must be there. All are stored in NVS
         (`cfg/poll_s`, `cfg/webhook`, `cfg/tx_dbm`, `cfg/channel` once the radio has moved and
-        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`). An AP that restarts during a
-        move comes up on the old channel and waits for the tags again.
+        `cfg/ch_next` for a move that waits, `cfg/ntp`, `cfg/tz`, `cfg/ap_id`, `cfg/prev_id`,
+        `cfg/prev_end`, `cfg/adopt_end`, `cfg/adopt_id` and `cfg/hours`). An AP that restarts during a move comes up on the old channel and waits
+        for the tags again. `ap_id` and `adopt` (#390): see "AP id" in docs/protocol.md.
       requestBody:
         required: true
         content:
@@ -691,9 +867,24 @@ paths:
               channel-now:
                 summary: Move to channel 20 at once, without waiting for the tags that have not confirmed it
                 value: { channel: 20, channel_now: true }
+              replace:
+                summary: In place of a broken AP, whose backup has id 1A2B3C4D (its tags come here at once)
+                value: { ap_id: "1A2B3C4D", adopt: null }
+              adopt:
+                summary: Take over the lost tags of AP 5E6F7A8B for 14 days
+                value: { adopt: "5E6F7A8B" }
               clock:
-                summary: Norwegian time, from a Norwegian NTP server
-                value: { ntp: "no.pool.ntp.org", tz: "CET-1CEST,M3.5.0,M10.5.0/3" }
+                summary: Norwegian time and dates, from a Norwegian NTP server
+                value: { ntp: "no.pool.ntp.org", tz: "CET-1CEST,M3.5.0,M10.5.0/3", lang: nb }
+              night:
+                summary: Tags check every 30 minutes from 22:00 to 06:00, local time
+                value: { night: { from: "22:00", to: "06:00", poll_s: 1800 } }
+              update-window:
+                summary: New prices reach the tags only from 06:00 to 08:00, before opening
+                value: { update_window: { from: "06:00", to: "08:00" } }
+              hours-off:
+                summary: No night mode and no update window
+                value: { night: null, update_window: null }
       responses:
         "200":
           description: The new default
@@ -716,6 +907,7 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
+        "500": { $ref: "#/components/responses/ServerError" }
 
   /api/health:
     get:
@@ -789,8 +981,19 @@ paths:
         keeps running). The radio keeps the new firmware once the AP configures it, and goes
         back to the old one by itself if that does not happen within a minute; `radio.version`
         in `GET /api/ota` says what it runs. A radio from before 0.8.2 (`radio.ota` false)
-        takes new firmware only over USB.
+        takes new firmware only over USB. A radio image for another link (project
+        `esl_radio_usb`, the C6 on a Linux AP's USB port) is refused with 422 before anything
+        is sent: it would leave the C6 without its link to the AP.
         Content-Type is not checked.
+
+        The Linux AP (`openesl-ap`) takes its own binary the same way, whole in one request
+        (no `offset`/`total`; up to 32 MB, streamed to disk): the body is an
+        `openesl-ap-linux-<arch>` file of a release. It is refused with `422` unless it is an
+        ELF for the machine it runs on that answers `--version`, and with `409` unless its version
+        is newer than the running one (`force=1` takes any). The old program is kept as
+        `<binary>.prev`, and the new one runs as a trial under `openesl-ap-run`: it is replaced by
+        the old one if it exits or does not confirm within a minute. Started any other way, or in a
+        container, it answers `501`. See docs/linux-ap.md, "Updating".
       x-host-status: 501
       parameters:
         - name: offset
@@ -803,6 +1006,11 @@ paths:
           required: false
           schema: { type: integer, minimum: 1 }
           description: The size of the whole image (with `offset`)
+        - name: force
+          in: query
+          required: false
+          schema: { type: integer, enum: [1] }
+          description: Linux AP only. Install a version that is not newer than the running one
       requestBody:
         required: true
         content:
@@ -817,7 +1025,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/Locked" }
         "409":
-          description: Not the next part (`expected offset N of T`), or no upload in progress for an offset above 0
+          description: Not the next part (`expected offset N of T`), or no upload in progress for an offset above 0. On the Linux AP, a version that is not newer than the running one (without `force=1`), an update already on its way, or a running version that is not confirmed yet
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -829,7 +1037,7 @@ paths:
               schema: { $ref: "#/components/schemas/Error" }
               example: { error: the image does not fit the app slot }
         "422":
-          description: An empty body, `offset` without `total` or the other way round, an image that is not an app image for this chip, an app that is not the AP firmware (another project name in its app description), or the radio coprocessor's `esl_radio` on an AP without a radio on UART
+          description: An empty body, `offset` without `total` or the other way round, an image that is not an app image for this chip, an app that is not the AP firmware (another project name in its app description), the radio coprocessor's `esl_radio` on an AP without a radio on UART, or a radio image for another link (`esl_radio_usb`, the C6 on a Linux AP's USB port)
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
@@ -1310,6 +1518,56 @@ paths:
                       layout: text
                       fields: ["{place} {temp}°", "{desc}", "{min}° to {max}°", "Tomorrow {tmin}°/{tmax}°"]
                       tags: ["00000123456789A8"]
+              chart:
+                summary: A chart from another program on a 2.9" tag, fetched every 10 minutes
+                value:
+                  sources:
+                    - id: chart
+                      type: image
+                      url: "http://homeassistant.local:8123/local/chart-296x128.png"
+                      every_min: 10
+                      tags: ["00000123456789A8"]
+              power:
+                summary: Today's electricity price for Oslo on the built-in text layout
+                value:
+                  sources:
+                    - id: power
+                      type: power
+                      area: NO1
+                      layout: text
+                      fields: ["Power {area} {date}", "Now {now} kr/kWh", "{level}", "Cheapest {minat}: {min}"]
+                      lang: en
+                      tags: ["00000123456789B2"]
+              countdown:
+                summary: The days to Christmas, every year
+                value:
+                  sources:
+                    - id: christmas
+                      type: countdown
+                      place: Christmas
+                      date: "2026-12-24"
+                      yearly: true
+                      lang: en
+                      layout: text
+                      tags: ["00000123456789B2"]
+              news:
+                summary: The newest headlines of a news feed on the built-in text layout
+                value:
+                  sources:
+                    - id: news
+                      type: rss
+                      url: "https://news.example/top.rss"
+                      layout: text
+                      tags: ["00000123456789B2"]
+              calendar:
+                summary: The next events of a calendar on the built-in text layout
+                value:
+                  sources:
+                    - id: family
+                      type: ical
+                      url: "webcal://calendar.example/family.ics"
+                      layout: text
+                      tags: ["00000123456789B2"]
               none:
                 summary: No data sources
                 value: { sources: [] }
@@ -1345,6 +1603,55 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "429": { $ref: "#/components/responses/Locked" }
 
+  /api/remote:
+    get:
+      tags: [Remote]
+      operationId: getRemote
+      summary: The SoluM remote's settings and its last presses
+      responses:
+        "200":
+          description: The settings and up to 8 presses, newest first
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Remote" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "This AP cannot hear the remote", content: { application/json: { schema: { $ref: "#/components/schemas/Error" }, example: { error: "not found" } } } }
+        "429": { $ref: "#/components/responses/Locked" }
+    put:
+      tags: [Remote]
+      operationId: setRemote
+      summary: Listen for the remote, and where to post its presses
+      description: |
+        Either or both. `listen` makes the radio visit channel 11 while the AP runs on another
+        channel. `webhook` is where each press is `POST`ed as `{"event":"remote","button":"w",
+        "id":3,"boot":2817364121,"rssi":-61}` (`id` counts from 1 after each restart, and
+        `boot` is new at each restart); null or "" posts nowhere. A press that cannot be posted
+        is not sent again. Kept in NVS.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                listen: { type: boolean }
+                webhook: { type: [string, "null"], maxLength: 127, description: "http://host[:port][/path]" }
+            examples:
+              listen:
+                summary: Listen, and post to Home Assistant
+                value: { listen: true, webhook: "http://192.168.1.10:8123/api/webhook/openesl_remote_x" }
+      responses:
+        "200":
+          description: Saved; the settings as they are now
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Remote" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "404": { description: "This AP cannot hear the remote", content: { application/json: { schema: { $ref: "#/components/schemas/Error" }, example: { error: "not found" } } } }
+        "413": { $ref: "#/components/responses/TooLarge" }
+        "422": { $ref: "#/components/responses/Invalid" }
+        "429": { $ref: "#/components/responses/Locked" }
   /api/radios:
     get:
       tags: [AP]
@@ -1386,7 +1693,7 @@ paths:
         For a radio that is gone for good (a broken C6, one moved to another AP). Only while it
         is not connected: turn it off first. Its tags count as radio 0's until a radio hears
         them; a tag that loses its radio finds another one by looking on the other channels
-        (docs/protokoll.md, "Finding the AP"). When radio 0 is forgotten, the next new radio
+        (docs/protocol.md, "Finding the AP"). When radio 0 is forgotten, the next new radio
         takes its place on the AP's channel, and a radio that is then the only one left moves
         there at its next connection. Done before the reply.
       responses:
@@ -1678,6 +1985,18 @@ components:
             When the content takes effect, Unix seconds (UTC). Missing, null or in the past: now.
             The AP needs to know the time (`GET /api/time`), else `409`.
           example: 1792069200
+        repeat:
+          type: [string, "null"]
+          enum: [once, daily, weekly, null]
+          default: null
+          description: |
+            With `at` (AP 0.11.0 and later): the content is set again every day or week at the same
+            local time as `at` (the AP's time zone, `tz` in `GET /api/config`), also across daylight
+            saving time; a weekly one on the same weekday. A time in `at` that has passed starts it
+            at its next time. The entry stays until `DELETE /api/schedule/{mac}` (or the tag is
+            deleted). A one-off entry at the same time is kept beside it and wins that time. Null or `once`: only at `at`. Without `at`: `422`. Older firmware ignores the key
+            and schedules the content once.
+          example: weekly
 
     BatchRow:
       allOf:
@@ -1695,6 +2014,21 @@ components:
           type: array
           maxItems: 50
           items: { $ref: "#/components/schemas/BatchRow" }
+        timeout_s:
+          type: [integer, "null"]
+          minimum: 10
+          maximum: 604800
+          description: |
+            How long the job's tags may take to show their content, from the batch, before
+            they are `timed_out` (`GET /api/jobs/{n}`). Null or left out: 3600. 0.11.0 and later
+            (older firmware ignores it).
+          example: 7200
+        notify:
+          type: [boolean, "null"]
+          description: |
+            true: post the job to the AP's webhook (`PUT /api/config`) once it has ended, as
+            `{"event":"job", ...}` and then what `GET /api/jobs/{n}` answers. `422` when the AP
+            has no webhook set. 0.11.0 and later.
 
     SetResult:
       type: object
@@ -1718,6 +2052,15 @@ components:
       additionalProperties: false
       required: [tags]
       properties:
+        job:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 4294967295
+          description: |
+            The batch's job number, for `GET /api/jobs/{n}`; null when the AP had no memory for
+            the job. Left out by firmware before 0.11.0. The numbers of a restart start
+            somewhere new.
+          example: 2817364121
         tags:
           type: array
           items:
@@ -1732,6 +2075,76 @@ components:
                   mac: { $ref: "#/components/schemas/Mac" }
                   error: { type: string, enum: [tag table full, schedule full, no room to save it (NVS full)] }
 
+    JobSummary:
+      type: object
+      additionalProperties: false
+      required: [job, state, age_s, took_s, timeout_s, notify, counts]
+      properties:
+        job: { type: integer, minimum: 1, maximum: 4294967295, example: 2817364121 }
+        state: { type: string, enum: [pending, done], description: "pending while a tag is accepted" }
+        age_s: { type: integer, minimum: 0, description: Seconds since the batch }
+        took_s: { type: [integer, "null"], minimum: 0, description: "Seconds from the batch until its last tag left accepted; null while pending" }
+        timeout_s: { type: integer, minimum: 10, maximum: 604800 }
+        notify: { type: boolean, description: It is posted to the webhook when it ends }
+        counts:
+          type: object
+          additionalProperties: false
+          required: [accepted, delivered, failed, timed_out, replaced, scheduled]
+          description: Tags per state
+          properties:
+            accepted: { type: integer, minimum: 0 }
+            delivered: { type: integer, minimum: 0 }
+            failed: { type: integer, minimum: 0 }
+            timed_out: { type: integer, minimum: 0 }
+            replaced: { type: integer, minimum: 0 }
+            scheduled: { type: integer, minimum: 0 }
+
+    Job:
+      type: object
+      additionalProperties: false
+      required: [job, state, age_s, took_s, timeout_s, notify, counts, tags]
+      properties:
+        job: { type: integer, minimum: 1, maximum: 4294967295, example: 2817364121 }
+        state: { type: string, enum: [pending, done], description: "pending while a tag is accepted" }
+        age_s: { type: integer, minimum: 0, description: Seconds since the batch }
+        took_s: { type: [integer, "null"], minimum: 0, description: "Seconds from the batch until its last tag left accepted; null while pending" }
+        timeout_s: { type: integer, minimum: 10, maximum: 604800 }
+        notify: { type: boolean, description: It is posted to the webhook when it ends }
+        counts:
+          type: object
+          additionalProperties: false
+          required: [accepted, delivered, failed, timed_out, replaced, scheduled]
+          description: Tags per state
+          properties:
+            accepted: { type: integer, minimum: 0 }
+            delivered: { type: integer, minimum: 0 }
+            failed: { type: integer, minimum: 0 }
+            timed_out: { type: integer, minimum: 0 }
+            replaced: { type: integer, minimum: 0 }
+            scheduled: { type: integer, minimum: 0 }
+        tags:
+          type: array
+          maxItems: 50
+          description: Each tag of the batch, in the order sent
+          items: { $ref: "#/components/schemas/JobTag" }
+
+    JobTag:
+      type: object
+      additionalProperties: false
+      required: [mac, state, content_id]
+      properties:
+        mac: { $ref: "#/components/schemas/Mac" }
+        state: { type: string, enum: [accepted, delivered, failed, timed_out, replaced, scheduled] }
+        content_id:
+          type: [integer, "null"]
+          minimum: 1
+          maximum: 4294967295
+          description: The content it was given (as in the reply to the batch); null when it was not stored, or was scheduled
+        error:
+          type: string
+          description: Why it failed (only for failed)
+          example: the tag could not show it (drawing failed)
+
     Scheduled:
       type: object
       additionalProperties: false
@@ -1741,6 +2154,33 @@ components:
         mac: { $ref: "#/components/schemas/Mac" }
         scheduled: { const: true }
         at: { type: integer, minimum: 1600000000, maximum: 4294967295, description: "Unix seconds, UTC" }
+        repeat: { type: string, enum: [daily, weekly], description: "Only for a recurring entry: `at` is its first time (its next one, when the time sent had passed)" }
+
+    Remote:
+      type: object
+      additionalProperties: false
+      required: [channel, listen, can_listen, hearing, webhook, webhook_status, boot, frames, presses]
+      properties:
+        channel: { type: integer, enum: [11], description: The remote's channel }
+        listen: { type: boolean, description: The radio visits channel 11 while the AP runs on another one }
+        can_listen: { type: boolean, description: This AP's radio can visit channel 11 }
+        hearing: { type: boolean, description: "The AP hears the remote now: it runs on channel 11, or listens" }
+        webhook: { type: [string, "null"], description: Where each press is posted }
+        webhook_status: { type: [integer, "null"], description: "The HTTP status of the last post, -1 = no answer; null = none yet" }
+        boot: { type: integer, minimum: 0, maximum: 4294967295, description: A random number per AP start }
+        frames: { type: integer, minimum: 0, description: Remote frames heard since the start (ten per press) }
+        presses:
+          type: array
+          maxItems: 8
+          items:
+            type: object
+            additionalProperties: false
+            required: [id, button, s_ago, rssi]
+            properties:
+              id: { type: integer, minimum: 1, description: "1, 2, ... since the start" }
+              button: { type: string, enum: [w, left, right] }
+              s_ago: { type: integer, minimum: 0 }
+              rssi: { type: integer, description: dBm }
 
     Time:
       type: object
@@ -1756,7 +2196,8 @@ components:
           required: [mac, at]
           properties:
             mac: { $ref: "#/components/schemas/Mac" }
-            at: { type: integer, minimum: 1600000000, maximum: 4294967295, description: "When it takes effect, Unix seconds, UTC" }
+            at: { type: integer, minimum: 1600000000, maximum: 4294967295, description: "When it takes effect, Unix seconds, UTC; the next time for a recurring entry" }
+            repeat: { type: string, enum: [daily, weekly], description: "Only for a recurring entry (see `repeat` in PUT /api/tags/{mac})" }
             layout: { type: string }
             fields: { type: array, items: { type: string } }
             price_highlight: { type: boolean }
@@ -1796,7 +2237,7 @@ components:
           required: [connected]
           properties:
             connected: { type: boolean, description: "A radio is connected now" }
-            via: { type: string, enum: [uart, wifi], description: "How the AP reaches it: the C6 on the cable (`uart`) or over WiFi (`wifi`); not sent by older firmware" }
+            via: { type: string, enum: [uart, wifi, local], description: "How the AP reaches it: the C6 on the cable (`uart`), over WiFi (`wifi`), or the AP's own radio beside network radios on the Linux AP (`local`); not sent by older firmware" }
             lost: { type: boolean, description: "Not connected for 30 s or more (`radio_lost` in `GET /api/health`); not sent by older firmware" }
             lost_s: { type: integer, minimum: 0, description: "Seconds since it lost contact, or since the AP started when it has not been connected since (only while not connected; not sent by older firmware)" }
             ip: { type: string, description: "Its address (only while connected over WiFi)", example: "192.168.3.249" }
@@ -1859,6 +2300,7 @@ components:
         content_id: { type: integer, minimum: 0, maximum: 4294967295, description: "The content set for the tag; 0: none (a new tag)" }
         shown_content_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The content whose image the tag reported in its last poll, 0 for another image (see `image`); null: not seen since the AP started" }
         pending: { type: boolean, description: "The tag does not show `content_id` yet" }
+        expect_s: { type: integer, minimum: 0, maximum: 3600, description: "Only while night mode is set: how long the tag may sleep after its last poll, the night interval when it was told that (see `night` in ApConfig)" }
         poll_s: { type: [integer, "null"], minimum: 0, maximum: 3600, description: "The interval the AP sends this tag; null: the tag's built-in one" }
         config: { $ref: "#/components/schemas/TagCfg" }
         radio: { type: integer, minimum: 0, maximum: 3, description: "The radio over WiFi that serves it (`radio` in `radios`), 0 also when none has heard it since the AP started; only when the AP knows more than one radio" }
@@ -1916,7 +2358,7 @@ components:
           channel: { type: integer, minimum: 11, maximum: 26, description: "The channel it serves" }
           tags: { type: integer, minimum: 0, description: "Tags it heard last, since the AP started" }
           connected: { type: boolean }
-          via: { type: string, enum: [uart, wifi], description: "How the AP reaches it: the C6 on the cable (`uart`) or over WiFi (`wifi`); not sent by older firmware" }
+          via: { type: string, enum: [uart, wifi, local], description: "How the AP reaches it: the C6 on the cable (`uart`), over WiFi (`wifi`), or the AP's own radio beside network radios on the Linux AP (`local`); not sent by older firmware" }
           lost: { type: boolean, description: "Not connected for 30 s or more (`radio_lost` in `GET /api/health`); not sent by older firmware" }
           lost_s: { type: integer, minimum: 0, description: "Seconds since it lost contact, or since the AP started when it has not been connected since (only while not connected; not sent by older firmware)" }
           ip: { type: string, description: "Its address (only while connected)", example: "192.168.3.249" }
@@ -1927,7 +2369,11 @@ components:
         - { radio: 1, id: "0000F0F5BDFFFE02", channel: 15, tags: 12, connected: false, via: wifi, lost: true, lost_s: 340 }
 
     Tag:
-      allOf: [{ $ref: "#/components/schemas/TagFields" }]
+      allOf:
+        - $ref: "#/components/schemas/TagFields"
+        - type: object
+          properties:
+            layout: { type: [string, "null"], description: "The layout of the tag's content, as in `GET /api/tags/{mac}` (`price`, `text`, `image` for a picture, or a name from the layout file); null without content. not sent by older firmware, where a client asks `GET /api/tags/{mac}`" }
       unevaluatedProperties: false
 
     TagDetail:
@@ -1978,6 +2424,7 @@ components:
             content_id: 2914470401
             shown_content_id: 2914470401
             pending: false
+            layout: prusa
             poll_s: 120
             config: { poll_s: 120, max_poll_s: null, lost_ap_s: null, long_poll_s: null, long_after_min: null }
             config_pending: false
@@ -2102,6 +2549,78 @@ components:
             for Norway; tzdata names such as `Europe/Oslo` are not understood). `null` or
             `""` = UTC. The clock itself and `at` stay in UTC; local time is for what the AP
             fills in itself (dates, data sources).
+        lang:
+          type: [string, "null"]
+          enum: [en, nb, null]
+          description: |
+            The language of the date fields the AP fills in, `{weekday}` and `{date}`:
+            `en` (Thursday, 29 October 2026) or `nb` (Torsdag, 29. oktober 2026). `null` =
+            not chosen: the AP writes English, and GET says `null`, so the Dashboard and
+            esl-client keep writing their dates in the browser's or computer's language. Tags showing such a field are drawn again in the new language at their
+            next poll. `en` also makes the numbers the AP formats (`decimals`, `thousands` in a
+            layout) use a decimal point (1 299.90), and tags with such a layout are drawn again
+            when it changes to or from `en`; `nb` and `null` keep the decimal comma (1 299,90),
+            as before 0.11.0. The Dashboard uses it for the dates it writes too. From AP firmware
+            0.11.0; an older AP answers 422.
+        ap_id:
+          type: string
+          pattern: "^[0-9A-Fa-f]{8}$"
+          description: |
+            This AP's id (docs/protocol.md "AP id", #390), 8 hex digits, not `00000000` or
+            `FFFFFFFF`. Tags from firmware 0.11.0 answer only the AP with their id, so set it to
+            the id of a broken AP (from its backup) on the AP that replaces it, and its tags
+            take the new AP at once. The AP's own tags carry the old id: it stays answered as
+            this AP's own for 14 days (`prev_ap_id`), and each tag gets the new id at its next
+            poll. 500 when the id cannot be saved (nothing in the request is set then). From AP
+            firmware 0.11.0; an older AP answers 422.
+        adopt:
+          type: [string, "null"]
+          pattern: "^([0-9A-Fa-f]{8}|all)$"
+          description: |
+            Take over the tags of another AP: its id (as in `other_aps` in `GET /api/health`), or
+            `all` for any AP. A tag is taken once it has had no answer from its own AP for an
+            hour, so an AP that only restarts keeps its tags. It ends by itself after 14 days
+            (`adopt_until`). `null` = off. Not this AP's own id (422). A new AP (an empty table
+            and a new id) starts with `all`. From AP firmware 0.11.0; an older AP answers 422.
+
+        night:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [from, to, poll_s]
+          properties:
+            from: { $ref: "#/components/schemas/LocalTime" }
+            to: { $ref: "#/components/schemas/LocalTime" }
+            poll_s: { type: integer, minimum: 60, maximum: 3600 }
+          description: |
+            Night mode (#415): from `from` to `to` in the AP's local time (`tz`; a night that ends
+            before it starts runs over midnight), a tag that polls is told to come back after
+            `poll_s` instead of its own interval, when that is longer and the tag then wakes
+            before the night ends; else it gets its own interval. So the tags are all back on
+            their interval by the end of the night, as spread out as before, and scheduled content
+            due in the night still gets its early poll. Through the `next_poll_s` of the reply,
+            which every tag firmware follows: nothing to update on the tags. While it is set, a tag
+            without an interval of its own is told 60 s (the tags' built-in one) rather than 0.
+            Applies only while the AP knows the time. `from` and `to` must differ. `null` = off.
+            From AP firmware 0.11.0; an older AP, or one without a clock, answers 422.
+        update_window:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [from, to]
+          properties:
+            from: { $ref: "#/components/schemas/LocalTime" }
+            to: { $ref: "#/components/schemas/LocalTime" }
+          description: |
+            Update window (#415): a daily window in the AP's local time in which new content goes
+            out. Outside it, a tag that shows a picture from the AP keeps it (`pending` stays true)
+            and gets the new one at its first poll in the window; a tag that shows nothing from the
+            AP yet gets its first picture at once. Settings (CONFIG) and tag firmware are not held.
+            Applies only while the AP knows the time. `from` and `to` must differ. `null` = off.
+            From AP firmware 0.11.0; an older AP, or one without a clock, answers 422.
+
+    LocalTime:
+      type: string
+      pattern: "^([01][0-9]|2[0-3]):[0-5][0-9]$"
+      description: A time of day in the AP's time zone, HH:MM
 
     ApConfigReply:
       type: object
@@ -2125,6 +2644,30 @@ components:
         ntp: { type: [string, "null"], maxLength: 63, description: "The NTP server in use, null when none. Left out by an AP without scheduling (no clock)" }
         builtin_ntp: { type: [string, "null"], maxLength: 63, description: "The server set in menuconfig, which `ntp` null goes back to" }
         tz: { type: [string, "null"], maxLength: 63, description: "The POSIX time zone, null for UTC" }
+        lang: { type: [string, "null"], enum: [en, nb, null], description: "The language of the date fields (`{weekday}`, `{date}`); null until chosen, when the AP writes English and the Dashboard and esl-client write in the browser's or computer's language. Left out by an AP from before 0.11.0, which writes them in English" }
+        ap_id: { type: [string, "null"], pattern: "^[0-9A-F]{8}$", description: "This AP's id (#390); null when it has none (NVS could not be read). Left out by an AP from before 0.11.0" }
+        prev_ap_id: { type: [string, "null"], pattern: "^[0-9A-F]{8}$", description: "This AP's id before the last change, still answered as its own for 14 days after it; null = none" }
+        adopt: { type: [string, "null"], pattern: "^([0-9A-F]{8}|all)$", description: "The AP whose lost tags this one takes over, `all` for any, null = none" }
+        adopt_until: { type: [integer, "null"], minimum: 0, description: "With adopt: when it ends (Unix seconds); null while the AP does not know the time yet (the 14 days start then)" }
+        night:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [from, to, poll_s]
+          properties:
+            from: { $ref: "#/components/schemas/LocalTime" }
+            to: { $ref: "#/components/schemas/LocalTime" }
+            poll_s: { type: integer, minimum: 60, maximum: 3600 }
+          description: "Night mode, null when off (#415). Left out by an AP from before 0.11.0 and by one without a clock"
+        update_window:
+          type: [object, "null"]
+          additionalProperties: false
+          required: [from, to]
+          properties:
+            from: { $ref: "#/components/schemas/LocalTime" }
+            to: { $ref: "#/components/schemas/LocalTime" }
+          description: "The update window, null when off (#415)"
+        night_now: { type: boolean, description: "With night: it is night now (false while the AP does not know the time)" }
+        update_window_open: { type: boolean, description: "With update_window: new content goes out now (true without a window, and while the AP does not know the time)" }
 
     Health:
       type: object
@@ -2156,9 +2699,34 @@ components:
             properties:
               radio: { type: integer, minimum: 0, maximum: 3, description: "Its number, as in `radios` in `GET /api/tags` (0 for the C6 on the cable)" }
               id: { type: [string, "null"], description: "Its MAC, as its HELLO said; null: never heard since the AP started" }
-              via: { type: string, enum: [uart, wifi] }
+              via: { type: string, enum: [uart, wifi, local] }
               problems: { type: array, minItems: 1, items: { type: string, enum: [radio_lost] } }
               lost_s: { type: integer, minimum: 0, description: "Seconds since it lost contact, or since the AP started" }
+        other_aps:
+          type: array
+          description: "Other openESL APs whose tags poll here and get no answer (#390), newest first, at most 8. Adopt them with `adopt` in `PUT /api/config`. Not sent by firmware before 0.11.0"
+          items:
+            type: object
+            additionalProperties: false
+            required: [ap_id, tags, polls, seen_s_ago, lost_long, answered_s_ago]
+            properties:
+              ap_id: { type: string, pattern: "^[0-9A-F]{8}$" }
+              tags: { type: integer, minimum: 0, maximum: 16, description: "Its tags among the last 16 this AP turned away" }
+              polls: { type: integer, minimum: 0, description: "POLLs from its tags since this AP started" }
+              seen_s_ago: { type: integer, minimum: 0, description: "Seconds since the last one" }
+              lost_long: { type: boolean, description: "The last one came from a tag without an answer for an hour or more: adopt would take it" }
+              answered_s_ago: { type: [integer, "null"], minimum: 0, description: "Seconds since a POLL from a tag its own AP had answered (no round lost): that AP still runs. null = none since this AP started. A restore keeps its own id while this is under 180 s" }
+        old_radios:
+          type: array
+          description: "Connected radios over WiFi whose firmware is from before 0.11.0 (#390). Such a radio cannot pass the AP id on: this AP's own tags show settings pending until it is updated, and it answers the tags of other APs from its cache, so those get no settings from their own AP. Update it to the AP's version. It does not change `ok`. Not sent by firmware before 0.11.0"
+          items:
+            type: object
+            additionalProperties: false
+            required: [radio, id, fw]
+            properties:
+              radio: { type: integer, minimum: 0, maximum: 3, description: "Its number, as in `radios` in `GET /api/tags`" }
+              id: { type: string, description: "Its MAC, as its HELLO said" }
+              fw: { type: integer, minimum: 0, description: "Its firmware (major * 10000 + minor * 100 + patch), as `fw` of the radio in `GET /api/tags`" }
         ok: { type: boolean, description: "No tag has a problem, and no radio is lost" }
         tags: { type: integer, minimum: 0, description: Tags in the table }
         with_problems: { type: integer, minimum: 0, description: Length of `problems` }
@@ -2174,6 +2742,8 @@ components:
           - { mac: "00000123456789A8", problems: [silent], seen_s_ago: 1260, battery_mv: 2950 }
           - { mac: "00000123456789A9", problems: [draw_failed, low_battery], seen_s_ago: 12, battery_mv: 2380 }
         radio_problems: []
+        other_aps: []
+        old_radios: []
         ok: false
         tags: 12
         with_problems: 2
@@ -2269,6 +2839,8 @@ components:
         display: { type: boolean, description: "The firmware has the status screen (openesl-ap-lcd); older firmware does not say" }
         chip: { type: string, description: "The chip the firmware is built for (esp32c6, esp32c5); an image for another chip is refused. Older firmware does not say" }
         uploading: { type: boolean, description: An upload in parts is in progress }
+        self_update: { type: boolean, description: "Linux AP only: this AP can update itself (`POST /api/ota`); `slot` is `binary` and `other_slot` is `prev` while the old program is kept" }
+        self_update_blocked: { type: [string, "null"], description: "Linux AP only: why not: `unguarded` (not started by openesl-ap-run), `container`, or `unknown`" }
         radio: { $ref: "#/components/schemas/RadioInfo" }
       example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, chip: esp32c6, uploading: false }
 
@@ -2343,7 +2915,7 @@ components:
       type: object
       description: >-
         What one layout file may hold on this AP, named as in the web page's renderer.limits. The
-        board sets runs, rects, lines, icons, fileBytes and jsonBytes ("limits" in
+        board sets runs, rects, lines, icons, shapes, fileBytes and jsonBytes ("limits" in
         ap/boards/<board>/board.json; boards with PSRAM allow more), so a file one AP accepts can be
         too big for another. The designer shows these for the AP it is connected to.
       additionalProperties: false
@@ -2360,6 +2932,8 @@ components:
         fields: { type: integer, const: 16, description: "Fields per layout (6 on an AP with 0.9.2 or older)" }
         fixedTextBytes: { type: integer, const: 64, description: Bytes per fixed text (Latin-1) }
         textBytes: { type: integer, const: 256, description: "Bytes the fields of one update share: the text in Latin-1 plus one per field (missing on an AP with 0.9.2 or older, which took 96)" }
+        shapes: { type: integer, minimum: 1, description: "ellipse and polygon elements per screen; 8 on the ESP32-C6 (missing on an AP with 0.10.x or older, which refuses both)" }
+        polygonPoints: { type: integer, const: 8, description: "Most corners of one polygon (at least 3; missing on an AP with 0.10.x or older)" }
 
     FontFile:
       type: object
@@ -2555,19 +3129,92 @@ components:
       type: object
       additionalProperties: false
       patternProperties: { "^_": true }
-      required: [id, type, lat, lon, layout]
+      required: [id, type]
+      oneOf:
+        - properties: { type: { const: met }, every_min: { minimum: 30 } }
+          required: [lat, lon, layout]
+          not: { anyOf: [{ required: [url] }, { required: [dither] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
+        - properties: { type: { const: image }, every_min: { minimum: 5 } }
+          required: [url]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [layout] }, { required: [fields] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
+        - properties: { type: { const: power }, every_min: { minimum: 15 } }
+          required: [area, layout]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
+        - properties: { type: { const: countdown } }
+          required: [date, layout]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }, { required: [area] }, { required: [vat] }] }
+        - properties: { type: { const: rss }, every_min: { minimum: 15 } }
+          required: [url, layout]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [dither] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
+        - properties: { type: { const: ical }, every_min: { minimum: 15 } }
+          required: [url, layout]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [dither] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
+        - properties: { type: { const: fx }, every_min: { minimum: 60 }, currency: { pattern: "^[A-Za-z]{3}$" }, days: { minimum: 5, maximum: 30 } }
+          required: [currency, layout]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }] }
+        - properties: { type: { const: btc }, every_min: { minimum: 15 }, currency: { pattern: "^[A-Za-z]{3,5}$" }, days: { minimum: 7, maximum: 30 } }
+          required: [layout]
+          not: { anyOf: [{ required: [lat] }, { required: [lon] }, { required: [url] }, { required: [dither] }, { required: [area] }, { required: [vat] }, { required: [date] }, { required: [time] }, { required: [yearly] }, { required: [in] }, { required: [unit] }] }
       properties:
         id: { type: string, pattern: "^[a-z0-9_-]{1,16}$", description: "The source's name, unique on the AP" }
-        type: { type: string, enum: [met], description: "`met`: the forecast from MET Norway (api.met.no locationforecast 2.0)" }
-        lat: { type: number, minimum: -90, maximum: 90, description: "Degrees north, kept to 4 decimals" }
-        lon: { type: number, minimum: -180, maximum: 180, description: "Degrees east, kept to 4 decimals" }
-        place: { type: string, maxLength: 32, default: "", description: "The place's name, value `{place}` (at most 32 bytes of UTF-8)" }
-        lang: { type: string, enum: [nb, en], default: nb, description: "The language of `{desc}` and `{dir}`" }
-        every_min: { type: integer, minimum: 30, maximum: 1440, default: 30, description: "Minutes between fetches; never before the last answer's `Expires`" }
+        type:
+          type: string
+          enum: [met, image, power, countdown, rss, ical, fx, btc]
+          description: |
+            `met`: the forecast from MET Norway (api.met.no locationforecast 2.0), as values in
+            the fields of a layout. `image` (0.11.0 and later): a PNG fetched from `url`, kept as
+            the tags' picture as `PUT /api/tags/{mac}/image` keeps one; it has no `layout` or
+            `fields`. The PNG must have the size of each tag's screen (`GET /api/tags`: a tag of
+            another size is counted in `tags_failed`); use one source for each screen size.
+            `power` (0.11.0 and later): today's electricity spot price in a Norwegian price area
+            from hvakosterstrommen.no, as values in the fields of a layout like `met`. A day's file
+            is fetched once (again after 6 hours); the values are made again from it at each
+            quarter hour, so `{now}` follows the clock. Dates and times are Norway's.
+            `countdown` (0.11.0 and later): the days to or since `date`, made on the AP with
+            nothing fetched (its `status.http` is 200 after each run), as values in the fields of
+            a layout.
+            `rss` (0.11.0 and later): the newest headlines of an RSS 2.0 or Atom feed at `url`, as
+            values in the fields of a layout like `met`.
+            `ical` (0.11.0 and later): the next events of an iCalendar (.ics) file at `url`, as
+            values in the fields of a layout like `met`. The file is read as it comes (up to 4 MB),
+            with repeating events, and fetched at most once an hour; the values are made again
+            from it every `every_min`, so what is next follows the clock.
+            `fx` (0.11.0 and later): the exchange rate of `currency` in `in` from Norges Bank (one
+            each business day), with its change and `{chart}`, the last `days` rates for a chart
+            element, as values in the fields of a layout like `met`.
+            `btc` (0.11.0 and later): the price of bitcoin in `currency` from CoinGecko, with its
+            change today and `{chart}`, the last `days` days, as values in the fields of a layout.
+        lat: { type: number, minimum: -90, maximum: 90, description: "`met`: degrees north, kept to 4 decimals" }
+        lon: { type: number, minimum: -180, maximum: 180, description: "`met`: degrees east, kept to 4 decimals" }
+        url:
+          type: string
+          maxLength: 159
+          pattern: "^(https?|webcal)://[^/\\s]+\\S*$"
+          description: |
+            `image`: where the PNG is, `http://` or `https://` (a certificate from the usual
+            public authorities). Fetched with `If-Modified-Since`, so a picture that did not
+            change costs a 304; a picture that comes back the same is not sent to the tags again.
+            `rss`: the feed's address, the same rules. Of a longer feed the first 128 KB are read.
+            `ical`: the calendar's address, the same rules, or `webcal://` (kept as `https://`; the
+            other types take only `http://` and `https://`).
+            A calendar's secret address is shown by `GET /api/sources` to anyone who may read it.
+        area: { type: string, enum: [NO1, NO2, NO3, NO4, NO5], description: "`power`: the price area (NO1 Oslo, NO2 Kristiansand, NO3 Trondheim, NO4 Tromsø, NO5 Bergen)" }
+        date: { type: string, pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}$", description: "`countdown`: the local date counted to, 1900 to 2100" }
+        time: { type: string, pattern: "^[0-9]{2}:[0-9]{2}$", description: "`countdown`: a local time on `date`: the last day counts down in hours and minutes. Left out: the date's whole day" }
+        yearly: { type: boolean, default: false, description: "`countdown`: count to the next time the date comes round (29 February is 28 February in other years); `{years}` gives how many years it will be since `date`" }
+        currency: { type: string, description: "`fx`: the currency shown, 3 letters (`USD`; kept in capitals). `btc`: what the price is given in, as CoinGecko names it, 3 to 5 letters (`nok`, the default; kept in small letters)" }
+        in: { type: string, pattern: "^[A-Za-z]{3}$", default: NOK, description: "`fx`: the currency the rate is given in; another than NOK is worked out from both NOK rates of the day" }
+        days: { type: integer, default: 30, description: "`fx`: the rates in `{chart}`, 5 to 30, one each business day. `btc`: the days in `{chart}`, 7 to 30, and the price now" }
+        unit: { type: integer, enum: [1, 100], description: "`fx`: the price of one or of a hundred of `currency`. Left out: a hundred when one is worth less than 0.1" }
+        vat: { type: boolean, description: "`power`: add 25 % VAT to the prices; by default true, except in NO4 (no VAT on electricity in Northern Norway)" }
+        dither: { type: boolean, default: false, description: "`image`: dither grey and colour (photos), as `?dither=true` on `PUT /api/tags/{mac}/image`" }
+        place: { type: string, maxLength: 32, default: "", description: "The place's name (`met`), or the name of what is counted to (`countdown`): value `{place}` (at most 32 bytes of UTF-8)" }
+        lang: { type: string, enum: [nb, en], default: nb, description: "The language of `{desc}` and `{dir}` (`met`), of the decimal mark and `{level}` (`power`), and of the decimal mark and the words of `fx` and `btc` (`{day}`, `{today}`, `{period}`)" }
+        every_min: { type: integer, minimum: 1, maximum: 1440, description: "Minutes between fetches. `met`: at least and by default 30, never before the last answer's `Expires`. `image`: at least and by default 5. `power`: at least and by default 15, at :00, :15, :30 and :45. `countdown`: at least and by default 1 (a tag only wakes when its text changed). `rss`: at least and by default 15. `ical`: at least and by default 15, at whole multiples of it (the values; the calendar is fetched at most once an hour). `fx`: at least and by default 60. `btc`: at least and by default 15" }
         layout:
           type: string
           description: |
-            A layout in the layout file of each tag's model, or `text` (built in, four lines).
+            `met`, `power`, `countdown`, `rss`, `ical`, `fx` and `btc`: a layout in the layout file of each tag's model, or `text` (built in, four lines).
             A tag whose model has no such layout, or whose content does not fit it, is
             counted in `tags_failed` and keeps what it shows.
         fields:
@@ -2577,7 +3224,7 @@ components:
           items: { type: string, maxLength: 48 }
           description: |
             The content's fields, each a template of text and `{value}`s (`types.met.values`
-            in `GET`). Left out: `types.met.fields`, the fields of the weather template.
+            in `GET`). Left out: `types.<type>.fields` (for `met`, the fields of the weather template).
         tags:
           type: array
           maxItems: 32
@@ -2621,7 +3268,7 @@ components:
     Source:
       allOf:
         - { $ref: "#/components/schemas/SourceConfig" }
-      required: [id, type, lat, lon, place, lang, every_min, layout, fields, tags, status]
+      required: [id, type, place, lang, every_min, tags, status]
 
     SourcesReply:
       type: object
@@ -2647,6 +3294,29 @@ components:
       required: [refreshing]
       properties:
         refreshing: { type: integer, minimum: 0, description: "The number of sources" }
+
+    DrawRequest:
+      type: object
+      additionalProperties: false
+      required: [layout]
+      properties:
+        layout:
+          $ref: "#/components/schemas/Layout"
+          description: One layout as in a layout file; its `name` may be left out
+        icons:
+          type: object
+          maxProperties: 16
+          description: Small pictures that `icon` elements draw, by name, as in a layout file
+          propertyNames: { pattern: "^[a-z][a-z0-9_]{0,15}$" }
+          additionalProperties: { $ref: "#/components/schemas/Icon" }
+        fields:
+          description: The text of the layout's fields, by position or by name, as for `PUT /api/tags/{mac}`
+          oneOf:
+            - type: array
+              maxItems: 16
+              items: { type: [string, "null"] }
+            - type: object
+              additionalProperties: { type: [string, "null"] }
 
     LayoutFile:
       type: object
@@ -2725,13 +3395,22 @@ components:
       properties:
         type:
           type: string
-          enum: [text, rect, barcode, line, icon, qr]
+          enum: [text, rect, barcode, line, icon, qr, ellipse, polygon]
           description: |
             `text`: one field in a box; `rect`: a box, filled or only its border; `barcode`: one
             field as a barcode; `line`: a straight line; `icon`: one of the file's `icons`, named in the layout or by a field; `qr`: one
-            field as a QR code (black, with a white quiet zone of 2 modules inside the box)
+            field as a QR code (black, with a white quiet zone of 2 modules inside the box);
+            `ellipse`: an ellipse filling the box (a circle when `w` = `h`), filled or only its
+            border; `polygon`: 3 to 8 `points` in the box, filled or only its border (a
+            triangle has 3). An AP with 0.10.x or older refuses a file with an ellipse or polygon
         radius: { type: integer, minimum: 0, default: 0, description: "rect only: corner radius in pixels, at most half the shorter side" }
-        border: { type: integer, minimum: 0, default: 0, description: "rect only: 0 = filled, else only a border this many pixels wide (at most half the shorter side)" }
+        border: { type: integer, minimum: 0, default: 0, description: "rect, ellipse and polygon: 0 = filled, else only a border this many pixels wide, inside the shape (at most half the shorter side of the box)" }
+        points:
+          type: array
+          minItems: 3
+          maxItems: 8
+          items: { type: array, items: { type: integer, minimum: 0 }, minItems: 2, maxItems: 2 }
+          description: "polygon only: its corners in order, each [x, y] in pixels from the top-left of the box (x below w, y below h); edges may cross (even-odd: what is inside twice is left out)"
         direction:
           type: string
           enum: [down, up]

@@ -11,7 +11,7 @@ A step whose tools are missing is skipped and says what it needs.
 
 ## Setting up
 
-- **Linux or WSL:** run `tools/dev/setup.sh` once. It installs SDCC 4.5.0, Emscripten 3.1.74 (and Node 22 if needed) and the Python packages. The AP is built with ESP-IDF v5.5.5 if it is active in the shell, otherwise in the `espressif/idf:v5.5.5` Docker image.
+- **Linux or WSL:** run `tools/dev/setup.sh` once. It installs SDCC 4.5.0, Emscripten 3.1.74 (and Node 22 if needed) and the Python packages in `tools/dev/requirements.txt`. The AP is built with ESP-IDF v5.5.5 if it is active in the shell, otherwise in the `espressif/idf:v5.5.5` Docker image.
 - **Windows or macOS:** with Docker Desktop running, `python tools/check.py --docker` runs every step in one image with all the tools.
 
 ## The parts one by one
@@ -26,7 +26,7 @@ A step whose tools are missing is skipped and says what it needs.
 ## Flashing what you built
 
 - **AP:** `idf.py -B build-<board> -p /dev/ttyACM0 flash monitor` keeps the AP's data, like the web page. See [Flashing the AP](Flashing-the-access-point).
-- **Label:** with the jig and flash-tui, or over the air with `esl_client.py tag-ota tag/build/fw/openesl-ota.bin`.
+- **Label:** with the jig and flash-tui, or over the air with `esl_client.py tag-ota tag/build/fw/openesl-ota.bin --to <MAC>`.
 
 ## Building with your own settings
 

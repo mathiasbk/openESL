@@ -13,7 +13,7 @@
 |---|---|---|
 | The 8051 core (instructions, standard SFRs, interrupts) | Yes, the Intel MCS-51 documentation | Read the documentation |
 | The SSD16xx display controller (commands, init, OTP LUT) | Yes, datasheet from Solomon Systech | Read the datasheet. Confirm which controller it is (often printed on the FPC cable, otherwise by reading the status/ID register) |
-| Which ZBS243 pins go to the display, EEPROM, battery | Partly, from community research (see Credits in the main README) | Measure with a multimeter from the chip pin to the FPC connector. Note in [kildelogg.md](kildelogg.md) |
+| Which ZBS243 pins go to the display, EEPROM, battery | Partly, from community research (see Credits in the main README) | Measure with a multimeter from the chip pin to the FPC connector. Note in [sources.md](sources.md) |
 | ZBS243-specific registers: clock, GPIO direction, UART, timer, SPI | Partly, from community research (see Credits in the main README) | Public write-ups, experiments, and study of a backup of the original firmware |
 | Radio registers (channel, transmit, receive, RSSI) | Partly, as above | As above. **This is the largest uncertainty in the project.** |
 | Deep sleep and wake-up with timer | Partly, as above | As above, plus measuring current draw |
@@ -38,7 +38,7 @@
 | `image` | Stores the IMG blocks from the AP in the SPI flash, checks the image against its id and streams it to `epd` | `epd`, SPI flash |
 | `ota` | Stores FW blocks in the SPI flash and installs the image through the bootloader ([tag-ota.md](tag-ota.md)) | SPI flash |
 | `radio` | Init, set channel/PAN, send frame, receive frame with timeout, RSSI | Register findings |
-| `proto` | Build POLL/FW_REQ/IMG_REQ, parse IDLE/CONFIG/FW/IMG ([protokoll.md](protokoll.md)) | `radio`, `shared/proto.h` |
+| `proto` | Build POLL/FW_REQ/IMG_REQ, parse IDLE/CONFIG/FW/IMG ([protocol.md](protocol.md)) | `radio`, `shared/proto.h` |
 | `battery` | Voltage from the display controller's voltage detector (100 mV steps, once every 60 POLLs); 0 = unknown on the ST-GM16XX2 (issue #4) | Register findings |
 | `main` | State machine: start-up → start-up screen → loop {wake, POLL, handle, sleep} | Everything |
 
@@ -49,7 +49,7 @@
 - The display must be put into deep sleep after drawing, or it will drain the battery.
 
 ## Multiple tag sizes: 2.9" and 1.54" (requirements G6, T19)
-- The 1.54" (ST-GM16XX2) is 200×200, black/white only (reported from hardware inspection). The display controller and pins are confirmed in phase 0 in the same way as for the 2.9", and noted in [kildelogg.md](kildelogg.md). Like the 2.9" it has no red, so only the black/white plane is sent.
+- The 1.54" (ST-GM16XX2) is 200×200, black/white only (reported from hardware inspection). The display controller and pins are confirmed in phase 0 in the same way as for the 2.9", and noted in [sources.md](sources.md). Like the 2.9" it has no red, so only the black/white plane is sent.
 - Everything that depends on the display is collected in one model description (`shared/models.json`, `tag/src/model.h`): width, height, column height in bytes, controller type, init sequence. `epd`, `draw` and `image` read the values from there and have no fixed numbers for 296×128.
 - One firmware build per model from the same code, selected with a build option (e.g. `MODEL=29` / `MODEL=154`). The model is reported to the AP in POLL (requirement T18).
 
@@ -60,7 +60,7 @@
 - The model is also reported by the tag itself in POLL and shown as `model` in `GET /api/tags`.
 
 ## Layouts (requirements G7, T17)
-- The layouts come from a file made in the design tool, not fixed in the code. The AP compiles the file and draws each tag's whole screen with it; the tag gets only the picture ([protokoll.md](protokoll.md) part 1, "Image transfer", and part 3). The tag firmware has no layout code, no price fonts and no barcode encoder.
+- The layouts come from a file made in the design tool, not fixed in the code. The AP compiles the file and draws each tag's whole screen with it; the tag gets only the picture ([protocol.md](protocol.md) part 1, "Image transfer", and part 3). The tag firmware has no layout code, no price fonts and no barcode encoder.
 - The AP's drawing (`ap/components/esl_core/esl_render.c`) uses the fonts and barcode encoder in `tag/` (`tag/fonts/`, `tag/src/font.c`, `tag/src/barcode.c`), which are compiled into the AP and no longer into the tag, so the screens look as they did when the tags drew them (`sim/reference/` holds their CRCs).
 
 ## Fonts

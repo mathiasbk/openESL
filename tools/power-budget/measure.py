@@ -9,7 +9,7 @@ with the battery life they give:
   python3 tools/power-budget/measure.py ppk2-export.csv --cells 1
   python3 tools/power-budget/measure.py log.csv --time-unit s --current-unit mA
 
-How to take the log: docs/strombudsjett.md, "Measuring a tag". Log at least a few
+How to take the log: docs/power-budget.md, "Measuring a tag". Log at least a few
 poll intervals (ten minutes at 60 s) with the tag on its AP; send it new content once
 during the log to have a display update in it.
 

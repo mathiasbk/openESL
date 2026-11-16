@@ -436,3 +436,36 @@ bool esl_coproc_parser_feed(esl_coproc_parser_t *p, uint8_t b)
     }
     }
 }
+
+/* ---- which link a radio image is for ---- */
+
+#define APP_DESC_AT 32 /* image header (24) + first segment header (8) */
+#define APP_DESC_MAGIC 0xABCD5432u
+#define APP_DESC_PROJECT 48
+
+bool esl_coproc_image_project(const uint8_t *data, size_t len, char *name)
+{
+    name[0] = '\0';
+    if (!data || len < APP_DESC_AT + APP_DESC_PROJECT + ESL_COPROC_PROJECT_MAX)
+        return false;
+    const uint8_t *d = data + APP_DESC_AT;
+    uint32_t magic = (uint32_t)d[0] | (uint32_t)d[1] << 8 | (uint32_t)d[2] << 16 | (uint32_t)d[3] << 24;
+    if (magic != APP_DESC_MAGIC)
+        return false;
+    memcpy(name, d + APP_DESC_PROJECT, ESL_COPROC_PROJECT_MAX);
+    name[ESL_COPROC_PROJECT_MAX] = '\0';
+    return true;
+}
+
+esl_coproc_image_t esl_coproc_image_kind(const uint8_t *data, size_t len, const char *link_project, char *name)
+{
+    char own[ESL_COPROC_PROJECT_MAX + 1];
+    char *n = name ? name : own;
+    if (!esl_coproc_image_project(data, len, n))
+        return ESL_COPROC_IMAGE_UNKNOWN;
+    if (link_project && strcmp(n, link_project) == 0)
+        return ESL_COPROC_IMAGE_RADIO;
+    if (strncmp(n, ESL_COPROC_RADIO_PREFIX, sizeof(ESL_COPROC_RADIO_PREFIX) - 1) == 0)
+        return ESL_COPROC_IMAGE_RADIO_OTHER;
+    return ESL_COPROC_IMAGE_OTHER;
+}

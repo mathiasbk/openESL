@@ -3,7 +3,7 @@
   "version": 1,
   "id": "vare-ean",
   "category": "retail",
-  "title": "Product with EAN barcode",
+  "title": "Product with EAN barcode (Norwegian VAT text)",
   "description": "Brand band with \"inkl. mva\", product name, price, and the EAN-13 barcode with its digits.",
   "tags": ["price", "product", "barcode", "ean"],
   "fields": {

@@ -1,18 +1,35 @@
 menu "OpenESL radio coprocessor"
 
+    choice ESL_COPROC_LINK
+        prompt "Link to the AP host"
+        default ESL_COPROC_LINK_UART
+        help
+            How the radio talks to the AP (docs/ap-radio-link.md): UART pins to an
+            ESP32-S3, or the C6's own USB port to a Linux host running openesl-ap
+            (docs/linux-ap.md). With USB the log goes to the UART pins instead.
+
+        config ESL_COPROC_LINK_UART
+            bool "UART pins (an ESP32-S3 host)"
+        config ESL_COPROC_LINK_USB
+            bool "The built-in USB port, USB Serial/JTAG (a Linux host)"
+    endchoice
+
     config ESL_COPROC_UART_NUM
         int "UART to the AP host"
+        depends on ESL_COPROC_LINK_UART
         range 0 1
         default 1
 
     config ESL_COPROC_TX_GPIO
         int "TX pin (to the host's RX)"
+        depends on ESL_COPROC_LINK_UART
         default 16
         help
             GPIO16 and GPIO17 are marked TX and RX on the ESP32-C6 Super Mini.
 
     config ESL_COPROC_RX_GPIO
         int "RX pin (from the host's TX)"
+        depends on ESL_COPROC_LINK_UART
         default 17
 
 endmenu

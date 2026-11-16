@@ -1,0 +1,291 @@
+{
+ "format": "esl-template",
+ "version": 1,
+ "id": "exchange-rate",
+ "category": "home",
+ "title": "Exchange rate",
+ "description": "Today's exchange rate of a currency with its change since the day before, the highest and lowest of the last days and a chart of them. The AP's data sources fill it from Norges Bank (ESP32-S3 APs), or send the fields yourself.",
+ "tags": [
+  "home",
+  "currency",
+  "exchange rate",
+  "valuta",
+  "fx",
+  "chart",
+  "norges bank"
+ ],
+ "docs": "docs/data-sources.md",
+ "fields": {
+  "title": "The currency and what it is priced in (e.g. USD/NOK)",
+  "value": "The rate (e.g. 9,5325)",
+  "change": "The change since the day before (e.g. -0,0069 (-0,1 %))",
+  "range": "The lowest and highest of the chart (e.g. 9,2278 - 9,6494)",
+  "when": "The day of the rate (e.g. i går, or 12.11.)",
+  "chart": "The rates for the chart: numbers apart by spaces, oldest first (e.g. 9.41 9.47 9.54)"
+ },
+ "variants": {
+  "2.9": {
+   "layout": {
+    "name": "exchange-rate",
+    "description": "The currency pair, the rate large, its change and the chart's lowest and highest; on the right a chart of the last days, the day and the credit to Norges Bank",
+    "fields": [
+     "title",
+     "value",
+     "change",
+     "range",
+     "when",
+     "chart"
+    ],
+    "_sample": [
+     "USD/NOK",
+     "9,5325",
+     "-0,0069 (-0,1 %)",
+     "9,2278 - 9,6494",
+     "i går",
+     "81 87 76 68 72 71 67 68 61 48 54 42 33 29 23 24 22 20 14 9 7 0 4 0 0 15 43 39 52 68 66"
+    ],
+    "elements": [
+     {
+      "type": "text",
+      "field": "title",
+      "x": 6,
+      "y": 2,
+      "w": 140,
+      "h": 24,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "lines": 1,
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "value",
+      "x": 6,
+      "y": 26,
+      "w": 140,
+      "h": 50,
+      "fonts": [
+       "large",
+       "price44",
+       "mid"
+      ],
+      "lines": 1,
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "change",
+      "x": 6,
+      "y": 78,
+      "w": 140,
+      "h": 22,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "lines": 1,
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "range",
+      "x": 6,
+      "y": 102,
+      "w": 140,
+      "h": 22,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "valign": "middle"
+     },
+     {
+      "type": "chart",
+      "field": "chart",
+      "x": 152,
+      "y": 8,
+      "w": 138,
+      "h": 80,
+      "width": 2
+     },
+     {
+      "type": "line",
+      "x": 152,
+      "y": 91,
+      "w": 138,
+      "h": 1
+     },
+     {
+      "type": "text",
+      "field": "when",
+      "x": 152,
+      "y": 93,
+      "w": 138,
+      "h": 17,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "align": "right",
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "text": "Norges Bank",
+      "x": 152,
+      "y": 110,
+      "w": 138,
+      "h": 17,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "align": "right",
+      "valign": "middle"
+     }
+    ]
+   }
+  },
+  "2.9-bwr": {
+   "same_as": "2.9"
+  },
+  "1.54": {
+   "layout": {
+    "name": "exchange-rate",
+    "description": "The currency pair in the band, the rate large and its change, a chart of the last days, its lowest and highest, the day and the credit to Norges Bank",
+    "fields": [
+     "title",
+     "value",
+     "change",
+     "range",
+     "when",
+     "chart"
+    ],
+    "_sample": [
+     "USD/NOK",
+     "9,5325",
+     "-0,0069 (-0,1 %)",
+     "9,2278 - 9,6494",
+     "i går",
+     "81 87 76 68 72 71 67 68 61 48 54 42 33 29 23 24 22 20 14 9 7 0 4 0 0 15 43 39 52 68 66"
+    ],
+    "elements": [
+     {
+      "type": "rect",
+      "x": 0,
+      "y": 0,
+      "w": 200,
+      "h": 30
+     },
+     {
+      "type": "text",
+      "field": "title",
+      "x": 4,
+      "y": 1,
+      "w": 192,
+      "h": 28,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "lines": 1,
+      "align": "center",
+      "valign": "middle",
+      "color": "white"
+     },
+     {
+      "type": "text",
+      "field": "value",
+      "x": 4,
+      "y": 32,
+      "w": 192,
+      "h": 52,
+      "fonts": [
+       "large",
+       "price44",
+       "mid"
+      ],
+      "lines": 1,
+      "align": "center",
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "change",
+      "x": 4,
+      "y": 84,
+      "w": 192,
+      "h": 24,
+      "fonts": [
+       "medium",
+       "small"
+      ],
+      "lines": 1,
+      "align": "center",
+      "valign": "middle"
+     },
+     {
+      "type": "chart",
+      "field": "chart",
+      "x": 8,
+      "y": 112,
+      "w": 184,
+      "h": 46,
+      "width": 2,
+      "fill": "light"
+     },
+     {
+      "type": "line",
+      "x": 8,
+      "y": 161,
+      "w": 184,
+      "h": 1
+     },
+     {
+      "type": "text",
+      "field": "range",
+      "x": 4,
+      "y": 163,
+      "w": 192,
+      "h": 18,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "align": "center",
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "field": "when",
+      "x": 4,
+      "y": 182,
+      "w": 96,
+      "h": 18,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "valign": "middle"
+     },
+     {
+      "type": "text",
+      "text": "Norges Bank",
+      "x": 100,
+      "y": 182,
+      "w": 96,
+      "h": 18,
+      "fonts": [
+       "small"
+      ],
+      "lines": 1,
+      "align": "right",
+      "valign": "middle"
+     }
+    ]
+   }
+  }
+ }
+}

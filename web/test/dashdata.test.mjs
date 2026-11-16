@@ -1,7 +1,7 @@
 // What the dashboard shows (js/dashdata.js), from replies shaped like docs/openapi.yaml.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, tagRadio, radioForgettable, radioWarnings } from "../js/dashdata.js";
+import { fmtAgo, fmtTagFw, fmtBattery, signalSummary, tagState, tagRows, rowCounts, filterRows, healthLine, apFacts, fmtInterval, parsePoll, batteryYears, pollNote, fmtClock, lastCheckin, nextCheckin, decodeTagImage, screenKey, screenErrorFinal, txOptions, parseTx, txWarning, tagRadio, radioForgettable, radioWarnings, mergeTagList, statusItems } from "../js/dashdata.js";
 
 const tag = (mac, extra = {}) => ({
   mac, seen_s_ago: 12, battery_mv: 2950, rssi: -61, fw: 100, model: "2.9", draw_failed: false,
@@ -132,6 +132,9 @@ test("last and next check-in", () => {
   assert.deepEqual([n.text, n.at], ["in 45 s", fmtClock(45, now)]);
   assert.equal(nextCheckin(tag("A", { seen_s_ago: 100, poll_s: 300 }), now).left_s, 200);
   assert.equal(nextCheckin(tag("A", { seen_s_ago: 70 }), now).text, "any moment now");
+  // night mode: the AP told it a longer interval (expect_s), so not late
+  const night = nextCheckin(tag("A", { seen_s_ago: 1200, poll_s: 300, expect_s: 3600 }), now);
+  assert.deepEqual([night.left_s, night.late], [2400, false]);
   const late = nextCheckin(tag("A", { seen_s_ago: 245 }), now);
   assert.deepEqual([late.late, late.text], [true, "3 min late"]);
   // another day: the date too
@@ -237,6 +240,10 @@ test("several radios over WiFi: a line each in the AP facts, and which serves a 
   const lone = apFacts({ fw: "0.1.0", uptime_s: 1, channel: 25, max_tags: 64, poll_s: 60, radio: { connected: false }, radios: [radios[1]] });
   assert.ok(radioForgettable(lone.find(([k]) => k === "Radio (C6)")[2]));
   assert.ok(!radioForgettable({ connected: false }));
+  // the Linux AP: its own radio beside network radios
+  const own = { radio: 0, id: "0000000012345678", channel: 15, tags: 3, connected: true, via: "local", seen_s: 1 };
+  const g = Object.fromEntries(apFacts({ fw: "0.1.0", uptime_s: 1, channel: 15, max_tags: 64, poll_s: 60, radio: own, radios: [own, radios[1]] }));
+  assert.equal(g["Radio 0 (the AP's own, channel 15)"], "answering, last heard 1 s ago · 3 tags");
 });
 
 test("a lost radio: the warning at the top, the AP facts, and the tags line", () => {
@@ -254,6 +261,11 @@ test("a lost radio: the warning at the top, the AP facts, and the tags line", ()
   assert.deepEqual(radioWarnings({ ...cable, radio: { connected: false, via: "uart", lost: false, lost_s: 5 } }, null), []);
   assert.deepEqual(radioWarnings(cable, { ...health, ok: true, radio_lost: 0, radio_problems: [] }), []);
   assert.deepEqual(radioWarnings({ fw: "0.9.2", radio: { connected: false } }, { ok: true, tags: 1 }), []);
+  // a radio over WiFi from before 0.11.0 (#390)
+  const wifi = { fw: "0.11.0", radio: { connected: true, via: "wifi", lost: false, seen_s: 1, fw: 1002 } };
+  assert.deepEqual(radioWarnings(wifi, { ok: true, tags: 1, radio_problems: [], old_radios: [{ radio: 0, id: "000098880E71A3AC", fw: 1002 }] }), [
+    "The radio (C6 over WiFi) has firmware 0.10.2, which cannot pass on the AP id: this AP's own labels show settings pending until it is updated, and it answers the labels of other APs too. Update it to the same firmware version as the AP.",
+  ]);
   const up = { ...cable, radio: { connected: true, via: "uart", lost: false, seen_s: 1, fw: 257 } };
   assert.equal(Object.fromEntries(apFacts(up))["Radio (C6)"], "answering, last heard 1 s ago");
   // several radios over WiFi: which one, and on which channel
@@ -264,4 +276,100 @@ test("a lost radio: the warning at the top, the AP facts, and the tags line", ()
   assert.deepEqual(radioWarnings({ radio: radios[0], radios }, null), [
     "No contact with radio 1 (C6 over WiFi, channel 15) for 2 min: its tags hear nothing from the AP until it answers again. Check that the C6 has power and is on the WiFi.",
   ]);
+});
+
+test("GET /api/tags?since= keeps the tags a reply leaves out (#305)", () => {
+  const seenAt = new Map();
+  const ap = { fw: "0.10.0" };
+  // an AP without since: the reply as it is
+  const old = { ap, tags: [tag("A"), tag("B")] };
+  assert.equal(mergeTagList(null, old, seenAt, 100000), old);
+  assert.equal(mergeTagList(old, old, seenAt, 100000), old);
+  // the whole list first, then only what changed
+  const full = { ap, since: "5eed0001-1", full: true, tags: [tag("A", { seen_s_ago: 10 }), tag("B", { seen_s_ago: null }), tag("C", { seen_s_ago: 0 })] };
+  let list = mergeTagList(null, full, seenAt, 100000);
+  assert.equal(list, full);
+  const ap2 = { fw: "0.10.0", uptime_s: 99 };
+  list = mergeTagList(list, { ap: ap2, since: "5eed0001-2", full: false, tags: [tag("C", { seen_s_ago: 1, battery_mv: 2800 }), tag("D", { seen_s_ago: 2 })] }, seenAt, 125400);
+  assert.equal(list.ap, ap2);
+  assert.equal(list.since, "5eed0001-2");
+  assert.deepEqual(list.tags.map((t) => t.mac), ["A", "B", "C", "D"]); // the order kept, a new tag last
+  assert.equal(list.tags[0].seen_s_ago, 35); // counted on: 10 s + 25.4 s
+  assert.equal(list.tags[1].seen_s_ago, null); // never seen stays never
+  assert.equal(list.tags[2].battery_mv, 2800);
+  assert.equal(list.tags[2].seen_s_ago, 1);
+  // nothing changed: every tag counted on from its own poll, without adding up rounding
+  for (let now = 125400; now <= 225400; now += 10000)
+    list = mergeTagList(list, { ap, since: "5eed0001-2", full: false, tags: [] }, seenAt, now);
+  assert.deepEqual(list.tags.map((t) => t.seen_s_ago), [135, null, 101, 102]);
+  // full again (the AP restarted, a tag deleted): the reply replaces the list
+  const again = { ap, since: "5eed0002-1", full: true, tags: [tag("A", { seen_s_ago: 3 })] };
+  assert.equal(mergeTagList(list, again, seenAt, 230000), again);
+  assert.deepEqual([...seenAt.keys()], ["A"]);
+});
+
+test("labels of other APs (#390): the health line, the list and what adopt does", async () => {
+  const { otherApsLine, otherApsLost, otherApText, adoptText } = await import("../js/dashdata.js");
+  assert.equal(otherApsLine({}), "");
+  assert.equal(otherApsLine({ other_aps: [] }), "");
+  // a neighbour that runs: a neutral line, not a problem
+  const one = { other_aps: [{ ap_id: "1A2B3C4D", tags: 3, polls: 9, seen_s_ago: 120, lost_long: false }] };
+  assert.equal(otherApsLine(one), "Labels of AP 1A2B3C4D are heard here; they belong to that AP.");
+  assert.equal(otherApsLost(one), false);
+  const two = { other_aps: [{ ap_id: "1A2B3C4D", tags: 1, polls: 1, seen_s_ago: 5, lost_long: true }, { ap_id: "00000002", tags: 0, polls: 4, seen_s_ago: 50, lost_long: false }] };
+  assert.equal(otherApsLine(two), "Labels of another AP (1A2B3C4D) poll here and get no answer, and have been without their own AP for over an hour. To take them over, see Settings, Radio.");
+  assert.equal(otherApsLost(two), true);
+  assert.match(otherApText(two.other_aps[0]), /^AP 1A2B3C4D: 1 label lately, last .* ago, lost for over an hour$/);
+  // the AP counts at most 16 labels, shared by all other APs
+  assert.match(otherApText(two.other_aps[1]), /^AP 00000002: some labels lately/);
+  assert.match(otherApText({ ap_id: "00000003", tags: 16, polls: 300, seen_s_ago: 1 }), /^AP 00000003: 16 or more labels lately/);
+  assert.equal(adoptText({ adopt: null }), "");
+  assert.match(adoptText({ adopt: "all", adopt_until: null }), /any other AP .* for 14 days from when the AP knows the time\.$/);
+  assert.match(adoptText({ adopt: "1A2B3C4D", adopt_until: 1800000000 }), /labels of AP 1A2B3C4D .*, until /);
+});
+
+test("status bar (#417)", () => {
+  const ap = { fw: "0.11.0", uptime_s: 3600, channel: 25, max_tags: 1000, table_full: false, poll_s: 0, reset: "poweron" };
+  const by = (items) => Object.fromEntries(items.map((i) => [i.k, i]));
+  assert.deepEqual(statusItems(null), []);
+  // a C6 AP: its own radio, no config or health read
+  let s = by(statusItems({ list: { ap, tags: [tag("A"), tag("B", { content_id: 0, pending: true })] } }));
+  assert.equal(s.radio.text, "Radio ready");
+  assert.equal(s.radio.cls, "ok");
+  assert.equal(s.channel.text, "Ch 25");
+  assert.equal(s.tags.text, "2 tags · 1 new");
+  assert.equal(s.queue.text, "Queue empty"); // a new tag without content waits for nothing
+  assert.equal(s.fw.text, "AP 0.11.0");
+  assert.equal(s.time.text, "Up 1 h 0 min");
+  assert.equal(s.tags.part, "tags");
+  assert.equal(s.fw.part, "firmware");
+  // an S3 with its C6 on the cable, a move waiting, tags of another AP, a clock, a tag done
+  const now = Date.now();
+  s = by(statusItems({
+    list: { ap: { ...ap, radio: { connected: true, via: "uart", fw: 1000 }, time: 1763236800, scheduled: 2, max_scheduled: 64 },
+            tags: [tag("A", { pending: true }), tag("B", { fw_update: { version: "0.3.0" } }), tag("C", { config_pending: true })] },
+    config: { channel: 25, channel_next: 15, tx_power: 8 },
+    health: { radio_problems: [], other_aps: [{ ap_id: "1A2B3C4D", tags: 3 }] },
+  }, 60, { mac: "A", at: now - 120000 }, now));
+  assert.equal(s.radio.text, "Radio ready");
+  assert.equal(s.channel.text, "Ch 25 → 15 · 8 dBm");
+  assert.equal(s.channel.cls, "warn");
+  assert.equal(s.tags.text, "3 tags · 3 of other APs");
+  assert.equal(s.queue.text, "Queue 3 · 2 scheduled · last 2 min ago");
+  assert.equal(s.fw.text, "AP 0.11.0 · radio 0.10.0");
+  assert.equal(s.fw.cls, "warn");
+  assert.match(s.time.text, /^Up 1 h 1 min · \d/);
+  // the C6 lost, the table full
+  s = by(statusItems({ list: { ap: { ...ap, table_full: true, radio: { connected: false, lost: true, lost_s: 40 } }, tags: [] },
+                       health: { radio_problems: [{ radio: 0, id: null, via: "uart", problems: ["radio_lost"], lost_s: 40 }] } }));
+  assert.equal(s.radio.text, "Radio lost");
+  assert.equal(s.radio.cls, "bad");
+  assert.equal(s.tags.text, "0 tags · full");
+  assert.equal(s.tags.cls, "bad");
+  // two radios over WiFi, one lost (older firmware: no health radio_problems)
+  s = by(statusItems({ list: { ap: { ...ap, radios: [{ radio: 0, connected: true, fw: 1100, channel: 25 }, { radio: 1, connected: false, lost: true, channel: 15 }] }, tags: [] } }));
+  assert.equal(s.radio.text, "1 of 2 radios lost");
+  assert.equal(s.channel.text, "Ch 25, 15");
+  assert.equal(s.fw.text, "AP 0.11.0 · radio 0.11.0");
+  assert.equal(s.fw.cls, "");
 });

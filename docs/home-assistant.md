@@ -1,5 +1,7 @@
 # Home Assistant: 3D printer status on a tag
 
+> A user guide. The short version, with the calendar and other examples, is the wiki page [Home Assistant](https://github.com/mathiasbk/openESL/wiki/Home-Assistant).
+
 The [OpenESL integration for Home Assistant](https://github.com/mathiasbk/openesl-homeassistant) (install it with HACS) is the easier way: it finds the AP, makes each tag a device with its battery, signal and last check-in, and has the action `openesl.send` in place of the `rest_command` below, with the same `layout` and `fields` (fields by name need integration 0.4.0 or newer and AP firmware newer than 0.9.2). This page shows the way without it; the layouts, limits and battery advice hold for both.
 
 Home Assistant can be a client of the AP's API like any other: it sends the text straight to the AP with `PUT /api/tags/{mac}` ([openapi.yaml](openapi.yaml)) and the built-in layout `text`, four lines of free text. This example shows the status of a 3D printer whose data Home Assistant already has as entities. The same pattern works for any other sensor.
@@ -246,10 +248,10 @@ A picture costs about 5 KB of the AP's NVS per tag (less for one with large area
 
 ## Limits and timing
 
-- **Text:** 4 fields (lines), 252 characters in all after conversion to Latin-1 (256 bytes with the length bytes; 92 and 96 on an AP with 0.9.2 or older; [protokoll.md](protokoll.md) part 2). æøå work; characters the fonts do not have become `?`. Over the limit the AP answers `422` and the tag keeps what it shows.
+- **Text:** 4 fields (lines), 252 characters in all after conversion to Latin-1 (256 bytes with the length bytes; 92 and 96 on an AP with 0.9.2 or older; [protocol.md](protocol.md) part 2). æøå work; characters the fonts do not have become `?`. Over the limit the AP answers `422` and the tag keeps what it shows.
 - **Line width:** about 20 characters per line on the 2.9" before the text drops to a smaller font or is cut with "…". The 1.54" wraps to two lines per field.
 - **When it shows:** the tag polls the AP every 60 s, so a change shows within about a minute plus drawing.
-- **Battery:** the AP compares the content. The same text again gives `changed: false` and the tag does not draw again, which is why the numbers are rounded (5 % and 5 min): a new screen costs power (the image download and the refresh), the same text again does not. A 6-hour print gives about 70 updates, while the power budget ([strombudsjett.md](strombudsjett.md)) assumes about one a day, so for daily use 10 % or 10 min is kinder. Do not lower the tag's `poll_s` for this.
+- **Battery:** the AP compares the content. The same text again gives `changed: false` and the tag does not draw again, which is why the numbers are rounded (5 % and 5 min): a new screen costs power (the image download and the refresh), the same text again does not. A 6-hour print gives about 70 updates, while the power budget ([power-budget.md](power-budget.md)) assumes about one a day, so for daily use 10 % or 10 min is kinder. Do not lower the tag's `poll_s` for this.
 - **"Done at":** changes when the estimate moves, which is an extra redraw. Remove the line if that is too often.
 
 ## Test without the automation

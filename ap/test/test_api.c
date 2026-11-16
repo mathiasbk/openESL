@@ -1,4 +1,5 @@
 #include "tinytest.h"
+#include "esl_clock.h"
 #include "esl_api.h"
 #include <stdlib.h>
 
@@ -19,7 +20,7 @@ static void persist_url(void *ctx, const char *url)
 }
 
 static esl_notify_t notify = {"", NULL, persist_url};
-static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, &notify, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static uint64_t forgot;
 static int forget_radio(void *ctx, uint64_t id)
@@ -46,6 +47,20 @@ static uint32_t json_u32(const char *s, const char *key)
     return p ? (uint32_t)strtoul(p + strlen(key), NULL, 10) : 0;
 }
 
+/* True when the row of mac in a GET /api/tags reply s has ,"layout":<want> (want is JSON) */
+static bool row_layout(const char *s, const char *mac, const char *want)
+{
+    char key[40], lay[64];
+    snprintf(key, sizeof(key), "{\"mac\":\"%s\"", mac);
+    snprintf(lay, sizeof(lay), ",\"layout\":%s}", want);
+    const char *row = strstr(s, key);
+    if (!row)
+        return false;
+    const char *next = strstr(row + 1, "{\"mac\":");
+    const char *l = strstr(row, lay);
+    return l && (!next || l < next);
+}
+
 /* The tag shows the image of content id shown: here the image id is the content id,
    as if the AP had drawn it (esl_image does that on the radio path) */
 static void drawn(uint64_t mac, uint32_t shown)
@@ -58,7 +73,7 @@ static void drawn(uint64_t mac, uint32_t shown)
 static void poll_as_tag(uint64_t mac, uint32_t shown, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, shown, ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {2, 2950, shown, ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
     drawn(mac, shown);
     esl_store_on_poll(&st, mac, &p, -61, now, NULL, reply);
 }
@@ -149,7 +164,7 @@ static void test_put_one(void)
 
     /* model unknown (old firmware sends 0) and a failed drawing */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {1, 2400, 0, ESL_POLL_FLAG_DRAW_FAILED, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0, 0, 0, false, 0};
     esl_store_on_poll(&st, 2, &p, -70, 1000, NULL, reply);
     CHECK_INT(req("GET", "/api/tags/0000000000000002", AUTH, NULL, 1000), 200);
     CHECK(HAS(resp, "\"fw\":1,\"model\":null,\"draw_failed\":true,"));
@@ -360,7 +375,7 @@ static void test_batch_and_list(void)
     CHECK_INT((int)esl_api_radios_lost(&api, 86420000), 1);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86420000), 200);
     CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":0,\"id\":null,\"via\":\"wifi\",\"problems\":[\"radio_lost\"],"
-                    "\"lost_s\":30}],\"ok\":false,"));
+                    "\"lost_s\":30}],\"other_aps\":[],\"old_radios\":[],\"ok\":false,"));
     CHECK(HAS(resp, "\"radio_lost\":1,"));
     /* the C6 on the cable: no address; never connected since boot counts from boot */
     esl_radio_link_t cable = {.uart = true, .id = 0xC60000000077C8ULL};
@@ -372,10 +387,11 @@ static void test_batch_and_list(void)
     cable.up = true;
     cable.seen_ms = 39000;
     cable.ver = 0x0101;
+    cable.no_ap_id = true; /* on the cable the S3 answers, never the C6's cache */
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 40000), 200);
     CHECK(HAS(resp, "\"radio\":{\"connected\":true,\"via\":\"uart\",\"lost\":false,\"seen_s\":1,\"fw\":257}}"));
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 40000), 200);
-    CHECK(HAS(resp, "\"radio_problems\":[],\"ok\":true,"));
+    CHECK(HAS(resp, "\"radio_problems\":[],\"other_aps\":[],\"old_radios\":[],\"ok\":true,"));
     CHECK(HAS(resp, "\"radio_lost\":0,"));
     api.link = &link;
     /* a last-heard time ahead of now (a race with the radio's task) reads as just now */
@@ -403,6 +419,14 @@ static void test_batch_and_list(void)
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86400000), 200);
     CHECK(HAS(resp, "\"radio_problems\":[{\"radio\":2,\"id\":\"00000000C6000002\",\"via\":\"wifi\","
                     "\"problems\":[\"radio_lost\"],\"lost_s\":86400}]"));
+    /* a radio over WiFi from before 0.11.0 answers other APs' tags: listed, ok unchanged */
+    links[0].no_ap_id = true;
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "\"old_radios\":[{\"radio\":0,\"id\":\"00000000C6000001\",\"fw\":3}],\"ok\":false,"));
+    links[2].no_ap_id = true; /* not connected: not listed */
+    CHECK_INT(req("GET", "/api/health", AUTH, NULL, 86400000), 200);
+    CHECK(HAS(resp, "\"old_radios\":[{\"radio\":0,\"id\":\"00000000C6000001\",\"fw\":3}],"));
+    links[0].no_ap_id = links[2].no_ap_id = false;
     /* place 0 is needed even with no radio known there */
     esl_radio_link_t empty[2] = {{0}, {0}};
     api.links = empty;
@@ -444,8 +468,8 @@ static void test_batch_and_list(void)
                     "\"content_error\":null,\"ota\":false,"
                     "\"signal\":{\"rssi\":[-61],\"lost\":[0],\"retry\":[0],\"polls\":1,\"lost_total\":0,"
                     "\"retries\":0,\"tag_rssi\":null,\"tag_lqi\":null},"
-                    "\"image\":true,\"image_id\":null,\"shown_image_id\":0,\"fw_update\":null}"));
-    CHECK(!HAS(resp, "\"layout\"")); /* list has no content */
+                    "\"image\":true,\"image_id\":null,\"shown_image_id\":0,\"fw_update\":null,\"layout\":null}"));
+    CHECK(!HAS(resp, "\"fields\"")); /* list has no content */
 
     /* delete */
     CHECK_INT(req("DELETE", "/api/tags/0000000000ABCDEF", AUTH, NULL, 0), 200);
@@ -467,7 +491,7 @@ static void poll_model(uint64_t mac, uint8_t model, bool images)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_layout_env_t env;
-    esl_poll_t p = {2, 2950, 0, images ? ESL_POLL_F_IMAGE : 0, model, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {2, 2950, 0, images ? ESL_POLL_F_IMAGE : 0, model, true, 0, false, 0, 0, 0, 0, false, 0};
     esl_layouts_env(&layouts, model, &env);
     esl_store_on_poll(&st, mac, &p, -61, 1000, &env, reply);
 }
@@ -489,7 +513,7 @@ static void test_layouts(void)
     CHECK_INT(req("GET", "/api/layouts", AUTH, NULL, 0), 200);
     CHECK_STR(resp, "{\"max_size\":8192,\"max_binary_size\":4096,\"board\":\"host\",\"limits\":{\"runs\":32,"
                     "\"rects\":20,\"lines\":16,\"icons\":8,\"barcodes\":1,\"qrs\":1,\"fileBytes\":4096,"
-                    "\"jsonBytes\":8192,\"fields\":16,\"fixedTextBytes\":64,\"textBytes\":256},\"layouts\":["
+                    "\"jsonBytes\":8192,\"fields\":16,\"fixedTextBytes\":64,\"textBytes\":256,\"shapes\":8,\"polygonPoints\":8},\"layouts\":["
                     "{\"model\":\"2.9\",\"same_as\":null,\"used_by\":[\"2.9\"],\"version\":null,\"size\":0,"
                     "\"binary_size\":0,\"layouts\":[]},"
                     "{\"model\":\"1.54\",\"same_as\":null,\"used_by\":[\"1.54\"],\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]},"
@@ -528,7 +552,7 @@ static void test_layouts(void)
     CHECK(HAS(resp, "{\"model\":\"1.54\",\"same_as\":null,\"used_by\":[\"1.54\"],\"version\":null,\"size\":0,"
                     "\"binary_size\":0,\"layouts\":[]}"));
 
-    /* the file is checked against the model in the URL (krav A13): 422 with where and why */
+    /* the file is checked against the model in the URL (requirement A13 in docs/requirements.md): 422 with where and why */
     CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f29, 0), 422);
     CHECK_STR(resp, "{\"error\":\"model must be \\\"1.54\\\": the file is checked against that screen\"}");
     CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f154, 0), 200);
@@ -541,7 +565,7 @@ static void test_layouts(void)
     CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, wide, 0), 422);
     CHECK_STR(resp, "{\"error\":\"layouts[0].elements[0]: x + w = 296 is past the right edge of the screen (200)\"}");
 
-    /* content naming a layout (krav A14). Model not known yet: any model's file will do */
+    /* content naming a layout (requirement A14). Model not known yet: any model's file will do */
     CHECK_INT(req("PUT", "/api/tags/" MAC1, AUTH,
                   "{\"layout\":\"shelf\",\"fields\":[\"Kaffe\",\"49,90\",\"kr 99,80/kg\",\"Tilbud\"],"
                   "\"price_highlight\":true}", 0), 200);
@@ -562,6 +586,8 @@ static void test_layouts(void)
     const char *only29 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"only-29\","
                          "\"fields\":[\"t\"],\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":2,\"h\":2}]}]}";
     CHECK_INT(req("PUT", "/api/layouts/2.9", AUTH, only29, 0), 200);
+    const char *only29_154 = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"1.54\",\"layouts\":[{\"name\":\"other\","
+                             "\"fields\":[\"t\"],\"elements\":[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":2,\"h\":2}]}]}";
     poll_model(0x154, ESL_MODEL_154, true);
     CHECK_INT(req("PUT", "/api/tags/0000000000000154", AUTH, "{\"layout\":\"only-29\",\"fields\":[]}", 0), 422);
     CHECK_STR(resp, "{\"error\":\"layout \\\"only-29\\\" is not in the layout file for model 1.54\"}");
@@ -573,6 +599,29 @@ static void test_layouts(void)
     CHECK_INT(req("GET", "/api/tags/0000000000000029", AUTH, NULL, 0), 200);
     CHECK(HAS(resp, "\"content_error\":\"the tag cannot show images drawn by the AP (old firmware, or no SPI flash)\""));
     CHECK_INT(req("PUT", "/api/tags/0000000000000029", AUTH, "{\"layout\":\"price\",\"fields\":[]}", 0), 200);
+    /* GET /api/tags names each row's layout (#302, #305): the tag's model's file, or another
+       model's when the model is not known yet, or the content when no file has the name */
+    CHECK_INT(req("PUT", "/api/tags/0000000000000030", AUTH, "{\"layout\":\"text\",\"fields\":[\"a\"]}", 0), 200);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 0), 200);
+    CHECK(row_layout(resp, MAC1, "\"shelf\"")); /* model not known: the 1.54 file */
+    CHECK(row_layout(resp, "0000000000000154", "\"sign\""));
+    CHECK(row_layout(resp, "0000000000000029", "\"price\""));
+    CHECK(row_layout(resp, "0000000000000030", "\"text\""));
+    CHECK_INT(req("GET", "/api/tags?since=0", AUTH, NULL, 0), 200);
+    CHECK(row_layout(resp, "0000000000000154", "\"sign\""));
+    CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, only29_154, 0), 200);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 0), 200);
+    CHECK(row_layout(resp, MAC1, "\"shelf\""));            /* in no file now: from its content */
+    CHECK(row_layout(resp, "0000000000000154", "\"sign\""));
+    CHECK_INT(req("PUT", "/api/layouts/1.54", AUTH, f154, 0), 200);
+    {   /* a picture */
+        esl_content_t pic;
+        esl_set_result_t res;
+        esl_content_init_image(&pic, ESL_MODEL_29, 0x12345678u);
+        CHECK_INT(esl_store_set(&st, 0x31, &pic, &res), ESL_STORE_OK);
+        CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 0), 200);
+        CHECK(row_layout(resp, "0000000000000031", "\"image\""));
+    }
     /* batch: the row is named */
     CHECK_INT(req("PUT", "/api/tags", AUTH,
                   "{\"tags\":[{\"mac\":\"0000000000000154\",\"layout\":\"sign\",\"fields\":[\"a\"]},"
@@ -928,7 +977,7 @@ static void test_config_api(void)
 
     /* the tag polls with CONFIG support: gets CONFIG with next_poll_s = its interval */
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {2, 2950, 0, 0, ESL_MODEL_29, true, 0, false, 0, 0, 0, 0, false, 0};
     CHECK_INT(esl_store_on_poll(&st, 0x00000123456789A8ull, &p, -61, 0, NULL, reply), ESL_CONFIG_LEN);
     CHECK_INT(reply[0], ESL_MSG_CONFIG);
     CHECK_INT(ESL_GET_U16(&reply[ESL_OFF_NEXT_POLL]), 10);
@@ -946,7 +995,7 @@ static void test_config_api(void)
         snprintf(u, sizeof(u), "/api/tags/%016X/config", 0xFFFFFFF0u + i);
         CHECK_INT(req("PUT", u, AUTH, "{\"poll_s\":3600,\"max_poll_s\":3600,\"lost_ap_s\":65535,"
                                       "\"long_poll_s\":65535,\"long_after_min\":65535}", 0), 200);
-        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1, true, 255, 127, 255, 0xFF};
+        esl_poll_t q = {65535, 65535, 4294967295u, 0xFF, ESL_MODEL_154, true, 1, true, 255, 127, 255, 0xFF, false, 0};
         for (unsigned k = 0; k < ESL_LINK_HIST + 1; k++)
             esl_store_on_poll(&st, 0xFFFFFFF0u + i, &q, -128, 0, NULL, reply);
         esl_content_t c;
@@ -1048,7 +1097,7 @@ static void test_webhook_config(void)
     persisted = 0;
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz or channel"));
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id, adopt, night or update_window is required"));
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"webhook\":\"http://192.168.1.10:8080/esl\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":\"http://192.168.1.10:8080/esl\"}");
     CHECK_STR(notify.url, "http://192.168.1.10:8080/esl");
@@ -1158,9 +1207,20 @@ static void clock_set(void *ctx, const char *ntp, const char *tz)
         snprintf(c->tz, sizeof(c->tz), "%s", tz);
 }
 
+static int lang_sets;
+
+static void lang_set(void *ctx, const char *lang)
+{
+    esl_clock_cfg_t *c = ctx;
+    lang_sets++;
+    int l = esl_lang_parse(lang, strlen(lang));
+    snprintf(c->lang, sizeof(c->lang), "%s", lang);
+    esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
+}
+
 static void test_clock_config(void)
 {
-    static esl_clock_cfg_t clock = {"pool.ntp.org", "", "pool.ntp.org", &clock, clock_set};
+    static esl_clock_cfg_t clock = {"pool.ntp.org", "", "pool.ntp.org", &clock, clock_set, NULL, ""};
     esl_store_free(&st);
     esl_store_init(&st, CAP, NULL, 0);
     notify.url[0] = '\0';
@@ -1173,7 +1233,7 @@ static void test_clock_config(void)
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"pool.ntp.org\","
                     "\"builtin_ntp\":\"pool.ntp.org\",\"tz\":null}");
     CHECK_INT(req("PUT", "/api/config", AUTH, "{}", 0), 422);
-    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz or channel"));
+    CHECK(HAS(resp, "poll_s, webhook, tx_power, ntp, tz, lang, channel, ap_id, adopt, night or update_window is required"));
 
     CHECK_INT(req("PUT", "/api/config", AUTH, "{\"ntp\":\"no.pool.ntp.org\",\"tz\":\"CET-1CEST,M3.5.0,M10.5.0/3\"}", 0), 200);
     CHECK_STR(resp, "{\"poll_s\":0,\"builtin_poll_s\":0,\"webhook\":null,\"ntp\":\"no.pool.ntp.org\","
@@ -1217,13 +1277,122 @@ static void test_clock_config(void)
     CHECK(esl_tz_ok("<-03>3", 6));
     CHECK(!esl_tz_ok("Europe/Oslo", 11));
     CHECK(!esl_tz_ok("", 0));
+
+    /* lang: an AP without the setting says so, and its GET has no lang */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"nb\"}", 0), 422);
+    CHECK(HAS(resp, "no language setting"));
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(!HAS(resp, "lang"));
+    clock.set_lang = lang_set;
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    /* not chosen yet: null, so the Dashboard and esl-client keep their own language */
+    CHECK(HAS(resp, "\"tz\":null,\"lang\":null}"));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"nb\"}", 0), 200);
+    CHECK(HAS(resp, "\"lang\":\"nb\"}"));
+    CHECK_INT(lang_sets, 1);
+    CHECK_INT(esl_clock_lang(), ESL_LANG_NB);
+    CHECK_INT(clock_sets, 4); /* lang alone leaves ntp and tz alone */
+    static const char *const bad_lang[] = {"{\"lang\":\"no\"}", "{\"lang\":\"NB\"}", "{\"lang\":\"nb-NO\"}",
+                                           "{\"lang\":1}", "{\"lang\":\"\"}", "{\"lang\":\"nb\",\"tz\":\"x\"}"};
+    for (unsigned i = 0; i < sizeof(bad_lang) / sizeof(bad_lang[0]); i++) {
+        CHECK_INT(req("PUT", "/api/config", AUTH, bad_lang[i], 0), 422);
+    }
+    CHECK(HAS(resp, "tz must be"));
+    CHECK_INT(lang_sets, 1);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"bad\"}", 0), 422);
+    CHECK(HAS(resp, "lang must be null, \\\"en\\\" or \\\"nb\\\""));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"en\"}", 0), 200);
+    CHECK(HAS(resp, "\"lang\":\"en\"}"));
+    CHECK_INT(esl_clock_lang(), ESL_LANG_EN);
+    /* null: not chosen again, English */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":\"nb\"}", 0), 200);
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"lang\":null}", 0), 200);
+    CHECK(HAS(resp, "\"lang\":null}"));
+    CHECK_INT(esl_clock_lang(), ESL_LANG_EN);
+    CHECK_INT(lang_sets, 4);
     api.clock = NULL;
+}
+
+/* Night mode and update window in /api/config (#415) */
+static uint32_t hours_clock;
+static uint32_t hours_now(void *ctx)
+{
+    (void)ctx;
+    return hours_clock;
+}
+
+static void test_hours_config(void)
+{
+    static const esl_store_ops_t ops = {.unix_now = hours_now};
+    /* an AP without a clock has neither, and says nothing of them */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"night\":null}", 0), 422);
+    CHECK(HAS(resp, "this AP has no clock"));
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(!HAS(resp, "night"));
+
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &ops, 300);
+    hours_clock = 1767225600u + 12 * 3600; /* 12:00 UTC */
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"night\":null,\"update_window\":null,\"night_now\":false,\"update_window_open\":true"));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"night\":{\"from\":\"22:00\",\"to\":\"06:30\",\"poll_s\":1800}}", 0), 200);
+    CHECK(HAS(resp, "\"night\":{\"from\":\"22:00\",\"to\":\"06:30\",\"poll_s\":1800},\"update_window\":null,"
+                    "\"night_now\":false,\"update_window_open\":true"));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"update_window\":{\"from\":\"06:00\",\"to\":\"08:00\"}}", 0), 200);
+    CHECK(HAS(resp, "\"night\":{\"from\":\"22:00\",\"to\":\"06:30\",\"poll_s\":1800}," /* kept */
+                    "\"update_window\":{\"from\":\"06:00\",\"to\":\"08:00\"},\"night_now\":false,\"update_window_open\":false"));
+    hours_clock = 1767225600u + 23 * 3600;
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"night_now\":true,\"update_window_open\":false"));
+    /* the tag list says how long each tag may sleep now (the dashboard's next check-in) */
+    poll_as_tag(0x4150, 0, 1000);
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 2000), 200);
+    CHECK(HAS(resp, "\"expect_s\":1800,\"poll_s\":300"));
+    hours_clock = 1767225600u + 7 * 3600;
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"night_now\":false,\"update_window_open\":true"));
+    hours_clock = 0; /* the time not known: neither applies */
+    CHECK_INT(req("GET", "/api/config", AUTH, NULL, 0), 200);
+    CHECK(HAS(resp, "\"night_now\":false,\"update_window_open\":true"));
+
+    /* bad values change nothing */
+    const char *bad[] = {
+        "{\"night\":{\"from\":\"22:00\",\"to\":\"06:00\"}}",
+        "{\"night\":{\"from\":\"22:00\",\"to\":\"06:00\",\"poll_s\":30}}",
+        "{\"night\":{\"from\":\"22:00\",\"to\":\"06:00\",\"poll_s\":3601}}",
+        "{\"night\":{\"from\":\"22:00\",\"to\":\"22:00\",\"poll_s\":600}}",
+        "{\"night\":{\"from\":\"24:00\",\"to\":\"06:00\",\"poll_s\":600}}",
+        "{\"night\":{\"from\":\"22:60\",\"to\":\"06:00\",\"poll_s\":600}}",
+        "{\"night\":{\"from\":\"2200\",\"to\":\"06:00\",\"poll_s\":600}}",
+        "{\"night\":true}",
+        "{\"update_window\":{\"from\":\"06:00\"}}",
+        "{\"update_window\":{\"from\":\"6:00\",\"to\":\"08:00\"}}",
+        "{\"update_window\":{\"from\":\"08:00\",\"to\":\"08:00\"}}",
+        "{\"update_window\":\"06:00-08:00\"}",
+    };
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        CHECK_INT(req("PUT", "/api/config", AUTH, bad[i], 0), 422);
+    esl_hours_t h;
+    esl_store_get_hours(&st, &h);
+    CHECK(h.night_poll_s == 1800 && h.night_from == 22 * 60 && h.night_to == 6 * 60 + 30);
+    CHECK(h.window && h.window_from == 6 * 60 && h.window_to == 8 * 60);
+
+    /* null turns each off */
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"night\":null}", 0), 200);
+    CHECK(HAS(resp, "\"night\":null,\"update_window\":{"));
+    CHECK_INT(req("PUT", "/api/config", AUTH, "{\"update_window\":null}", 0), 200);
+    CHECK(HAS(resp, "\"night\":null,\"update_window\":null,"));
+    CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 3000), 200);
+    CHECK(!HAS(resp, "expect_s")); /* without night mode, as before */
+
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, NULL, 0);
 }
 
 static void poll_flags(uint64_t mac, uint32_t shown, uint16_t battery, uint8_t flags, bool images, uint64_t now)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
-    esl_poll_t p = {2, battery, shown, flags | (images ? ESL_POLL_F_IMAGE : 0), ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {2, battery, shown, flags | (images ? ESL_POLL_F_IMAGE : 0), ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
     drawn(mac, shown);
     esl_layout_env_t env;
     esl_layouts_env(&layouts, ESL_MODEL_29, &env);
@@ -1240,7 +1409,7 @@ static void test_health(void)
     CHECK_INT(req("GET", "/api/health", NULL, NULL, 0), 401);
     CHECK_INT(req("PUT", "/api/health", AUTH, "{}", 0), 405);
     CHECK_INT(req("GET", "/api/health", AUTH, NULL, 0), 200);
-    CHECK_STR(resp, "{\"problems\":[],\"radio_problems\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"radio_lost\":0,\"silent\":0,\"unseen\":0,"
+    CHECK_STR(resp, "{\"problems\":[],\"radio_problems\":[],\"other_aps\":[],\"old_radios\":[],\"ok\":true,\"tags\":0,\"with_problems\":0,\"radio_lost\":0,\"silent\":0,\"unseen\":0,"
                     "\"draw_failed\":0,\"low_battery\":0,\"content_error\":0}");
 
     /* four tags: 1 fine, 2 silent, 3 draw failed + low battery, 4 never seen (from NVS) */
@@ -1258,7 +1427,7 @@ static void test_health(void)
                     "{\"mac\":\"0000000000000002\",\"problems\":[\"silent\"],\"seen_s_ago\":400,\"battery_mv\":2950},"
                     "{\"mac\":\"0000000000000003\",\"problems\":[\"draw_failed\",\"low_battery\"],\"seen_s_ago\":10,\"battery_mv\":2400},"
                     "{\"mac\":\"0000000000000004\",\"problems\":[\"unseen\"],\"seen_s_ago\":null,\"battery_mv\":null}"
-                    "],\"radio_problems\":[],\"ok\":false,\"tags\":4,\"with_problems\":3,\"radio_lost\":0,\"silent\":1,\"unseen\":1,"
+                    "],\"radio_problems\":[],\"other_aps\":[],\"old_radios\":[],\"ok\":false,\"tags\":4,\"with_problems\":3,\"radio_lost\":0,\"silent\":1,\"unseen\":1,"
                     "\"draw_failed\":1,\"low_battery\":1,\"content_error\":0}");
     /* thresholds from the query string: 2 is fine with 600 s, 3's battery is fine below 2400 */
     CHECK_INT(req("GET", "/api/health?silent_s=600&battery_mv=2300", AUTH, NULL, now), 200);
@@ -1500,6 +1669,7 @@ void test_api(void)
     test_webhook_config();
     test_tx_power_config();
     test_clock_config();
+    test_hours_config();
     test_health();
     test_tag_level();
     test_since();

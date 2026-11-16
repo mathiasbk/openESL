@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/designer.css">
   <link rel="stylesheet" href="css/apwizard.css">
+  <link rel="stylesheet" href="css/gallery.css">
   <!-- the kept light/dark choice, before the page is drawn (js/theme.js has the button) -->
   <script>try { var t = localStorage.getItem("openesl.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 </head>
@@ -28,50 +29,63 @@
     </nav>
     <a class="repo" href="https://github.com/mathiasbk/openesl">Source</a>
   </header>
+  <!-- the browser demo (?demo=browser, js/demoap.js): shown by main.js -->
+  <div id="demo-bar" class="demo-bar" role="status" hidden>
+    <strong>Demo</strong>
+    <span>A pretend AP with six tags runs in this page. Nothing is sent to a real AP or kept, and a reload starts over.</span>
+    <a id="demo-leave" href="./">Leave the demo</a>
+  </div>
 
   <!-- ===================== Overview ===================== -->
   <main id="tab-home" class="tab" role="tabpanel">
     <section class="hero">
-      <h2>Open firmware for e-paper shelf labels</h2>
-      <p>OpenESL runs on SoluM ZBS243 tags (2.9" and 1.54", black and white; the 2.9" with red is experimental) and an ESP32 access point: one ESP32-C6 board to start, or an ESP32-S3 with a C6 as its radio for up to about 1000 tags. The access point is a plain HTTP API: any software can put text on a tag by its MAC, and the AP sends it to the tag over 802.15.4 radio. This page has the tools to design the labels and to put the firmware on the hardware, all in the browser.</p>
-      <p id="home-fw" class="muted"></p>
+      <div class="hero-text">
+        <h2>Open firmware for e-paper shelf labels</h2>
+        <p class="lead">Turn SoluM e-paper tags into labels you control. An ESP32 access point sends them your text over radio, and any software can talk to it over plain HTTP.</p>
+        <div class="hero-go">
+          <a class="button primary big" href="#ap">Flash the firmware</a>
+          <a class="button big" href="?demo=browser#dashboard" title="A pretend AP with six tags in this page, no hardware needed">Try the demo</a>
+          <a class="button big" href="https://github.com/mathiasbk/openESL/wiki/">Read the wiki</a>
+          <a class="button big" href="https://github.com/mathiasbk/openesl">GitHub</a>
+        </div>
+        <p id="home-fw" class="muted"></p>
+      </div>
+      <img class="hero-img" src="img/tags-29-and-154.jpg" width="900" height="323" alt="A 2.9 inch and a 1.54 inch tag running OpenESL, showing a price and a QR code">
     </section>
+    <ol class="flow" aria-label="How it works">
+      <li><strong>Flash the AP</strong><span>An ESP32 board over USB, in the browser.</span></li>
+      <li><strong>Flash the tags</strong><span>One by one in a jig, with a D1 mini flasher.</span></li>
+      <li><strong>Send content</strong><span>From the HTTP API, Home Assistant or a CSV file.</span></li>
+    </ol>
     <div class="cards">
-      <a class="card link" href="#design">
-        <h3>Design labels</h3>
-        <p>Lay out text, inverted fields, lines and boxes for each tag model, with a preview drawn by the AP's own code. Save the layout file for the AP.</p>
-        <span class="go">Open the designer</span>
-      </a>
-      <a class="card link" href="#tag">
-        <h3>Flash a tag</h3>
-        <p>Put the OpenESL firmware on a tag in the jig with a ZBS_Flasher. The stock firmware is backed up first and kept in this browser.</p>
-        <span class="go">Open the tag flasher</span>
-      </a>
-      <a class="card link" href="#ap">
-        <h3>Flash the access point</h3>
-        <p>Put the AP firmware on an ESP32-C6, an ESP32-S3 + C6 or another supported board over USB. The page helps you choose.</p>
-        <span class="go">Open the AP flasher</span>
-      </a>
+      <a class="card link" href="#ap"><h3>Flash AP</h3><p>Choose a board and flash it over USB.</p></a>
+      <a class="card link" href="#tag"><h3>Flash tag</h3><p>Back up the stock firmware and flash a tag.</p></a>
+      <a class="card link" href="#design"><h3>Design</h3><p>Lay out labels with a true preview.</p></a>
+      <a class="card link" href="#dashboard"><h3>Dashboard</h3><p>See your AP and its tags.</p></a>
     </div>
-    <section class="card wide">
-      <h3>How it fits together</h3>
-      <ol class="steps">
-        <li><strong>Flash the AP</strong> on an ESP32-C6 (or an S3 + C6) and connect it to your computer or network. The <a href="#setup">Set up</a> tab sets its WiFi and API token over USB.</li>
-        <li><strong>Flash the tags</strong> one by one in the jig. Each tag gets its MAC written to its info page and starts polling the AP.</li>
-        <li><strong>Design the layouts</strong> and upload the layout file to the AP with <code>PUT /api/layouts/{model}</code>. The AP draws each tag's screen from it and sends the image over the radio.</li>
-        <li><strong>Send content</strong> from your own software with <code>PUT /api/tags/{mac}</code>, naming a layout and its fields (see <a href="#api">API</a>).</li>
-        <li><strong>Keep it running:</strong> <code>GET /api/health</code> lists the tags that need attention, and a webhook posts the same report when it changes; <code>"at"</code> schedules prices for a given time; <code>POST /api/ota</code> updates the AP's firmware without a cable, keeping its stored tags; <code>esl-client tag-ota</code> sends new tag firmware to the tags over the radio; <code>esl-client log</code> logs a long-term test; <code>esl-client backup</code> and <code>restore</code> move the stored tags, layout files and settings to a file and onto another AP.</li>
-      </ol>
+    <section class="gallery" aria-labelledby="gallery-h">
+      <h2 id="gallery-h">What you can make</h2>
+      <p class="muted">Every picture below is the screen of a simulated tag: the access point's code drew it and the tag firmware showed it, the same code that runs on real hardware. Start from a template or draw your own layout in the <a href="#design">Designer</a>, send a photo from the <a href="#dashboard">Dashboard</a>, or fill the fields from Home Assistant or a script.</p>
+      <div class="gallery-grid">
+        <figure class="wide"><img src="img/gallery/weather.png" width="596" height="260" loading="lazy" alt="Weather with a symbol that follows the forecast, on a simulated 2.9″ tag"><figcaption>Weather with a symbol that follows the forecast</figcaption></figure>
+        <figure class="wide"><img src="img/gallery/freeform.png" width="596" height="260" loading="lazy" alt="A layout of your own: boxes, round corners, lines and icons, on a simulated 2.9″ tag"><figcaption>A layout of your own: boxes, round corners, lines and icons</figcaption></figure>
+        <figure><img src="img/gallery/photo.png" width="404" height="404" loading="lazy" alt="A photo, dithered by the access point, on a simulated 1.54″ tag"><figcaption>A photo, dithered by the access point</figcaption></figure>
+        <figure><img src="img/gallery/guest-wifi.png" width="404" height="404" loading="lazy" alt="Guest WiFi with a QR code to join, on a simulated 1.54″ tag"><figcaption>Guest WiFi with a QR code to join</figcaption></figure>
+        <figure class="wide"><img src="img/gallery/calendar.png" width="596" height="260" loading="lazy" alt="Your next events from a calendar, on a simulated 2.9″ tag"><figcaption>Your next events from a calendar</figcaption></figure>
+        <figure class="wide"><img src="img/gallery/shelf-red.png" width="596" height="260" loading="lazy" alt="A shelf label with a red bar, on a simulated 2.9″ black/white/red tag"><figcaption>A shelf label with red, on the 2.9″ black/white/red</figcaption></figure>
+        <figure><img src="img/gallery/3d-printer.png" width="404" height="404" loading="lazy" alt="A 3D print's progress, from Home Assistant, on a simulated 1.54″ tag"><figcaption>A 3D print's progress, from Home Assistant</figcaption></figure>
+        <figure class="wide"><img src="img/gallery/product-ean.png" width="596" height="260" loading="lazy" alt="A price with an EAN-13 barcode, on a simulated 2.9″ tag"><figcaption>A price with an EAN-13 barcode</figcaption></figure>
+        <figure class="wide"><img src="img/gallery/meeting-room.png" width="596" height="260" loading="lazy" alt="A meeting room sign, on a simulated 2.9″ tag"><figcaption>A meeting room sign</figcaption></figure>
+        <figure><img src="img/gallery/opening-hours.png" width="404" height="404" loading="lazy" alt="Opening hours on the door, on a simulated 1.54″ tag"><figcaption>Opening hours on the door</figcaption></figure>
+      </div>
     </section>
-    <section class="card wide">
-      <h3>What you need</h3>
-      <ul>
-        <li>Chrome or Edge on a computer for flashing (Web Serial). The designer works in any modern browser.</li>
-        <li>For tags: a Wemos D1 mini with atc1441's ZBS_Flasher, and a pogo-pin jig.</li>
-        <li>For the AP: an ESP32-C6 board with USB (up to about 500 tags), or an ESP32-S3 N16R8 with a C6 as its radio for up to about 1000 tags. The ESP32-C5 is experimental.</li>
-      </ul>
-      <p class="muted">Setting up and running the AP: the <a href="https://github.com/mathiasbk/openESL/wiki/">wiki</a>. API documentation: the <a href="#api">API</a> tab. Source and the radio protocol: <a href="https://github.com/mathiasbk/openesl">github.com/mathiasbk/openesl</a>.</p>
-    </section>
+    <p class="home-links muted">
+      <a href="https://github.com/mathiasbk/openESL/wiki/What-you-need">What you need</a> ·
+      <a href="https://github.com/mathiasbk/openESL/wiki/How-it-works">How it works</a> ·
+      <a href="#api">API</a> ·
+      <a href="https://github.com/mathiasbk/openesl-homeassistant">Home Assistant</a> ·
+      <a href="https://github.com/mathiasbk/openesl/releases">Releases</a>
+    </p>
   </main>
 
   <!-- ===================== Design ===================== -->
@@ -130,9 +144,12 @@
         <label class="dz-mpick"><span class="muted">Layout</span><select id="layout-pick" aria-label="Layout"></select></label>
         <div class="dz-tools" id="add-group" role="toolbar" aria-label="Add">
           <button id="el-add-text" class="tool" title="A field filled in by each update"><b>T</b>Text</button>
-          <button id="el-add-fixed" class="tool" title="A text that is part of the layout, the same on every tag (e.g. inkl. mva)"><b>“A”</b>Fixed text</button>
+          <button id="el-add-fixed" class="tool" title="A text that is part of the layout, the same on every tag (e.g. incl. VAT)"><b>“A”</b>Fixed text</button>
           <button id="el-add-rect" class="tool" title="A filled box; put white text on a black box for an inverted area"><b class="ico-box"></b>Box</button>
           <button id="el-add-hline" class="tool" title="A line 2 px wide; drag its handles to slant it, or set its width and direction in More"><b class="ico-line"></b>Line</button>
+          <button id="el-add-circle" class="tool" title="A circle or ellipse, filled or only its border"><b>●</b>Circle</button>
+          <button id="el-add-triangle" class="tool" title="A triangle or polygon (up to 8 corners), filled or only its border"><b>▲</b>Triangle</button>
+          <button id="el-add-chart" class="tool" title="A line chart of the numbers in a field (e.g. an exchange rate's last 30 days)"><b>∿</b>Chart</button>
           <button id="el-add-icon" class="tool" title="A small picture from a PNG, JPEG, GIF or SVG file (dark pixels are drawn), up to 128 px; an SVG is drawn 64 px on its longer side"><b>◆</b>Icon</button>
           <input type="file" id="icon-file" accept="image/*" hidden>
           <button id="el-add-barcode" class="tool" title="A field as a Code 128 or EAN-13 barcode (one per layout)"><b class="ico-barcode"></b>Barcode</button>
@@ -242,7 +259,7 @@
           </div>
           <div id="ap-usb" hidden>
             <p class="hint">Pick the AP's port in the list the browser shows. Close anything else that uses it first, such as <code>esl_client.py ... serve</code>.</p>
-            <p id="ap-usb-missing" class="warn" hidden>This browser cannot use USB ports. Use Chrome or Edge on a computer, or choose WiFi.</p>
+            <p id="ap-usb-missing" class="warn" hidden>This browser cannot use USB ports. Use Chrome, Edge or Firefox 151+ on a computer, or choose WiFi.</p>
             <div class="buttons tight"><button id="ap-usb-connect" class="primary">Connect over USB</button></div>
           </div>
           <div id="ap-wifi" hidden>
@@ -372,7 +389,7 @@
     </section>
     <section id="dash-conn" class="card wide">
       <h2>AP dashboard</h2>
-      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP with a USB cable (Chrome or Edge on a computer). Over WiFi, open the same dashboard on the AP itself: <a href="http://openesl.local/dashboard"><code>http://openesl.local/dashboard</code></a> (or the AP's IP address). A page on the web may not call an AP on your network, so for WiFi there is the AP's own page, or for developers the bridge in <code>tools/esl-client</code> (<code>esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code>, then connect to <code>http://localhost:8080</code>).</p>
+      <p>The AP's state and every tag, read from its API and refreshed every 10 seconds. Connect to the AP with a USB cable (Chrome, Edge or Firefox 151+ on a computer). Over WiFi, open the same dashboard on the AP itself: <a href="http://openesl.local/dashboard"><code>http://openesl.local/dashboard</code></a> (or the AP's IP address). A page on the web may not call an AP on your network, so for WiFi there is the AP's own page, or for developers the bridge in <code>tools/esl-client</code> (<code>esl_client.py --url http://openesl.local --token &lt;token&gt; serve</code>, then connect to <code>http://localhost:8080</code>).</p>
       <div class="form row">
         <p id="dash-live" class="dash-live" hidden><span id="dash-dot" class="dot"></span> <span id="dash-where"></span> · <span id="dash-updated"></span></p>
         <label>Connect over
@@ -390,12 +407,21 @@
     </section>
 
     <div id="dash-body" hidden>
-      <nav id="dash-views" class="views" aria-label="Dashboard">
-        <button type="button" data-view="overview" aria-pressed="true">Tags and AP</button>
-        <button type="button" data-view="settings" aria-pressed="false">Settings</button>
-      </nav>
-      <div id="dash-overview">
+      <div class="dash-shell">
+        <!-- js/dashnav.js: one part at a time, named by #dashboard/<part>; a column on a wide screen, a bar at the bottom on a phone -->
+        <nav id="dash-nav" class="dash-nav" aria-label="Dashboard">
+          <a href="#dashboard" data-part="tags"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12V4h8l9 9-7 7z"/><circle cx="7.5" cy="8" r="1.3"/></svg><span class="t"><span class="long">Tags</span><small></small></span><b class="badge" hidden></b></a>
+          <a href="#dashboard/layouts" data-part="layouts" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18M9 9v11"/></svg><span class="t"><span class="long">Layouts</span><small></small></span><b class="badge" hidden></b></a>
+          <a href="#dashboard/sources" data-part="sources" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 18h10a4 4 0 0 0 .5-8A6 6 0 0 0 6 9.5 4.3 4.3 0 0 0 7 18z"/></svg><span class="t"><span class="long cut">Data sources</span><span class="short">Sources</span><small></small></span><b class="badge" hidden></b></a>
+          <a href="#dashboard/firmware" data-part="firmware"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/><path d="M9 2v4M15 2v4M9 18v4M15 18v4M2 9h4M2 15h4M18 9h4M18 15h4"/></svg><span class="t"><span class="long">Firmware</span><small></small></span><b class="badge" hidden></b></a>
+          <a href="#dashboard/ap" data-part="ap"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2 9a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16a5 5 0 0 1 6 0"/><circle cx="12" cy="19.5" r="1"/></svg><span class="t"><span class="long cut">Access point</span><span class="short">AP</span><small></small></span><b class="badge" hidden></b></a>
+          <a href="#dashboard/settings" data-part="settings"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg><span class="t"><span class="long">Settings</span><small></small></span><b class="badge" hidden></b></a>
+        </nav>
+        <div class="dash-main">
+      <!-- js/dashboard.js renderStatus(): the AP's state in one line over every part (#417) -->
+      <div id="dash-status" class="dash-status" role="group" aria-label="AP status"></div>
       <p id="dash-radio" class="dash-alert" role="alert" hidden></p>
+      <div class="dash-part" data-part="tags">
       <div id="dash-tiles" class="tiles"></div>
       <section class="card wide">
         <div class="dash-head">
@@ -414,11 +440,11 @@
         </div>
         <div class="table-wrap dash-wrap">
           <table class="dash-tags tag-table" role="table">
-            <thead role="rowgroup"><tr role="row"><th class="sel" role="columnheader"><input type="checkbox" id="st-all" title="Tick every tag in the list" aria-label="Tick every tag in the list"></th><th role="columnheader">State</th><th role="columnheader">Tag</th><th class="opt" role="columnheader">Model</th><th class="opt" role="columnheader">Last seen</th><th class="opt" role="columnheader">Next check-in</th><th class="opt num" role="columnheader">Signal</th><th class="opt num" role="columnheader">Battery</th><th class="opt" role="columnheader">Firmware</th><th class="opt" role="columnheader" title="What the AP draws for the tag's content">Screen</th></tr></thead>
+            <thead role="rowgroup"><tr role="row"><th class="sel" role="columnheader"><input type="checkbox" id="st-all" title="Tick every tag in the list" aria-label="Tick every tag in the list"></th><th role="columnheader">State</th><th role="columnheader">Tag</th><th class="opt" role="columnheader">Model</th><th class="opt" role="columnheader">Last seen</th><th class="opt next" role="columnheader">Next check-in</th><th class="opt num" role="columnheader">Signal</th><th class="opt num" role="columnheader">Battery</th><th class="opt" role="columnheader">Firmware</th><th class="opt" role="columnheader" title="What the AP draws for the tag's content">Screen</th></tr></thead>
             <tbody id="dash-tags" role="rowgroup"></tbody>
           </table>
         </div>
-        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>), a picture, new firmware, or, on an AP that fetches it, the weather.</p>
+        <p id="st-hint" class="hint">Tick tags to send them the AP's address, their own info, the date, your own text (the built-in layout <code>text</code>), a picture, new firmware, or, on an AP that fetches it, the weather, the electricity price, a countdown, news headlines or a calendar.</p>
         <p id="st-forget-msg" class="hint" role="status" hidden></p>
         <form id="st-form" class="st-bar" hidden>
           <h3>Send to the ticked tags</h3>
@@ -430,6 +456,7 @@
               <option value="text">Your own text</option>
               <option value="pic">A picture</option>
               <option value="weather" disabled hidden>The weather (MET Norway)</option>
+              <option value="feed" disabled hidden>Price, countdown, news or calendar</option>
               <option value="fw" disabled hidden>New firmware</option>
             </select></label>
             <label id="st-days-label" hidden>Days <input id="st-days" type="number" min="1" max="31" value="1" title="Today, and the next days at midnight (scheduled on the AP), so this page does not have to stay open"></label>
@@ -481,6 +508,15 @@
             </div>
           </div>
           <div id="st-pics" class="st-pics" hidden></div>
+          <details id="pic-url-box" class="help" hidden>
+            <summary>Or: a PNG the AP fetches from a web address</summary>
+            <p class="muted">The AP fetches it again every few minutes and shows it on the tags, with nothing else running. The PNG must be <span id="pic-url-size">the tags' screen size</span>, and the address must work without a login (Home Assistant serves its <code>www</code> folder at <code>/local/</code>). An address already in use keeps one source: its tags get these settings too.</p>
+            <div class="form row">
+              <label>Address <input id="pic-url" inputmode="url" maxlength="159" autocomplete="off" spellcheck="false" placeholder="http://homeassistant.local:8123/local/chart.png"></label>
+              <label>Every <input id="pic-url-every" type="number" min="5" max="1440" value="10"> min</label>
+              <button type="button" id="pic-url-go" class="small">Fetch it on the AP</button>
+            </div>
+          </details>
           <p id="pic-msg" class="hint" role="status"></p>
           <div class="dlg-buttons">
             <button type="button" id="pic-cancel">Cancel</button>
@@ -513,9 +549,72 @@
             </div>
           </form>
         </dialog>
+        <dialog id="feed-dlg" class="wx-dlg" aria-labelledby="feed-h">
+          <form method="dialog" class="dlg-x"><button aria-label="Close">✕</button></form>
+          <h3 id="feed-h">The AP fills in <span id="feed-n"></span></h3>
+          <form id="feed-form" novalidate>
+            <p class="hint">The AP fetches or works it out by itself and keeps the tags up to date, with nothing else running: on the built-in layout <code>text</code>, or for the exchange rate and bitcoin on their own layout with a chart (added to the tags' layout files when they lack it). A tag only wakes when its text changes.</p>
+            <div class="form">
+              <label>Show <select id="feed-type">
+                <option value="power">Today's electricity price (Norway)</option>
+                <option value="countdown">A countdown to a date</option>
+                <option value="rss">News headlines (RSS or Atom)</option>
+                <option value="ical">The next events of a calendar (.ics)</option>
+                <option value="fx">An exchange rate, with a chart</option>
+                <option value="btc">The bitcoin price, with a chart</option>
+              </select></label>
+              <datalist id="feed-curs">
+                <option value="USD">US dollar</option><option value="EUR">Euro</option><option value="GBP">British pound</option>
+                <option value="SEK">Swedish krona</option><option value="DKK">Danish krone</option><option value="NOK">Norwegian krone</option>
+                <option value="CHF">Swiss franc</option><option value="JPY">Japanese yen</option><option value="PLN">Polish zloty</option>
+                <option value="CAD">Canadian dollar</option><option value="AUD">Australian dollar</option><option value="CNY">Chinese yuan</option>
+                <option value="ISK">Icelandic krona</option><option value="THB">Thai baht</option>
+              </datalist>
+              <div id="feed-fx" class="form" hidden>
+                <label>Currency <input id="feed-cur" list="feed-curs" maxlength="3" autocomplete="off" spellcheck="false" placeholder="USD" title="The currency whose rate is shown: any of Norges Bank's (about 40)"></label>
+                <label>Priced in <input id="feed-in" list="feed-curs" maxlength="3" autocomplete="off" spellcheck="false" value="NOK" title="What the rate is given in; other than NOK, the AP works it out from both NOK rates"></label>
+                <p class="hint">Rates from <a href="https://www.norges-bank.no/en/topics/Statistics/exchange_rates/">Norges Bank</a>, one each business day at about 16:00, with a chart of the last 30.</p>
+              </div>
+              <div id="feed-btc" class="form" hidden>
+                <label>Priced in <input id="feed-btc-cur" list="feed-curs" maxlength="5" autocomplete="off" spellcheck="false" value="NOK" title="The currency the price is given in, as CoinGecko has it"></label>
+                <p class="hint">Prices from <a href="https://www.coingecko.com/">CoinGecko</a>, every 15 minutes, with a chart of the last 30 days.</p>
+              </div>
+              <div id="feed-power" class="form">
+                <label>Price area <select id="feed-area">
+                  <option value="NO1">NO1 Oslo / East</option>
+                  <option value="NO2">NO2 Kristiansand / South</option>
+                  <option value="NO3">NO3 Trondheim / Central</option>
+                  <option value="NO4">NO4 Tromsø / North (no VAT)</option>
+                  <option value="NO5">NO5 Bergen / West</option>
+                </select></label>
+                <label class="check"><input type="checkbox" id="feed-vat" checked> With 25 % VAT</label>
+                <p class="hint">Prices from <a href="https://www.hvakosterstrommen.no/">hvakosterstrommen.no</a>, updated each quarter hour.</p>
+              </div>
+              <div id="feed-countdown" class="form" hidden>
+                <label>Name <input id="feed-place" maxlength="32" autocomplete="off" placeholder="Christmas" title="Shown on the tag"></label>
+                <label>Date <input id="feed-date" type="date" min="1900-01-01" max="2100-12-31"></label>
+                <label>Time <input id="feed-time" type="time" title="Optional: the last day counts down in hours and minutes"></label>
+                <label class="check"><input type="checkbox" id="feed-yearly"> Every year (a birthday, Christmas)</label>
+              </div>
+              <div id="feed-url-box" class="form" hidden>
+                <label>Address <input id="feed-url" inputmode="url" maxlength="159" autocomplete="off" spellcheck="false"></label>
+                <p id="feed-url-hint" class="hint"></p>
+              </div>
+              <label id="feed-lang-label">Words in <select id="feed-lang"><option value="nb">Norwegian</option><option value="en">English</option></select></label>
+            </div>
+            <p id="feed-msg" class="hint" role="status"></p>
+            <div class="dlg-buttons">
+              <button type="button" id="feed-cancel">Cancel</button>
+              <span class="sep"></span>
+              <button type="submit" id="feed-ok" class="primary">Start</button>
+            </div>
+          </form>
+        </dialog>
       </section>
-      <details id="lay-card" class="card wide fold lay" hidden>
-        <summary><h2>Layouts</h2> <span id="lay-sum" class="muted"></span></summary>
+      </div>
+      <div class="dash-part" data-part="layouts" hidden>
+      <section id="lay-card" class="card wide lay" hidden>
+        <div class="part-head"><h2>Layouts</h2> <span id="lay-sum" class="muted"></span></div>
         <div class="lay-head">
           <div id="lay-models" class="seg" role="group" aria-label="Tag model"></div>
           <span class="lay-space"><span id="lay-space" class="muted small"></span> <span id="lay-meter" class="meter"><i></i></span></span>
@@ -574,18 +673,22 @@
           </div>
         </div>
         <p id="lay-msg" class="hint" role="status"></p>
-      </details>
-      <details id="dash-ap-box" class="card wide fold">
-        <summary><h2>Access point</h2> <span id="dash-ap-sum" class="muted"></span></summary>
+      </section>
+      </div>
+      <div class="dash-part" data-part="ap" hidden>
+      <section id="dash-ap-box" class="card wide">
+        <div class="part-head"><h2>Access point</h2> <span id="dash-ap-sum" class="muted"></span></div>
         <dl id="dash-ap" class="facts"></dl>
         <p id="dash-wifi" class="muted"></p>
-      </details>
-      <details id="src-box" class="card wide fold" hidden>
-        <summary><h2>Weather</h2> <span id="src-sum" class="muted"></span></summary>
-        <p class="muted">The AP fetches the forecast for these places from MET Norway every half hour or so, and a tag is only sent something when the weather on it changed. To add a place or give it more tags, tick the tags above and choose Send → <em>The weather</em>. <a href="https://github.com/mathiasbk/openesl/blob/master/docs/data-sources.md">How it works</a></p>
+      </section>
+      </div>
+      <div class="dash-part" data-part="sources" hidden>
+      <section id="src-box" class="card wide" hidden>
+        <div class="part-head"><h2>Data sources</h2> <span id="src-sum" class="muted"></span></div>
+        <p class="muted">What the AP keeps up to date on tags by itself: the weather from MET Norway, a PNG from a web address, the electricity price, a countdown, news headlines or a calendar. A tag is only sent something when what it shows changed. To add one or give it more tags, tick the tags in the Tags list and choose under Send: <em>The weather</em>, <em>A picture</em>, or <em>Price, countdown, news or calendar</em>. <a href="https://github.com/mathiasbk/openesl/blob/master/docs/data-sources.md">How it works</a></p>
         <div class="table-wrap">
           <table class="dash-tags">
-            <thead><tr><th>Place</th><th>Tags</th><th>State</th><th><span class="sr-only">Actions</span></th></tr></thead>
+            <thead><tr><th>Source</th><th>Tags</th><th>State</th><th><span class="sr-only">Actions</span></th></tr></thead>
             <tbody id="src-list"></tbody>
           </table>
         </div>
@@ -594,12 +697,14 @@
         </div>
         <p id="src-msg" class="hint" role="status"></p>
         <p class="hint">Weather data from MET Norway (api.met.no), CC BY 4.0.</p>
-      </details>
-      <details id="dash-fw-box" class="card wide fold">
-        <summary><h2>Firmware</h2> <span id="dash-fw-sum" class="muted"></span></summary>
+      </section>
+      </div>
+      <div class="dash-part" data-part="firmware" hidden>
+      <section id="dash-fw-box" class="card wide">
+        <div class="part-head"><h2>Firmware</h2> <span id="dash-fw-sum" class="muted"></span></div>
         <details class="help">
           <summary>How updates work</summary>
-          <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The arrow next to a tag in the table above updates that tag alone; the arrow next to a model below updates every tag of it, and the bars show how far they are. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start or cannot be reached within three minutes. When this page has a newer release than the AP runs, an arrow-up button next to its version sends the image that fits it (with or without the status screen). Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
+          <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The arrow next to a tag in the Tags list updates that tag alone; the arrow next to a model below updates every tag of it, and the bars show how far they are. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start or cannot be reached within three minutes. When this page has a newer release than the AP runs, an arrow-up button next to its version sends the image that fits it (with or without the status screen). New tag firmware should go to one tag of each model first, and to the rest once that tag has polled 10 times without problems: the table says how far each version is tried, and the page asks before it sends firmware to several tags of a model that no tag has run that long (it counts the polls it sees itself, in this browser, from the first time it sees a tag on the version). Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
         </details>
         <dl id="dash-ota" class="facts"></dl>
         <div class="table-wrap">
@@ -617,11 +722,23 @@
         </div>
         <progress id="fw-progress" max="1" value="0" hidden></progress>
         <p id="fw-msg" class="hint" role="status"></p>
-      </details>
+      </section>
       </div>
-      <section id="dash-settings" class="card wide set-page" hidden>
+      <dialog id="ro-dlg" class="dlg" aria-labelledby="ro-h">
+        <h3 id="ro-h">Try it on one tag first</h3>
+        <p id="ro-text"></p>
+        <div class="dlg-buttons">
+          <button type="button" id="ro-cancel">Cancel</button>
+          <span class="sep"></span>
+          <button type="button" id="ro-all"></button>
+          <button type="button" id="ro-one" class="primary" autofocus></button>
+        </div>
+      </dialog>
+      <div class="dash-part" data-part="settings" hidden>
+      <section id="dash-settings" class="card wide set-page">
         <nav class="set-nav" role="tablist" aria-label="Settings">
           <button type="button" role="tab" id="set-tab-general" data-set="general" aria-selected="true">General<small>Name, time zone, tag interval</small></button>
+          <button type="button" role="tab" id="set-tab-hours" data-set="hours" aria-selected="false" hidden>Hours<small>Night mode, update window</small></button>
           <button type="button" role="tab" id="set-tab-network" data-set="network" aria-selected="false">Network<small>WiFi, webhook, time server</small></button>
           <button type="button" role="tab" id="set-tab-radio" data-set="radio" aria-selected="false" hidden>Radio<small>Channel, transmit power</small></button>
           <button type="button" role="tab" id="set-tab-security" data-set="security" aria-selected="false">Security<small>API token</small></button>
@@ -640,6 +757,13 @@
             <label class="field" id="set-tz-other" hidden><span>POSIX TZ</span>
               <input id="set-tz" spellcheck="false" autocomplete="off" placeholder="CET-1CEST,M3.5.0,M10.5.0/3">
             </label>
+            <label class="field" id="set-lang-field" hidden><span>Dates on tags</span>
+              <select id="set-lang">
+                <option value="">Not chosen: English on the AP, Send text in this browser's language</option>
+                <option value="en">English: Thursday, 29 October 2026</option>
+                <option value="nb">Norsk: Torsdag, 29. oktober 2026</option>
+              </select>
+            </label>
             <p class="field-note"><span id="set-time"></span> <button type="button" id="set-time-now" class="link" hidden title="PUT /api/time: for an AP that cannot reach an NTP server">Set it from this computer</button></p>
             <div class="field"><span>Tags check for news every</span>
               <div class="row">
@@ -651,6 +775,29 @@
             </div>
           </div>
           <div class="savebar"><span id="set-general-msg" class="hint" role="status"></span><button type="button" class="set-undo" hidden>Undo</button><button type="submit" class="primary set-save" hidden>Save</button></div>
+        </form>
+
+        <form id="set-hours" class="set-pane" role="tabpanel" aria-labelledby="set-tab-hours" hidden novalidate>
+          <div class="set-fields">
+            <p class="muted">Times are the AP's own, in the time zone set under General.</p>
+            <div class="field"><label class="check"><input type="checkbox" id="set-night-on"> Night mode: the tags check less often at night</label>
+              <div class="row" id="set-night-times" hidden>
+                <span>from</span><input type="time" id="set-night-from" aria-label="Night starts">
+                <span>to</span><input type="time" id="set-night-to" aria-label="Night ends">
+                <select id="set-night-poll" aria-label="How often tags check at night"></select>
+              </div>
+              <small>Saves battery. A tag keeps its own interval if that is longer, and every tag is back on it by the end of the night. Content scheduled for the night still goes out on time.</small>
+            </div>
+            <div class="field"><label class="check"><input type="checkbox" id="set-win-on"> Update window: new content goes out only in a daily window</label>
+              <div class="row" id="set-win-times" hidden>
+                <span>from</span><input type="time" id="set-win-from" aria-label="Window opens">
+                <span>to</span><input type="time" id="set-win-to" aria-label="Window closes">
+              </div>
+              <small>For example before opening. Outside it a tag keeps what it shows and gets the new content at its first poll in the window; a tag that shows nothing yet gets its first at once. Settings and tag firmware are not held.</small>
+            </div>
+            <p class="field-note" id="set-hours-now" role="status"></p>
+          </div>
+          <div class="savebar"><span id="set-hours-msg" class="hint" role="status"></span><button type="button" class="set-undo" hidden>Undo</button><button type="submit" class="primary set-save" hidden>Save</button></div>
         </form>
 
         <div id="set-network" class="set-pane" role="tabpanel" aria-labelledby="set-tab-network" hidden>
@@ -695,6 +842,14 @@
               </div>
               <small id="set-tx-note"></small>
             </div>
+            <div class="field" id="set-adopt-field" hidden><span>Labels of other APs</span>
+              <div class="row">
+                <select id="set-adopt-sel" aria-label="Take over the labels of another AP"></select>
+                <button type="button" id="set-adopt-go">Apply</button>
+              </div>
+              <small id="set-adopt-note"></small>
+              <ul id="set-adopt-others" class="hint"></ul>
+            </div>
           </div>
           <div class="savebar"><span id="set-radio-msg" class="hint" role="status"></span><button type="button" class="set-undo" hidden>Undo</button><button type="submit" class="primary set-save" hidden>Save</button></div>
         </form>
@@ -725,6 +880,11 @@
                 <label class="check"><input type="checkbox" id="bk-p-tags" checked> Tags</label>
                 <label class="check"><input type="checkbox" id="bk-p-scheduled" checked> Scheduled</label>
               </div>
+              <fieldset id="bk-apid" class="bk-apid" hidden>
+                <legend>This AP is</legend>
+                <label class="check"><input type="radio" name="bk-apid" id="bk-apid-replace" value="replace" checked> In place of the AP the backup came from: its labels come here at once</label>
+                <label class="check"><input type="radio" name="bk-apid" id="bk-apid-copy" value="copy"> A second AP with the same setup: the labels stay with the old AP</label>
+              </fieldset>
               <div class="row"><button id="bk-go" type="button" class="primary">Restore</button><button id="bk-cancel" type="button">Cancel</button></div>
             </div>
             <progress id="bk-progress" max="1" value="0" hidden></progress>
@@ -733,6 +893,9 @@
           </div>
         </div>
       </section>
+      </div>
+        </div>
+      </div>
     </div>
   </main>
 
@@ -740,8 +903,8 @@
   <main id="tab-setup" class="tab" role="tabpanel" hidden>
     <section class="card wide">
       <h2>WiFi and API token over USB</h2>
-      <p>With the AP plugged into this computer, its WiFi and API token can be set from here, without its setup network. Chrome or Edge on a computer is needed (Web Serial). Close anything else that has the AP's port open first, such as <code>esl_client.py ... serve</code>: only one program can use it.</p>
-      <p id="wifi-serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome or Edge on a computer, or the AP's setup network (<a href="https://github.com/mathiasbk/openESL/wiki/WiFi-and-API-token">WiFi and API token</a>).</p>
+      <p>With the AP plugged into this computer, its WiFi and API token can be set from here, without its setup network. Chrome, Edge or Firefox 151+ on a computer is needed (Web Serial). Close anything else that has the AP's port open first, such as <code>esl_client.py ... serve</code>: only one program can use it.</p>
+      <p id="wifi-serial-missing" class="warn" hidden>This browser has no Web Serial. Use Chrome, Edge or Firefox 151+ on a computer, or the AP's setup network (<a href="https://github.com/mathiasbk/openESL/wiki/WiFi-and-API-token">WiFi and API token</a>).</p>
       <div class="buttons">
         <button id="wifi-connect">Connect AP</button>
         <span id="wifi-state" class="muted" role="status"></span>

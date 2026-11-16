@@ -16,6 +16,7 @@ void test_layout(void);
 void test_radio(void);
 void test_rcache(void);
 void test_rhost(void);
+void test_push(void);
 void test_nlink(void);
 void test_wifi(void);
 void test_screen(void);
@@ -28,6 +29,8 @@ void test_png(void);
 void test_source(void);
 void test_clock(void);
 void test_font(void);
+void test_compat(void);
+void test_remote(void);
 
 static const struct {
     const char *name;
@@ -46,8 +49,10 @@ static const struct {
     {"api", test_api},
     {"layout", test_layout},
     {"radio", test_radio},
+    {"remote", test_remote},
     {"rcache", test_rcache},
     {"rhost", test_rhost},
+    {"push", test_push},
     {"nlink", test_nlink},
     {"wifi", test_wifi},
     {"screen", test_screen},
@@ -59,6 +64,7 @@ static const struct {
     {"source", test_source},
     {"clock", test_clock},
     {"font", test_font},
+    {"compat", test_compat},
 };
 
 int main(void)

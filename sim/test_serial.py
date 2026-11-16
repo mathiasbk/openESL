@@ -79,5 +79,38 @@ class SerialChain(unittest.TestCase):
         self.assertEqual(out.returncode, 0, out.stdout + out.stderr)
 
 
+class MoreTags(unittest.TestCase):
+    """serve --tags 3: two more tags, each "esl-sim tag" in a program of its own (one per model
+    in --sims), with their own battery and signal; each gets content and shows it."""
+
+    def test_three_tags(self):
+        sims = [SIM] + [os.path.join(HERE, "build", b, "esl-sim") for b in ("29", "293")
+                        if os.path.exists(os.path.join(HERE, "build", b, "esl-sim"))]
+        sim = subprocess.Popen([SIM, "serve", "--speed", "120", "--tags", "3", "--sims", ",".join(sims[1:] or sims)],
+                               stdout=subprocess.PIPE, text=True)
+        try:
+            first = sim.stdout.readline().split()
+            self.assertEqual(first[:1], ["PTY"])
+            cli = esl_client.SerialClient(first[1], timeout=5)
+            end = time.monotonic() + 15
+            tags = []
+            while time.monotonic() < end and len(tags) < 3:
+                tags = cli.tags()["tags"]
+                time.sleep(0.1)
+            self.assertEqual(len(tags), 3, tags)
+            by_mac = {t["mac"]: t for t in tags}
+            self.assertEqual(by_mac[MAC]["battery_mv"], 2950)
+            other = by_mac["00000123456789A9"]
+            self.assertEqual((other["battery_mv"], other["rssi"]), (3010, -48))
+            for mac in by_mac:
+                r = cli.set_tag(mac, esl_client.content("text", [mac]))
+                self.assertTrue(cli.wait_shown(mac, r["content_id"], timeout_s=10, poll_s=0.1), mac)
+            os.close(cli.fd)
+        finally:
+            sim.terminate()
+            sim.wait()
+            sim.stdout.close()
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

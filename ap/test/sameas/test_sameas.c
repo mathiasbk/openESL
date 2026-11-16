@@ -15,7 +15,7 @@ int tt_checks, tt_failures;
 
 static esl_store_t st;
 static esl_layouts_t layouts;
-static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
+static esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
@@ -40,7 +40,7 @@ static void poll_model(uint64_t mac, uint8_t model)
 {
     uint8_t reply[ESL_MAX_PAYLOAD];
     esl_layout_env_t env;
-    esl_poll_t p = {2, 2950, 0, ESL_POLL_F_IMAGE, model, true, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {2, 2950, 0, ESL_POLL_F_IMAGE, model, true, 0, false, 0, 0, 0, 0, false, 0};
     esl_layouts_env(&layouts, model, &env);
     esl_store_on_poll(&st, mac, &p, -61, 1000, &env, reply);
 }

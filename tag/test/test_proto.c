@@ -8,14 +8,16 @@ static const uint8_t mac[8] = { 0x38, 0x3B, 0xCB, 0xE5, 0x97, 0x01, 0x00, 0x00 }
 
 static void test_build_poll(void)
 {
-    uint8_t p[ESL_POLL_LEN_LINK];
-    static const uint8_t expect[ESL_POLL_LEN_LINK] = {
+    uint8_t p[ESL_POLL_LEN_APID];
+    static const uint8_t expect[ESL_POLL_LEN_APID] = {
         0x01, 0x01, 0x02, 0x01, 0x86, 0x0B, 0x01, 0x52, 0xB7, 0xAD, 0x03, MODEL_CODE,
-        0x34, 0x12, 0xC8, 0x6E, 0x05, 0x01
+        0x34, 0x12, 0xC8, 0x6E, 0x05, 0x03, 0x44, 0x33, 0x22, 0x11
     };
-    CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03, 0x1234, 0xC8, 0x6E, 5, ESL_POLL_LF_RETRY), ESL_POLL_LEN_LINK);
+    CHECK_EQ(proto_build_poll(p, 0x0102, 2950, 0xADB75201ul, 0x03, 0x1234, 0xC8, 0x6E, 5,
+                              ESL_POLL_LF_RETRY | ESL_POLL_LF_LOST_LONG, 0x11223344ul), ESL_POLL_LEN_APID);
     CHECK_EQ(ESL_POLL_OFF_CFG_VER + 2, ESL_POLL_LEN_CFG);
     CHECK_EQ(ESL_POLL_OFF_LINKF + 1, ESL_POLL_LEN_LINK);
+    CHECK_EQ(ESL_POLL_OFF_APID + 4, ESL_POLL_LEN_APID);
     CHECK(memcmp(p, expect, sizeof(expect)) == 0);
 }
 
@@ -116,6 +118,14 @@ static void test_parse_config(void)
     CHECK_EQ(r.cfg_long_poll_s, 7200);
     CHECK_EQ(r.cfg_long_after_min, ESL_CFG_LONG_NEVER);
     CHECK_EQ(r.cfg_channel, 0);
+    CHECK(r.cfg_ap_id == 0);
+
+    /* the AP id (#390), and none from an AP before it (18 bytes) */
+    ESL_PUT_U32(p + ESL_CONFIG_OFF_APID, 0xA1B2C3D4ul);
+    CHECK_EQ(proto_parse_reply(p, n, &r), PROTO_OK);
+    CHECK(r.cfg_ap_id == 0xA1B2C3D4ul);
+    CHECK_EQ(proto_parse_reply(p, ESL_CONFIG_LEN_CHANNEL, &r), PROTO_OK);
+    CHECK(r.cfg_ap_id == 0);
 
     /* the channel; one 802.15.4 does not have reads as the default */
     ESL_PUT_U16(p + ESL_CONFIG_OFF_CHANNEL, 15);
@@ -131,7 +141,7 @@ static void test_parse_config(void)
     CHECK_EQ(proto_parse_reply(p, (uint8_t)(n + 6), &r), PROTO_OK);
     CHECK_EQ(r.cfg_lost_ap_s, ESL_CFG_LOST_AP_NEVER);
     CHECK_EQ(r.cfg_channel, 15);
-    CHECK_EQ(proto_parse_reply(p, (uint8_t)(n - 1), &r), PROTO_OK);   /* without the channel ... */
+    CHECK_EQ(proto_parse_reply(p, ESL_CONFIG_LEN_CHANNEL - 1, &r), PROTO_OK); /* without the channel ... */
     CHECK_EQ(r.cfg_long_poll_s, 7200);                                  /* ... an older AP's 16 bytes */
     CHECK_EQ(r.cfg_channel, 0);
     CHECK_EQ(proto_parse_reply(p, ESL_CONFIG_OFF_LONG_POLL, &r), PROTO_OK); /* and before the long backoff, 12 */
@@ -151,17 +161,17 @@ static void test_parse_config(void)
 
 static void test_build_frame(void)
 {
-    uint8_t payload[ESL_POLL_LEN_LINK];
+    uint8_t payload[ESL_POLL_LEN_APID];
     uint8_t f[128];
     static const uint8_t hdr[ESL_MAC_HDR_LEN] = {
         0x41, 0xC8, 0x07, 0x53, 0x45, 0x00, 0x00,
         0x38, 0x3B, 0xCB, 0xE5, 0x97, 0x01, 0x00, 0x00
     };
-    proto_build_poll(payload, 1, 3000, 0, 0, 0, 0, 0, 0, 0);
-    CHECK_EQ(proto_build_frame(f, 7, ESL_DEFAULT_PAN_ID, mac, payload, ESL_POLL_LEN_LINK),
-             ESL_MAC_HDR_LEN + ESL_POLL_LEN_LINK);
+    proto_build_poll(payload, 1, 3000, 0, 0, 0, 0, 0, 0, 0, 0);
+    CHECK_EQ(proto_build_frame(f, 7, ESL_DEFAULT_PAN_ID, mac, payload, ESL_POLL_LEN_APID),
+             ESL_MAC_HDR_LEN + ESL_POLL_LEN_APID);
     CHECK(memcmp(f, hdr, sizeof(hdr)) == 0);
-    CHECK(memcmp(f + ESL_MAC_HDR_LEN, payload, ESL_POLL_LEN_LINK) == 0);
+    CHECK(memcmp(f + ESL_MAC_HDR_LEN, payload, ESL_POLL_LEN_APID) == 0);
     CHECK_EQ(proto_build_frame(f, 0, ESL_DEFAULT_PAN_ID, mac, payload, ESL_MAX_PAYLOAD + 1), 0);
 }
 

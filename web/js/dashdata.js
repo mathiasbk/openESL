@@ -29,13 +29,13 @@ export function lastCheckin(tag, now = Date.now()) {
   return { text: `${fmtAgo(tag.seen_s_ago)} ago`, at: fmtClock(-tag.seen_s_ago, now) };
 }
 
-// When the tag should poll next: its last poll plus the interval the AP gives it (poll_s,
-// or the tag's own when null). The AP may tell it to come sooner when scheduled content is
+// When the tag should poll next: its last poll plus the interval the AP gave it (expect_s
+// in night mode, else poll_s, or the tag's own when null). The AP may tell it to come sooner when scheduled content is
 // due, so this is the latest it is expected. { left_s, late, text, at }, null when never seen
 export const CHECKIN_GRACE_S = 15; // radio retries and clock drift: not late yet
 export function nextCheckin(tag, now = Date.now()) {
   if (tag.seen_s_ago == null) return null;
-  const left = (tag.poll_s || TAG_BUILTIN_POLL_S) - tag.seen_s_ago;
+  const left = (tag.expect_s || tag.poll_s || TAG_BUILTIN_POLL_S) - tag.seen_s_ago;
   const at = fmtClock(left, now);
   if (left >= 0) return { left_s: left, late: false, text: `in ${fmtAgo(left)}`, at };
   if (-left <= CHECKIN_GRACE_S) return { left_s: left, late: false, text: "any moment now", at };
@@ -162,6 +162,49 @@ export function healthLine(h) {
   return `${who} attention: ${parts.join(", ")}.`;
 }
 
+// Labels of other openESL APs that poll this one and get no answer (#390, GET /api/health
+// other_aps): one line, "" when there are none. Adopt under Settings, Radio takes them over.
+export function otherApsLine(h) {
+  const o = h?.other_aps || [];
+  if (!o.length) return "";
+  const lost = o.filter((a) => a.lost_long);
+  if (!lost.length) {
+    // a neighbour that runs: its labels are heard here, which is fine
+    const aps = o.length === 1 ? `AP ${o[0].ap_id}` : `${o.length} other APs`;
+    return `Labels of ${aps} are heard here; they belong to ${o.length === 1 ? "that AP" : "those APs"}.`;
+  }
+  const aps = lost.length === 1 ? `another AP (${lost[0].ap_id})` : `${lost.length} other APs`;
+  return `Labels of ${aps} poll here and get no answer, and have been without their own AP for over an hour. ` +
+    "To take them over, see Settings, Radio.";
+}
+
+// Whether the other APs' labels are a problem: only those lost for an hour (a neighbour that runs is not)
+export function otherApsLost(h) {
+  return (h?.other_aps || []).some((a) => a.lost_long);
+}
+
+// How many of its labels were heard: the AP counts at most 16, shared by every other AP
+function otherApTags(a) {
+  if (a.tags >= 16) return "16 or more labels";
+  if (!a.tags) return a.polls ? "some labels" : "no labels";
+  return a.tags === 1 ? "1 label" : `${a.tags} labels`;
+}
+
+// One other AP for the adopt list: "AP 1A2B3C4D: 3 labels lately, last 2 min ago"
+export function otherApText(a) {
+  const tags = otherApTags(a);
+  return `AP ${a.ap_id}: ${tags} lately, last ${fmtAgo(a.seen_s_ago)} ago${a.lost_long ? ", lost for over an hour" : ""}`;
+}
+
+// What adopt does now (GET /api/config adopt, adopt_until), "" when it is off
+export function adoptText(c) {
+  if (!c?.adopt) return "";
+  const who = c.adopt === "all" ? "any other AP" : `AP ${c.adopt}`;
+  const until = c.adopt_until ? ` until ${new Date(c.adopt_until * 1000).toLocaleDateString()}`
+    : " for 14 days from when the AP knows the time";
+  return `Taking over the labels of ${who} once they have been without their own AP for an hour,${until}.`;
+}
+
 // The AP's own figures as [label, value] pairs
 export function apFacts(ap, ota) {
   if (!ap) return [];
@@ -176,9 +219,10 @@ export function apFacts(ap, ota) {
   if ("time" in ap) facts.push(["AP time", ap.time ? new Date(ap.time * 1000).toLocaleString() : "not set"]);
   if (ap.max_scheduled) facts.push(["Scheduled", `${ap.scheduled} of ${ap.max_scheduled}`]);
   if (ap.radios?.length > 1) {
-    // several radios over WiFi: one line each, with its channel and the tags it serves
+    // several radios over WiFi: one line each, with its channel and the tags it serves (on the
+    // Linux AP radio 0 is its own, "via":"local")
     for (const r of ap.radios)
-      facts.push([`Radio ${r.radio} (C6, channel ${r.channel})`, `${radioText(r)} · ${r.tags} tag${r.tags === 1 ? "" : "s"}`, r]);
+      facts.push([`Radio ${r.radio} (${r.via === "local" ? "the AP's own" : "C6"}, channel ${r.channel})`, `${radioText(r)} · ${r.tags} tag${r.tags === 1 ? "" : "s"}`, r]);
   } else if (ap.radio) facts.push(["Radio (C6)", radioText(ap.radio), ap.radios?.[0]]);
   return facts;
 }
@@ -204,7 +248,8 @@ export function radioText(r) {
 
 // The radios the AP has lost contact with (the C6 of an S3 AP, on the cable or over WiFi), as one
 // warning each for the top of the dashboard: from GET /api/health "radio_problems", or from "lost" in
-// GET /api/tags. [] when every radio answers, or with firmware that tells neither.
+// GET /api/tags. Then one for each radio over WiFi older than 0.11.0 ("old_radios", #390).
+// [] when every radio answers, or with firmware that tells neither.
 export function radioWarnings(ap, health) {
   let lost = health?.radio_problems;
   if (!lost) {
@@ -224,7 +269,13 @@ export function radioWarnings(ap, health) {
       ? "Check the cable between the S3 and the C6, and that the C6 has power."
       : "Check that the C6 has power and is on the WiFi.";
     return `No contact with ${which}${since}: ${who} from the AP until it answers again. ${fix}`;
-  });
+  }).concat((health?.old_radios || []).map((r) => {
+    const which = several ? `Radio ${r.radio} (C6 over WiFi)` : "The radio (C6 over WiFi)";
+    const fw = r.fw ? ` has firmware ${Math.floor(r.fw / 10000)}.${Math.floor(r.fw / 100) % 100}.${r.fw % 100}, which` : "";
+    return `${which}${fw} cannot pass on the AP id: this AP's own labels show settings pending until it is updated, ` +
+      "and it answers the labels of other APs too. " +
+      "Update it to the same firmware version as the AP.";
+  }));
 }
 
 // Which AP board this is: its name from GET /api/tags (board_name, in firmware after 0.6.0), or for an
@@ -265,7 +316,7 @@ export function parsePoll(text) {
 }
 
 // Years on one CR2450 (a 1.54" tag, one display update a day) for a poll interval, from
-// the table in docs/strombudsjett.md (tools/power-budget); between two rows the nearer one
+// the table in docs/power-budget.md (tools/power-budget); between two rows the nearer one
 const BATTERY_YEARS = [[30, 7.5], [60, 9.3], [120, 10.7], [300, 11.7], [600, 12.1]];
 export function batteryYears(poll_s) {
   const s = poll_s || TAG_BUILTIN_POLL_S;
@@ -391,4 +442,96 @@ export function decodeTagImage({ width, height, red, data }) {
     }
   }
   return { width, height, pixels };
+}
+
+// GET /api/tags?since= (#305): the whole list from a reply that may hold only the tags that
+// changed. prev: the list made last time (null: none). seenAt: mac -> when the tag last
+// polled (ms), kept by the caller between replies, since the AP leaves out a tag whose only
+// change is seen_s_ago going up. An AP without since, or a reply with full: true, gives
+// the whole list as it is. A tag the reply leaves out keeps its row with seen_s_ago counted
+// on from seenAt; a tag it has replaces its row, and a new tag goes last.
+export function mergeTagList(prev, reply, seenAt, now = Date.now()) {
+  const note = (t) => {
+    if (t.seen_s_ago == null) seenAt.delete(t.mac);
+    else seenAt.set(t.mac, now - t.seen_s_ago * 1000);
+  };
+  if (reply.full !== false || !prev) {
+    seenAt.clear();
+    reply.tags.forEach(note);
+    return reply;
+  }
+  const changed = new Map(reply.tags.map((t) => [t.mac, t]));
+  const tags = prev.tags.map((t) => {
+    const c = changed.get(t.mac);
+    if (c) {
+      changed.delete(t.mac);
+      note(c);
+      return c;
+    }
+    const at = seenAt.get(t.mac);
+    return at == null ? t : { ...t, seen_s_ago: Math.max(0, Math.round((now - at) / 1000)) };
+  });
+  for (const t of changed.values()) {
+    note(t);
+    tags.push(t);
+  }
+  return { ...reply, tags };
+}
+
+// The status bar over every part of the dashboard (#417): a few words each on the radio, its
+// channel and power, the tags, what is waiting, the firmware and the AP's clock, all from the
+// replies the dashboard already reads every 10 s (no call of its own: the C6's request budget, #305).
+// `ago_s`: seconds since those replies, so uptime and the clock move on between refreshes;
+// `done`: { mac, at } of the last tag this browser saw fetch its new content, or null.
+// Each item: { k, text, title, cls ("ok", "warn", "bad" or ""), part (the part it opens) }.
+export function statusItems(last, ago_s = 0, done = null, now = Date.now()) {
+  const ap = last?.list?.ap;
+  if (!ap) return [];
+  const { health, config } = last;
+  const tags = last.list.tags || [];
+  const items = [];
+  const radios = ap.radios?.length ? ap.radios : ap.radio ? [{ radio: 0, ...ap.radio }] : [];
+  const lost = health?.radio_problems?.length ?? radios.filter((r) => r.lost ?? !r.connected).length;
+  // an AP whose own chip is the radio has no radio object: it is ready while the AP answers
+  items.push(lost
+    ? { k: "radio", text: radios.length > 1 ? `${lost} of ${radios.length} radios lost` : "Radio lost", cls: "bad", part: "ap",
+        title: "The AP has no contact with its radio: no tag hears it" }
+    : { k: "radio", text: radios.length > 1 ? `${radios.length} radios ready` : "Radio ready", cls: "ok", part: "ap",
+        title: radios.length ? "The AP's radio answers" : "The AP's own radio" });
+  // several radios over WiFi: each serves its own channel
+  const chans = ap.radios?.length > 1 ? [...new Set(ap.radios.map((r) => r.channel))].join(", ") : null;
+  const ch = chans || (config?.channel ?? ap.channel);
+  const move = config?.channel_next ? ` → ${config.channel_next}` : "";
+  const tx = config?.tx_power != null ? ` · ${config.tx_power} dBm` : "";
+  items.push({ k: "channel", text: `Ch ${ch}${move}${tx}`, cls: move ? "warn" : "", part: "settings",
+               title: (move ? `Moving to channel ${config.channel_next} once the tags have confirmed it. ` : "") +
+                      `Radio channel${chans ? "s" : ""} ${ch}` + (tx ? `, transmit power ${config.tx_power} dBm` : "") });
+  // new: polled, but nothing sent to it yet; foreign: tags of other APs that poll here
+  const fresh = tags.filter((t) => !t.content_id).length;
+  const foreign = (health?.other_aps || []).reduce((n, a) => n + (a.tags || 0), 0);
+  const tagText = [`${tags.length} tag${tags.length === 1 ? "" : "s"}`];
+  if (fresh) tagText.push(`${fresh} new`);
+  if (foreign) tagText.push(`${foreign} of other APs`);
+  items.push({ k: "tags", text: tagText.join(" · ") + (ap.table_full ? " · full" : ""), part: "tags",
+               cls: ap.table_full ? "bad" : fresh || foreign ? "warn" : "",
+               title: [fresh ? `${fresh} without content yet` : "", foreign ? `${foreign} tag${foreign === 1 ? "" : "s"} of other APs poll here and get no answer` : "",
+                       ap.table_full ? "The AP has no room for a new tag" : ""].filter(Boolean).join(". ") });
+  // waiting: content, settings or firmware a tag has not fetched yet
+  const waiting = tags.filter((t) => (t.pending && t.content_id) || t.config_pending || t.fw_update).length;
+  const q = [waiting ? `Queue ${waiting}` : "Queue empty"];
+  if (ap.max_scheduled && ap.scheduled) q.push(`${ap.scheduled} scheduled`);
+  if (done) q.push(`last ${fmtAgo(Math.max(0, Math.round((now - done.at) / 1000)))} ago`);
+  items.push({ k: "queue", text: q.join(" · "), part: "tags",
+               title: `Tags that have not fetched their new content, settings or firmware yet: ${waiting}` +
+                      (done ? `. Last tag to fetch new content: ${done.mac}, ${new Date(done.at).toLocaleTimeString()}` : "") });
+  // the radio's firmware only when it is not the AP's own chip; one version per radio otherwise
+  const rfw = [...new Set(radios.filter((r) => r.fw).map((r) => fmtTagFw(r.fw)))];
+  const skew = rfw.some((v) => !String(ap.fw).startsWith(v));
+  items.push({ k: "fw", text: `AP ${ap.fw}` + (rfw.length ? ` · radio ${rfw.join(", ")}` : ""), part: "firmware",
+               cls: skew ? "warn" : "", title: skew ? "The radio runs another version than the AP" : "Firmware" });
+  const up = `Up ${fmtAgo(ap.uptime_s + ago_s)}`;
+  const time = ap.time ? new Date((ap.time + ago_s) * 1000) : null;
+  items.push({ k: "time", text: time ? `${up} · ${time.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : up, part: "ap",
+               title: time ? `AP time ${time.toLocaleString()}` : "time" in ap ? "Running since the last start; the AP does not know the time yet" : "Running since the last start" });
+  return items;
 }

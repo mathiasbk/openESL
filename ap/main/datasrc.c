@@ -27,6 +27,7 @@ static const char *TAG = "datasrc";
 #define NS "cfg"
 #define KEY "sources"
 #define URL_MAX ESL_SOURCE_URL_MAX
+#define BODY_DEADLINE_S 30 /* longest time to read one answer */
 #define IDLE_S 300 /* longest wait between looks at the clock and the sources */
 
 static esl_sources_t *sources; /* about 16 KB: in PSRAM */
@@ -42,6 +43,7 @@ static struct {
     char url[URL_MAX];
     char *body;
     size_t len;
+    uint32_t at; /* when it was fetched, or last answered 304 */
 } cache[ESL_SOURCE_MAX];
 
 static void lock(void *ctx)
@@ -110,17 +112,60 @@ static esp_err_t on_event(esp_http_client_event_t *e)
     return ESP_OK;
 }
 
-/* The length of the host in an https:// URL, for messages */
+/* Where the host starts in an http:// or https:// URL */
+static const char *host_of(const char *url)
+{
+    return url + (strncmp(url, "https://", 8) ? 7 : 8);
+}
+
+/* The length of the host in an http:// or https:// URL, for messages */
 static int host_len(const char *url)
 {
-    const char *h = url + 8, *e = strchr(h, '/');
+    const char *h = host_of(url), *e = strchr(h, '/');
     return e ? (int)(e - h) : (int)strlen(h);
 }
 
+/* Reads the answer piece by piece into a type's reader (a calendar, which can be bigger than
+   ESL_SOURCE_BODY_MAX): its short body into *body, *len. False with err. */
+static bool read_stream(esp_http_client_handle_t c, esl_source_stream_t *st, char **body, size_t *len, char *err,
+                        size_t errlen)
+{
+    char *b = malloc(4096);
+    size_t total = 0;
+    int r = 0;
+    int64_t end = esp_timer_get_time() + (int64_t)BODY_DEADLINE_S * 1000000;
+    bool late = false, over = false;
+    int64_t yielded = esp_timer_get_time();
+    while (b && !(late = esp_timer_get_time() > end) && (r = esp_http_client_read(c, b, 4096)) > 0) {
+        if ((total += (size_t)r) > ESL_SOURCE_STREAM_MAX) {
+            over = true;
+            break;
+        }
+        esl_source_stream_feed(st, b, (size_t)r);
+        /* a fast network and a busy reader: let the idle task run (the task watchdog) */
+        if (esp_timer_get_time() - yielded > 500000) {
+            vTaskDelay(1);
+            yielded = esp_timer_get_time();
+        }
+    }
+    free(b);
+    if (!b || late || over || r < 0) {
+        snprintf(err, errlen,
+                 !b     ? "no memory for the answer"
+                 : late ? "the answer took over %d s"
+                 : over ? "the answer is over %d MB"
+                        : "the answer was cut off",
+                 late ? BODY_DEADLINE_S : ESL_SOURCE_STREAM_MAX >> 20);
+        esl_source_stream_end(st, NULL, NULL, err, 0);
+        return false;
+    }
+    return esl_source_stream_end(st, body, len, err, errlen);
+}
+
 /* GETs url into a new buffer (*body, *len): the HTTP status, 0 when there was no answer
-   (err says why) */
-static int fetch(const char *url, const char *if_modified, heads_t *h, char **body, size_t *len, char *err,
-                 size_t errlen)
+   (err says why). With st, the answer goes through that reader; it is freed either way. */
+static int fetch(const char *url, const char *if_modified, bool prefix, esl_source_stream_t *st, heads_t *h,
+                 char **body, size_t *len, char *err, size_t errlen)
 {
     char ua[80];
     snprintf(ua, sizeof(ua), "openESL/%s github.com/mathiasbk/openESL", esp_app_get_description()->version);
@@ -139,6 +184,8 @@ static int fetch(const char *url, const char *if_modified, heads_t *h, char **bo
     esp_http_client_handle_t c = esp_http_client_init(&cfg);
     if (!c) {
         snprintf(err, errlen, "no memory for the HTTP client");
+        if (st)
+            esl_source_stream_end(st, NULL, NULL, err, 0);
         return 0;
     }
     if (if_modified && if_modified[0])
@@ -147,18 +194,32 @@ static int fetch(const char *url, const char *if_modified, heads_t *h, char **bo
     esp_err_t e = esp_http_client_open(c, 0);
     if (e == ESP_OK && esp_http_client_fetch_headers(c) >= 0) {
         status = esp_http_client_get_status_code(c);
-        if (status == 200 || status == 203) {
+        if (st && (status == 200 || status == 203)) {
+            if (!read_stream(c, st, body, len, err, errlen))
+                status = 0;
+            st = NULL;
+        } else if (status == 200 || status == 203) {
             char *b = heap_caps_malloc(ESL_SOURCE_BODY_MAX, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
             if (!b)
                 b = malloc(ESL_SOURCE_BODY_MAX);
             size_t n = 0;
             int r = 0;
-            while (b && n < ESL_SOURCE_BODY_MAX && (r = esp_http_client_read(c, b + n, ESL_SOURCE_BODY_MAX - n)) > 0)
+            /* timeout_ms is for each read: a server that trickles would hold this task, and
+               with it every other source, so the whole answer has a deadline too. Reads of
+               at most 4 KB, as esp_http_client_read waits until it has all it was asked for */
+            int64_t end = esp_timer_get_time() + (int64_t)BODY_DEADLINE_S * 1000000;
+            bool late = false;
+            while (b && n < ESL_SOURCE_BODY_MAX && !(late = esp_timer_get_time() > end) &&
+                   (r = esp_http_client_read(c, b + n, ESL_SOURCE_BODY_MAX - n < 4096 ? ESL_SOURCE_BODY_MAX - n : 4096)) > 0)
                 n += (size_t)r;
-            if (!b) {
+            if (b && late) {
+                snprintf(err, errlen, "the answer took over %d s", BODY_DEADLINE_S);
+                free(b);
+                status = 0;
+            } else if (!b) {
                 snprintf(err, errlen, "no memory for the answer");
                 status = 0;
-            } else if (r < 0 || n == ESL_SOURCE_BODY_MAX) {
+            } else if (r < 0 || (n == ESL_SOURCE_BODY_MAX && !prefix)) {
                 snprintf(err, errlen, r < 0 ? "the answer was cut off" : "the answer is over %d KB",
                          ESL_SOURCE_BODY_MAX / 1024);
                 free(b);
@@ -170,8 +231,10 @@ static int fetch(const char *url, const char *if_modified, heads_t *h, char **bo
             }
         }
     } else {
-        snprintf(err, errlen, "no answer from %.*s: %s", host_len(url), url + 8, esp_err_to_name(e == ESP_OK ? ESP_FAIL : e));
+        snprintf(err, errlen, "no answer from %.*s: %s", host_len(url), host_of(url), esp_err_to_name(e == ESP_OK ? ESP_FAIL : e));
     }
+    if (st)
+        esl_source_stream_end(st, NULL, NULL, err, 0);
     esp_http_client_close(c);
     esp_http_client_cleanup(c);
     return status;
@@ -186,26 +249,26 @@ static int cache_find(const char *url)
 }
 
 /* Whether a source of the configuration now has this URL */
-static bool url_in_use(const char *url)
+static bool url_in_use(const char *url, uint32_t now)
 {
     char u[URL_MAX];
     bool used = false;
     lock(NULL);
     for (unsigned i = 0; i < sources->n && !used; i++)
-        used = esl_source_url(&sources->cfg[i], u, sizeof(u)) && !strcmp(u, url);
+        used = esl_source_fetch_url(&sources->cfg[i], now, utc_offset, u, sizeof(u)) && !strcmp(u, url);
     unlock(NULL);
     return used;
 }
 
 /* The slot for a new answer from url: its own, an empty one, or one no source uses any more */
-static int cache_slot(const char *url)
+static int cache_slot(const char *url, uint32_t now)
 {
     int k = cache_find(url);
     for (int j = 0; k < 0 && j < ESL_SOURCE_MAX; j++)
         if (!cache[j].body)
             k = j;
     for (int j = 0; k < 0 && j < ESL_SOURCE_MAX; j++)
-        if (!url_in_use(cache[j].url))
+        if (!url_in_use(cache[j].url, now))
             k = j;
     return k < 0 ? 0 : k;
 }
@@ -219,40 +282,96 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
     uint32_t expires = 0, data_at = 0;
     int status = 0;
 
-    if (!esl_source_url(cfg, url, sizeof(url))) {
+    if (esl_source_is_local(cfg)) {
+        /* type "countdown": nothing to fetch, the values come from the clock */
+        if (!esl_source_values(cfg, NULL, 0, now, utc_offset, &values, &data_at, err, sizeof(err))) {
+            esl_sources_done(sources, i, cfg->id, now, 0, 0, NULL, NULL, 0, NULL, err);
+            return;
+        }
+        esl_source_apply(cfg, &values, store, layouts, sources, &result);
+        if (result.error[0])
+            ESP_LOGW(TAG, "%s: %s", cfg->id, result.error);
+        /* 200: it went as a fetch that got data would */
+        esl_sources_done(sources, i, cfg->id, now, 200, 0, NULL, &values, data_at, &result, NULL);
+        return;
+    }
+    if (!esl_source_fetch_url(cfg, now, utc_offset, url, sizeof(url))) {
         esl_sources_done(sources, i, cfg->id, now, 0, 0, NULL, NULL, 0, NULL, "no URL");
         return;
     }
     int k = cache_find(url);
-    bool cached = k >= 0;
+    bool cached = k >= 0, held = false;
+    /* a day's prices do not change, a calendar seldom does: made again from the answer held,
+       asked for again after a while */
+    uint32_t hold = esl_source_hold_s(cfg);
+    if (want_fetch && cached && hold && now - cache[k].at < hold) {
+        want_fetch = false;
+        held = true;
+    }
     if (want_fetch || !cached) {
         char *body;
         size_t len;
-        status = fetch(url, cached ? lm : NULL, &heads, &body, &len, err, sizeof(err));
+        /* a calendar is read as it comes, and asked for whole each time: what it keeps depends
+           on the time of the fetch, so a 304 would keep yesterday's "next" */
+        esl_source_stream_t *st = esl_source_stream_new(cfg, now, utc_offset);
+        if (!st && esl_source_streams(cfg)) {
+            esl_sources_done(sources, i, cfg->id, now, 0, 0, NULL, NULL, 0, NULL, "no memory to read the answer");
+            return;
+        }
+        /* a feed longer than the limit: its start holds the newest items */
+        status = fetch(url, cached && !st ? lm : NULL, esl_source_prefix(cfg), st, &heads, &body, &len, err,
+                       sizeof(err));
         expires = esl_http_date(heads.expires);
         /* MET's terms: spread the requests, not all at the Expires every AP for this place got */
         if (expires)
             expires += esp_random() % 300;
+        /* a picture's server may say it holds for days, and a price's "now" follows the clock:
+           their every_min is what decides */
+        if (esl_source_own_pace(cfg))
+            expires = 0;
         if (status == 200 || status == 203) {
             /* 203: the data is good, but this version of the API is deprecated (it ends about a
                month later): shown as the source's error until then */
             if (status == 203)
                 snprintf(err, sizeof(err), "%.*s says this API version is deprecated (HTTP 203): update the AP",
-                         host_len(url), url + 8);
-            k = cache_slot(url);
+                         host_len(url), host_of(url));
+            k = cache_slot(url, now);
             free(cache[k].body);
             snprintf(cache[k].url, sizeof(cache[k].url), "%s", url);
             cache[k].body = body;
             cache[k].len = len;
+            cache[k].at = now;
         } else if (status == 304 && cached) {
             /* not changed: the last answer again, for the time that has passed since */
+            cache[k].at = now;
         } else {
             if (status)
-                snprintf(err, sizeof(err), "HTTP %d from %.*s", status, host_len(url), url + 8);
+                snprintf(err, sizeof(err), "HTTP %d from %.*s", status, host_len(url), host_of(url));
             ESP_LOGW(TAG, "%s: %s", cfg->id, err);
-            esl_sources_done(sources, i, cfg->id, now, status, expires, NULL, NULL, 0, NULL, err);
+            /* a held answer still gives the values (the error is shown); asked for again at
+               the next run */
+            if (!cached || !hold) {
+                esl_sources_done(sources, i, cfg->id, now, status, expires, NULL, NULL, 0, NULL, err);
+                return;
+            }
+            held = true;
+        }
+    }
+    if (esl_source_is_picture(cfg)) {
+        /* type "image": the answer is the tags' picture */
+        if (!esl_source_values(cfg, cache[k].body, cache[k].len, now, utc_offset, &values, &data_at, err,
+                               sizeof(err))) {
+            ESP_LOGW(TAG, "%s: %s", cfg->id, err);
+            esl_sources_done(sources, i, cfg->id, now, status, expires, heads.last_modified, NULL, 0, NULL, err);
             return;
         }
+        esl_source_apply_body(cfg, cache[k].body, cache[k].len, store, sources, &result);
+        if (result.error[0])
+            ESP_LOGW(TAG, "%s: %s", cfg->id, result.error);
+        ESP_LOGI(TAG, "%s: picture, %u tag(s), %u changed", cfg->id, (unsigned)result.tags_set,
+                 (unsigned)result.tags_changed);
+        esl_sources_done(sources, i, cfg->id, now, status, expires, heads.last_modified, &values, 0, &result, NULL);
+        return;
     }
     if (!esl_source_values(cfg, cache[k].body, cache[k].len, now, utc_offset, &values, &data_at, err, sizeof(err))) {
         ESP_LOGW(TAG, "%s: %s", cfg->id, err);
@@ -267,8 +386,8 @@ static void run(int i, const esl_source_cfg_t *cfg, const char *lm, bool want_fe
              (unsigned)result.tags_set, (unsigned)result.tags_changed);
     if (err[0])
         ESP_LOGW(TAG, "%s: %s", cfg->id, err);
-    esl_sources_done(sources, i, cfg->id, now, status, expires, heads.last_modified, &values, data_at, &result,
-                     err[0] ? err : NULL);
+    esl_sources_done(sources, i, cfg->id, now, held ? ESL_SOURCE_HELD : status, expires, heads.last_modified,
+                     &values, data_at, &result, err[0] ? err : NULL);
 }
 
 static void datasrc_task(void *arg)

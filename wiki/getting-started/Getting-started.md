@@ -1,6 +1,6 @@
 # Getting started
 
-Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. You need the [hardware](What-you-need) and Chrome or Edge on a computer.
+Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. You need the [hardware](What-you-need) and Chrome, Edge or Firefox 151+ on a computer.
 
 Four steps on the web page and one test request take you to the first label. Words you have not seen before are in the [Glossary](Glossary).
 
@@ -48,4 +48,11 @@ Details: [Dashboard](Dashboard).
 
 ## No hardware yet?
 
-The [simulator](https://github.com/mathiasbk/openESL/blob/master/sim/README.md) runs the label firmware and the AP together on a PC, so you can try the API first.
+[Open the demo](https://mathiasbk.github.io/openESL/?demo=browser#dashboard) on the web page: a pretend AP with six labels runs in your browser, so you can try the dashboard and the designer with nothing to install.
+
+For the real firmware, the [simulator](https://github.com/mathiasbk/openESL/blob/master/sim/README.md) runs the label firmware and the AP together on a PC, so you can try the API and the dashboard first. One command in a checkout of the repository starts an AP with six simulated labels and opens the dashboard connected to it:
+
+```
+python3 tools/demo.py            # Linux, macOS or WSL: needs make and a C compiler
+python tools/demo.py --docker    # Windows: needs Docker Desktop
+```

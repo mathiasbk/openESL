@@ -11,7 +11,7 @@
 #include "sdkconfig.h"
 
 /* The link over the chip's own 802.15.4 radio (ESP32-C6, ESP32-C5): the driver
- * for radio.c (docs/ap-firmware.md, Radio).
+ * for radio.c (docs/history/ap-firmware-plan.md, Radio).
  *
  * The receive callback runs in interrupt context: it only copies the frame to
  * radio.c's queue. send() transmits a reply and waits until it is out, sending

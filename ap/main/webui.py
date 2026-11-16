@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """Packs tabs of the web page into the AP firmware, served at /dashboard.
 
-    webui.py WEB_DIR OUT.c [--wasm DIR] [MODULE ...]          (default: dashboard)
+    webui.py WEB_DIR OUT.c [--no-setup] [--wasm DIR] [MODULE ...]          (default: dashboard)
+                                      --no-setup leaves out the link to /setup (WiFi and the
+                                      token), for an AP without that page (ap/linux)
     webui.py --renderer-deps DIR      the files a packed renderer in DIR depends on, one per
                                       line, for ap/main/CMakeLists.txt
+    webui.py --check WEB_DIR          every module packs, and nothing that is only for the web
+                                      page (PAGES_ONLY) is in it (tools/check.py ap-pack)
 
 One page, one source: each module is a tab of WEB_DIR/index.html (MODULES below), and the
 board's Kconfig picks which ones its firmware has room for (ESL_WEB_DASHBOARD,
@@ -12,7 +16,10 @@ also gets the Design tab. The page shows the chosen tabs (js/aptabs.js) and link
 page for the rest; each module's js/ap*.js starts it against the AP's own /api/. The Design
 tab also gets the renderer (render-<build>.js/.wasm per tag model, built by
 `python web/build.py --wasm` into web/dist/wasm/, or the DIR given), so its preview is the
-same code as the firmware and works without the internet. Every file
+same code as the firmware and works without the internet. What only the web page on GitHub
+Pages needs (the browser demo, the gallery, pictures for the README and the front page) is
+never packed: the C6's app slot has little room left (ap/build.py, the flash budget), so
+page_files refuses it (PAGES_ONLY). Every file
 is gzipped (fixed mtime, so the build is reproducible) into a C table that http_api.c serves
 with Content-Encoding: gzip from flash. Run by ap/main/CMakeLists.txt.
 """
@@ -32,40 +39,45 @@ MODULES = {
     "dashboard": {
         "label": "Dashboard",
         "js": ["apdash.js", "dashboard.js", "apclient.js", "apserial.js", "apport.js", "zbs.js", "dashdata.js",
-               "fwupload.js", "sendtext.js", "sendpic.js", "models.js", "apsettings.js", "backup.js", "apreceive.js",
-               "apsources.js", "handoff.js", "aplayouts.js", "layoutapi.js", "layoutinfo.js", "catalog.js", "apfonts.js",
-               "fontmaker.js"],
+               "fwupload.js", "rollout.js", "sendtext.js", "sendpic.js", "models.js", "apsettings.js", "backup.js", "apreceive.js",
+               "apsources.js", "handoff.js", "aplayouts.js", "dashnav.js", "layoutapi.js", "layoutinfo.js", "catalog.js", "apfonts.js",
+               "fontmaker.js", "renderframe.js", "site.js"],
         "css": [],
-        # the Weather template (templates/), which Send -> The weather adds to a layout file
-        # that lacks it (js/apsources.js): the Design tab's catalog is on GitHub Pages
-        "templates": ["home/weather.json"],
+        # the templates (templates/) that Send -> The weather, an exchange rate or the bitcoin
+        # price add to a layout file that lacks them (js/apsources.js): the Design tab's
+        # catalog is on GitHub Pages
+        "templates": ["home/weather.json", "home/exchange-rate.json", "home/bitcoin.json"],
     },
     "design": {
         "label": "Design",
         "js": ["apdesign.js", "editor.js", "history.js", "limits.js", "snap.js", "apclient.js", "renderer.js",
                "models.js", "tplpicker.js", "catalog.js", "apport.js", "apserial.js", "zbs.js", "handoff.js", "layoutinfo.js", "layoutapi.js",
-               "apfonts.js"],
+               "apfonts.js", "site.js"],
         "css": ["designer.css"],
         "examples": True,
         "wasm": True,
     },
 }
+# What only the web page on GitHub Pages needs, never packed into the AP (page_files): the
+# browser demo (js/demoap.js), the gallery (docs/images/gallery/) and pictures in general,
+# which the AP takes from the web page (site_url) when it shows any
+PAGES_ONLY = re.compile(r"demo|gallery", re.I)
+PAGES_ONLY_MIME = ("image/",)
 PAGE = """<!doctype html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>OpenESL AP dashboard</title>
-  <link rel="icon" href="https://mathiasbk.github.io/openESL/img/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="{site}img/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/ui/css/style.css">{css}
   <script>try {{ var t = localStorage.getItem("openesl.theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; }} catch (e) {{}}</script>
 </head>
 <body>
   <header class="top">
     <h1>OpenESL</h1>
-    <nav class="tabs">{tabs}
-      <a href="/setup">WiFi and token</a>
-      <a href="https://mathiasbk.github.io/openESL/">{more}</a>
+    <nav class="tabs">{tabs}{setup}
+      <a href="{site}">{more}</a>
     </nav>
   </header>
 {main}
@@ -91,7 +103,7 @@ def tab_html(index, name):
     return main
 
 
-def page_html(index, modules):
+def page_html(index, modules, setup=True):
     mains = "\n".join(tab_html(index, name) for name in modules)
     # one tab needs no tab buttons; with more, each is a link to #name (js/aptabs.js)
     tabs = "".join(f'\n      <a href="#{name}" data-tab="{name}">{MODULES[name]["label"]}</a>'
@@ -99,7 +111,18 @@ def page_html(index, modules):
     css = "".join(f'\n  <link rel="stylesheet" href="/ui/css/{c}">' for name in modules for c in MODULES[name]["css"])
     scripts = "".join(f'  <script type="module" src="/ui/js/{MODULES[name]["js"][0]}"></script>\n' for name in modules)
     more = "Flashers" if "design" in modules else "Designer and flashers"
-    return PAGE.format(main=mains, tabs=tabs, css=css, scripts=scripts.rstrip("\n"), more=more)
+    link = '\n      <a href="/setup">WiFi and token</a>' if setup else ""
+    return PAGE.format(main=mains, tabs=tabs, setup=link, css=css, scripts=scripts.rstrip("\n"), more=more,
+                       site=site_url())
+
+
+def site_url():
+    """Where the web page is published: SITE in web/js/site.js, the one place a fork changes"""
+    with open(os.path.join(ROOT, "web", "js", "site.js"), encoding="utf-8") as f:
+        m = re.search(r'export const SITE = "(https://[^"]+/)";', f.read())
+    if not m:
+        sys.exit("webui.py: no SITE in web/js/site.js")
+    return m.group(1)
 
 
 def example_layouts():
@@ -152,14 +175,14 @@ def c_bytes(data):
     return ",".join(str(b) for b in data)
 
 
-def page_files(web, modules, wasm=None):
+def page_files(web, modules, wasm=None, renderer=True, setup=True):
     """[(path, MIME type, bytes)] the AP serves for these modules (wasm: where the renderer is,
-    default WEB_DIR/dist/wasm)"""
+    default WEB_DIR/dist/wasm; renderer False leaves it out, for --check without Emscripten)"""
     for name in modules:
         if name not in MODULES:
             sys.exit(f"webui.py: no module {name} (there are {', '.join(MODULES)})")
     with open(os.path.join(web, "index.html"), encoding="utf-8") as f:
-        files = [("/dashboard", "text/html; charset=utf-8", page_html(f.read(), modules).encode())]
+        files = [("/dashboard", "text/html; charset=utf-8", page_html(f.read(), modules, setup).encode())]
     for css in ["style.css"] + [c for name in modules for c in MODULES[name]["css"]]:
         with open(os.path.join(web, "css", css), "rb") as f:
             files.append((f"/ui/css/{css}", "text/css", f.read()))
@@ -179,8 +202,12 @@ def page_files(web, modules, wasm=None):
     for t in dict.fromkeys(t for name in modules for t in MODULES[name].get("templates", [])):
         with open(os.path.join(ROOT, "templates", t), "rb") as f:
             files.append((f"/ui/templates/{t}", "application/json", f.read()))
-    if any(MODULES[name].get("wasm") for name in modules):
+    if renderer and any(MODULES[name].get("wasm") for name in modules):
         files += renderer_files(wasm or os.path.join(web, "dist", "wasm"))
+    pages_only = [path for path, mime, _ in files if PAGES_ONLY.search(path) or mime.startswith(PAGES_ONLY_MIME)]
+    if pages_only:
+        sys.exit("webui.py: only for the web page, not the AP, which has no flash to spare (PAGES_ONLY): "
+                 + ", ".join(pages_only))
     return files
 
 
@@ -192,11 +219,19 @@ def main():
         built = [p for _, _, p in renderer_paths(sys.argv[2]) if os.path.isfile(p)]
         print("\n".join(built + web_build().renderer_inputs()))
         return
+    if sys.argv[1:2] == ["--check"]:
+        files = page_files(sys.argv[2], list(MODULES), renderer=False)
+        total = sum(len(gzip.compress(d, 9, mtime=0)) for _, _, d in files)
+        print(f"webui.py: every module packs, {len(files)} files (without the renderer), {total} bytes "
+              "gzipped, none of them only for the web page")
+        return
     web, out, args = sys.argv[1], sys.argv[2], sys.argv[3:]
-    wasm = None
+    wasm, setup = None, True
+    if args[:1] == ["--no-setup"]:
+        setup, args = False, args[1:]
     if args[:1] == ["--wasm"]:
         wasm, args = args[1], args[2:]
-    files = page_files(web, args or ["dashboard"], wasm)
+    files = page_files(web, args or ["dashboard"], wasm, setup=setup)
     lines = ["/* Generated by webui.py from web/ - do not edit. */", '#include "webui.h"', ""]
     entries = []
     for i, (path, mime, data) in enumerate(files):

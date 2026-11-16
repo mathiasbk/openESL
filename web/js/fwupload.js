@@ -37,6 +37,10 @@ export function firmwareKind(data) {
     const project = appString(data, 80);
     const chip = CHIPS[u16(data, 12)] ?? null;
     if (project === "esl_radio") return { kind: "radio", size: data.length, version: appVersion(data), chip };
+    // a radio image for another link (esl_radio_usb: the C6 on a Linux AP's USB port): an S3
+    // would lose its radio with it, and the AP refuses it too
+    if (project?.startsWith("esl_radio"))
+      return { kind: null, error: `radio firmware for another link (${project}): the C6 on a Linux AP's USB port is flashed over USB from the Flash AP page, not through an AP` };
     if (project && project !== "esl_ap")
       return { kind: null, error: `an app for the chip, but not AP firmware (${project})` };
     return { kind: "ap", size: data.length, version: appVersion(data), chip };
@@ -124,7 +128,10 @@ export function apSendQuestion(kind, ota, lcd = null) {
 export function radioImageFor(ota, info) {
   const radio = ota?.radio;
   if (!radio?.ota) return null;
-  const r = (info?.radios || []).find((x) => x.kind === "uart" && x.ota && !!x.display === (radio.display === true));
+  // the S3's own C6 images, c6 or c6-lcd by the screen; any other uart radio in a page's list
+  // (one for another host) is never picked, whatever the order of the list
+  const want = radio.display === true ? "c6-lcd" : "c6";
+  const r = (info?.radios || []).find((x) => x.kind === "uart" && x.ota && x.id === want);
   if (!r) return null;
   const version = String(r.version || info.version).replace(/^v/, "");
   const c = cmpVersion(version, radio.version);

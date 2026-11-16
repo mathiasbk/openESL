@@ -5,6 +5,7 @@
 #include <time.h>
 #include "app.h"
 #include "esl_clock.h"
+#include "esl_text.h"
 #include "esp_log.h"
 #include "esp_netif_sntp.h"
 #include "esp_timer.h"
@@ -152,23 +153,45 @@ static void clock_set(void *ctx, const char *ntp, const char *tz)
     }
 }
 
+/* "" = not chosen: English, and GET /api/config says null */
+static void lang_set(void *ctx, const char *lang)
+{
+    (void)ctx;
+    int l = esl_lang_parse(lang, strlen(lang));
+    strcpy(clock_cfg.lang, l < 0 ? "" : esl_lang_name((uint8_t)l)); /* "en" or "nb" fit */
+    cfg_set_str("lang", clock_cfg.lang);
+    esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
+    esl_number_set_point(l == ESL_LANG_EN); /* #402: not chosen keeps the comma */
+    ESP_LOGI(TAG, "date fields in %s", esl_lang_name(esl_clock_lang()));
+}
+
 esl_clock_cfg_t *sched_clock(void)
 {
     return clock_cfg.set ? &clock_cfg : NULL;
 }
 
-/* Today's local date for date fields in layouts (esl_clock.h), -1 while the time is unknown */
+/* The local time's offset from UTC at t in TZ (UTC + offset = local); also the schedule's
+   utc_offset_at, for the next time of a recurring entry (#415) */
+static int32_t utc_offset_at(void *ctx, uint32_t t)
+{
+    (void)ctx;
+    time_t tt = (time_t)t;
+    struct tm l, g;
+    localtime_r(&tt, &l);
+    gmtime_r(&tt, &g);
+    int32_t days = l.tm_year != g.tm_year ? (l.tm_year > g.tm_year ? 1 : -1) : l.tm_yday - g.tm_yday;
+    return days * 86400 + (l.tm_hour - g.tm_hour) * 3600 + (l.tm_min - g.tm_min) * 60;
+}
+
+/* Today's local date for date fields in layouts (esl_clock.h), -1 while the time is unknown;
+   the offset from UTC goes to esl_clock too (night mode and update window, #415) */
 static int32_t local_days(void)
 {
     uint32_t now = esl_sched_now(&sched, now_ms(), NULL);
     if (!now)
         return -1;
-    time_t tt = (time_t)now;
-    struct tm l, g;
-    localtime_r(&tt, &l);
-    gmtime_r(&tt, &g);
-    int32_t days = l.tm_year != g.tm_year ? (l.tm_year > g.tm_year ? 1 : -1) : l.tm_yday - g.tm_yday;
-    int32_t off = days * 86400 + (l.tm_hour - g.tm_hour) * 3600 + (l.tm_min - g.tm_min) * 60;
+    int32_t off = utc_offset_at(NULL, now);
+    esl_clock_set_utc_offset(off);
     return (int32_t)(((int64_t)now + off) / 86400);
 }
 
@@ -186,7 +209,7 @@ static void tick_task(void *arg)
 
 esl_sched_t *sched_start(esl_store_t *st, unsigned cap)
 {
-    static const esl_sched_ops_t ops = {NULL, lock, unlock, save, load, erase};
+    static const esl_sched_ops_t ops = {NULL, lock, unlock, save, load, erase, utc_offset_at};
     esl_sched_entry_t *e = calloc(cap, sizeof(*e));
     mutex = xSemaphoreCreateMutex();
     if (!e || !mutex) {
@@ -224,7 +247,14 @@ esl_sched_t *sched_start(esl_store_t *st, unsigned cap)
     tz_use(tz);
     ntp_start(ntp);
     clock_cfg.builtin_ntp = CONFIG_ESL_NTP_SERVER;
+    char lang[4];
+    cfg_get_str("lang", "", lang, sizeof(lang));
+    int l = esl_lang_parse(lang, strlen(lang));
+    esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
+    esl_number_set_point(l == ESL_LANG_EN); /* #402: not chosen keeps the comma */
+    strcpy(clock_cfg.lang, l < 0 ? "" : esl_lang_name((uint8_t)l)); /* "en" or "nb" fit */
     clock_cfg.set = clock_set;
+    clock_cfg.set_lang = lang_set;
     /* a scheduled content, and setting it (the old content and its NVS blob), on the stack:
        about 1 KB more since #182 */
     if (xTaskCreate(tick_task, "sched", 7168, st, 3, NULL) != pdPASS) {

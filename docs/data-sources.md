@@ -1,11 +1,16 @@
 # Data sources: the weather on a tag
 
+> A user guide. The short version is the wiki page [Weather](https://github.com/mathiasbk/openESL/wiki/Weather).
+
 An AP with PSRAM (the ESP32-S3 and ESP32-C5 boards) can fetch content for its tags by itself, so no client has to run. A
-*data source* is something on the internet the AP reads every so often. The first type is
+*data source* is something on the network the AP reads every so often. One type is
 the weather forecast for a place from [MET Norway](https://api.met.no/) (the data behind
 yr.no). The AP turns each answer into values such as the temperature and a weather symbol,
 fills the source's fields with them and gives the result to the source's tags, just as if a
-client had sent `PUT /api/tags`.
+client had sent `PUT /api/tags`. The other types are a picture from a URL, today's
+electricity price in Norway, a countdown to a date, the headlines of a news feed, the
+next events of a calendar, an exchange rate and the price of bitcoin, the last two with a
+chart (below).
 
 A tag only gets new content when the text came out different: the AP compares it with what
 the tag already has, so a forecast that did not change does not wake the tag or cost
@@ -24,7 +29,7 @@ battery.
 It is `ESL_DATASOURCES` in menuconfig, on in these boards' `sdkconfig.defaults`. It needs
 PSRAM: an answer from MET is up to 128 KB, and TLS needs tens of KB of RAM more while it fetches.
 The C6 has no PSRAM and no RAM to spare next to its tags, so there `/api/sources` answers
-`404` and the Dashboard does not show the card. On a C6, send the weather yourself instead
+`404` and the Dashboard has no Data sources page. On a C6, send the weather yourself instead
 (below): the weather template works on every AP.
 
 What the AP needs:
@@ -57,7 +62,7 @@ What the AP needs:
    next poll. A tag that was in another place leaves it; a place left without tags is
    removed.
 
-The **Weather** card under the tag table lists the places, how many tags each has and how its
+The **Data sources** card under the tag table lists the places, how many tags each has and how its
 last fetch went, with **Remove** (stop fetching it; its tags keep what they show) and
 **Fetch now**, which asks the AP to fetch every place again. A source whose last answer has not
 expired yet is not fetched again (MET's terms, below): its tags' content is made again from
@@ -166,6 +171,306 @@ in [openapi.yaml](openapi.yaml) under *Data sources*. In short:
 Back up the list with `GET /api/sources` and restore it with `PUT` (the `status` of each
 source may be sent back as it came; it is ignored).
 
+## A picture from a URL
+
+A source of type `image` (AP 0.11.0 and later) fetches a PNG from a URL every so often and
+shows it on its tags as their picture, exactly as `PUT /api/tags/{mac}/image` does: a chart
+another program draws, a camera still, a dashboard rendered by Home Assistant or a script.
+The AP keeps the picture like any other picture (about 5 KB of NVS a tag), and a picture
+that comes back the same is not sent to the tags again.
+
+```json
+{"sources": [{"id": "chart", "type": "image",
+              "url": "http://homeassistant.local:8123/local/chart-296x128.png",
+              "every_min": 10, "tags": ["00000123456789A8"]}]}
+```
+
+On the Dashboard: tick tags of one size, **Send → A picture**, and open *Or: a PNG the AP
+fetches from a web address*. The source then shows on the Data sources page.
+
+- `url`: `http://` or `https://`, up to 159 bytes. It is fetched with `If-Modified-Since`,
+  so a server that keeps the file's date answers `304` when it did not change.
+- The PNG must have the size of each tag's screen (296x128 for a 2.9", 200x200 for a
+  1.54"). A tag of another size is counted in `tags_failed`, and `error` names it and both
+  sizes: use one source for each screen size.
+- `dither`: `true` dithers grey and colour, for photos (as `?dither=true` on the image API).
+  Left out, every pixel goes to the nearest colour the screen has.
+- `every_min`: from 5 (the default) to 1440. An `Expires` from the server is not waited
+  for: the source is fetched every `every_min`.
+- It has no `layout` or `fields`. Its `values` in `GET` are the PNG's `width` and `height`.
+- Answers of up to 128 KB, read within 30 s, are taken. Redirects (301, 302) are not
+  followed: give the final address.
+- `https://` needs a certificate from a public authority (the AP's certificate bundle); a
+  server on the LAN with a self-signed certificate fails. Use `http://` on the LAN.
+- A login in the URL (`user:password@`) is refused: it would be kept in NVS and shown by
+  `GET /api/sources`.
+- The URL must not need a login. Home Assistant serves the files in its `www` folder
+  at `/local/` without one.
+
+## The electricity price
+
+A source of type `power` (AP 0.11.0 and later) shows today's electricity spot price in a
+Norwegian price area, from [hvakosterstrommen.no](https://www.hvakosterstrommen.no/) (free,
+no key). Like the weather, it fills the fields of a layout, so the built-in `text` layout or
+one of your own shows it.
+
+```json
+{"sources": [{"id": "power", "type": "power", "area": "NO1", "layout": "text",
+              "tags": ["00000123456789B2"]}]}
+```
+
+- `area`: `NO1` (Oslo, East), `NO2` (Kristiansand, South), `NO3` (Trondheim, Central),
+  `NO4` (Tromsø, North) or `NO5` (Bergen, West).
+- `vat`: add 25 % VAT. By default `true`, except in `NO4`, where electricity has no VAT.
+- The price is the spot price only: no grid fee (nettleie), no supplier's markup and no
+  electricity tax.
+- The AP fetches today's file once (Norway's date, whatever time zone the AP has), and asks
+  again only after 6 hours. The values are made again from it at the start of every
+  `every_min` minutes, from 15 (the default): at :00, :15, :30 and :45, when a new price
+  begins. Dates and times shown are Norway's. Prices given for every 15 minutes and prices
+  given for every hour both work.
+- Battery: with prices for every 15 minutes `{now}` can change 96 times a day, and each change
+  is a radio transfer and a screen refresh on each tag. For fewer updates, set `every_min` to
+  60 or leave `{now}` out (`{min}`, `{max}` and `{avg}` change once a day).
+- `lang`: `nb` (the default) writes `2,88` and `lav`/`normal`/`høy`; `en` writes `2.88`
+  and `low`/`normal`/`high`.
+
+| Value | What it is |
+|---|---|
+| `{area}` | The price area, `NO1` |
+| `{now}` | The price now in kroner per kWh, two decimals (`2,88`) |
+| `{nowore}` | The price now in øre per kWh, whole (`288`) |
+| `{next}` | The price of the next interval (empty in the day's last one) |
+| `{min}`, `{minat}` | The day's lowest price, and when it starts (`03:00`) |
+| `{max}`, `{maxat}` | The day's highest price, and when it starts |
+| `{avg}` | The day's average |
+| `{level}` | The price now against the day's average: more than 10 % below is low, more than 10 % above is high |
+| `{date}` | The day the prices are for (`27.10.`) |
+
+The default fields, for the four lines of `text`, have no words of one language:
+`{area} {date}`, `{now} kr/kWh`, `{level}`, `{min} - {max} kr`. Give your own `fields` for
+labels, for example `["Strøm nå {now} kr", "Billigst {minat}: {min}"]`.
+
+Where the price is shown to others, credit hvakosterstrommen.no, which gets the prices from
+ENTSO-E.
+
+## A countdown
+
+A source of type `countdown` (AP 0.11.0 and later) counts the days to a date, or since it,
+on the AP itself: nothing is fetched, so it also works without the internet once the AP knows
+the time. Good for Christmas, a holiday, a birthday, or "days since".
+
+```json
+{"sources": [{"id": "christmas", "type": "countdown", "place": "Christmas",
+              "date": "2026-12-24", "yearly": true, "layout": "text",
+              "tags": ["00000123456789B2"]}]}
+```
+
+- `date`: the local date, `YYYY-MM-DD`, 1900 to 2100.
+- `time`: a local time `HH:MM` on that date (a departure, the start of an event). On the
+  last day `{left}` counts down in whole hours, and in minutes in the last hour (about 24 + 60
+  changes that day). Without it the date holds for its whole day.
+- `yearly`: count to the next time the date comes round, so Christmas or a birthday never
+  runs out. 29 February is 28 February in other years. `{years}` is how many years it will
+  be since `date`: give the birth date to get the age the person turns.
+- `place`: the name shown as `{place}`.
+- `every_min`: from 1 (the default). The values are made every minute, but a tag only wakes
+  when its text changed: once a day for a date alone (at midnight), plus each hour and each
+  minute of the last hour on the day of a `time`. A higher value does not save battery; it
+  only makes the change at midnight later.
+
+| Value | What it is |
+|---|---|
+| `{place}` | The source's name |
+| `{left}` | In words: `om 58 dager`, `i morgen`, `i dag`, `om 5 t`, `om 10 min`, `i går`, `for 10 dager siden` (`lang` `en`: `in 58 days`, `tomorrow`, `today`, `in 5 h`, `in 10 min`, `yesterday`, `10 days ago`) |
+| `{days}`, `{weeks}`, `{hours}` | Whole days, weeks and hours left (0 once passed). `{hours}` counts to `time`, or to the start of the day without one |
+| `{since}` | Days since the date (0 before it) |
+| `{date}`, `{weekday}` | The date counted to (`24.12.2026`) and its weekday |
+| `{years}` | With `yearly`: the years since `date` at the next time |
+
+The default fields, three lines on `text`, are `{place}`, `{left}` and `{weekday} {date}`.
+
+## Headlines from a news feed
+
+A source of type `rss` (AP 0.11.0 and later) reads the newest headlines of an RSS 2.0 or Atom
+feed: a news site, a blog, a status page. Only the titles are used.
+
+```json
+{"sources": [{"id": "news", "type": "rss", "url": "https://news.example/top.rss",
+              "layout": "text", "tags": ["00000123456789B2"]}]}
+```
+
+- `url`: `http://` or `https://`, up to 159 bytes, without a login, as for a picture.
+  Redirects are not followed. Of a feed longer than 128 KB the first 128 KB are read, which
+  hold the newest items.
+- `every_min`: from 15 (the default) to 1440. An `Expires` from the server is waited for.
+
+| Value | What it is |
+|---|---|
+| `{title}` | The feed's own title |
+| `{h1}` ... `{h6}` | The first six headlines, newest first as the feed lists them; empty when the feed has fewer |
+| `{count}` | How many headlines there were (at most 6) |
+
+A headline longer than 40 bytes is cut and ends in `...`. CDATA, HTML tags (also Atom's
+`type="html"`), XML entities, numeric references and the usual typographic ones (`&rsquo;`,
+`&hellip;`) are handled, and a feed in ISO-8859-1 or windows-1252 is read as such. The default fields, for `text`, are `{title}`,
+`{h1}`, `{h2}` and `{h3}`. Each new headline wakes the source's tags: for a busy feed, a
+longer `every_min` saves battery.
+
+## The next events of a calendar
+
+A source of type `ical` (AP 0.11.0 and later) shows the next events of a calendar in the
+iCalendar format (`.ics`): a meeting room's door sign, the family's week on the fridge. Google
+Calendar, Outlook, iCloud and Nextcloud all give a calendar such an address (often called the
+*secret address in iCal format* or *publish calendar*).
+
+```json
+{"sources": [{"id": "family", "type": "ical", "url": "webcal://calendar.example/family.ics",
+              "layout": "text", "tags": ["00000123456789B2"]}]}
+```
+
+- `url`: `http://`, `https://` or `webcal://` (fetched as `https://`), up to 159 bytes,
+  without a login. Redirects are not followed. A calendar's secret address lets anyone who
+  has it read the calendar: the AP keeps it, and `GET /api/sources` shows it to anyone who
+  may read the API (the Dashboard shows only the host). Protect the API with a token.
+- `every_min`: from 15 (the default) to 1440. The values are made again at whole multiples
+  of it (:00, :15, :30, :45), so an event that ended goes away within a quarter of an hour.
+  The calendar itself is fetched at most once an hour: a change in it shows within the hour.
+  When a fetch fails, the last one held still gives the values (the error is shown).
+- The file is read as it comes, so a big calendar is fine: up to 4 MB within 30 s. A file
+  without its `END:VCALENDAR` (a connection that ended early) is refused, so no events go
+  missing without a word.
+
+| Value | What it is |
+|---|---|
+| `{title}` | The calendar's name (`X-WR-CALNAME`), empty when it has none |
+| `{day1}` ... `{day6}` | The day of the next six events: `i dag`/`today`, `i morgen`/`tomorrow`, else `tor. 29. okt`/`Thu 29 Oct`. An event under way is today's |
+| `{time1}` ... `{time6}` | Its start (`09:00`), `til 10:00`/`until 10:00` while under way, or `hele dagen`/`all day` |
+| `{what1}` ... `{what6}` | Its summary, cut to 40 bytes with `...` |
+| `{today}` | How many events are under way or still to come today |
+
+Fewer events leave the last values empty. `lang` (`nb` or `en`) sets the language of the
+days and times. The default fields, for `text`, are `{title}` and three lines
+`{day1} {time1} {what1}` to `{day3} ...`.
+
+What is read:
+
+- Single events, all-day events (also over several days) and repeating events: `RRULE` with
+  `FREQ` daily, weekly, monthly or yearly, `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` (also "the
+  last Friday": `-1FR`), `BYMONTHDAY` and `BYMONTH`. A rule with other parts (`BYSETPOS`,
+  `BYWEEKNO`, `BYYEARDAY`, hourly) gives only the event's first time. `WKST` is followed.
+- `EXDATE` (left-out times), moved single times (`RECURRENCE-ID`) and cancelled events
+  (`STATUS:CANCELLED`, left out).
+- Times in UTC (ending in `Z`) are right anywhere. Times with a `TZID`, and times without a
+  zone, are read in the AP's own time zone (the Settings page, `tz` in `PUT /api/config`), with its summer time: a
+  calendar in another zone shows its events at that zone's clock times.
+- Alarms, to-dos and time zone definitions are skipped. Events more than 400 days ahead are
+  not looked at.
+
+## An exchange rate
+
+A source of type `fx` (AP 0.11.0 and later) shows today's exchange rate of a currency, from
+[Norges Bank](https://www.norges-bank.no/en/topics/Statistics/exchange_rates/) (free, no key),
+with its change since the day before and a chart of the last days. Norges Bank gives the price
+in NOK of about 40 currencies once each business day, at about 16:00 Norway's time.
+
+```json
+{"sources": [{"id": "fx-usd", "type": "fx", "currency": "USD", "layout": "exchange-rate",
+              "fields": ["{pair}", "{rate}", "{chg} ({pct} %)", "{lo} - {hi}", "{day}", "{chart}"],
+              "tags": ["00000123456789B2"]}]}
+```
+
+On the Dashboard: tick tags, **Send → Price, countdown, news or calendar**, choose **An exchange
+rate, with a chart** and the currency. The Dashboard adds the *Exchange rate* template's layout
+to the tags' layout files when they lack it, and fills its six fields as above.
+
+- `currency`: the currency shown, 3 letters (`USD`, `EUR`, `SEK`, `JPY`, ...): any of Norges
+  Bank's. `NOK` too, priced in another one.
+- `in`: what the price is given in, `NOK` by default. Another currency is worked out from both
+  NOK prices of the same day: `USD` in `EUR` is USD's NOK price over EUR's.
+- `days`: the rates in the chart, from 5 to 30 (the default), one each business day.
+- `unit`: `1` or `100`: the price of one or of a hundred. Left out, a hundred when one is worth
+  less than 0.1 (100 JPY, 100 ISK), as Norges Bank gives them.
+- `every_min`: from 60 (the default) to 1440. The answer has no `Expires`; a rate that did not
+  change does not wake the tags.
+- `lang`: `nb` (the default) writes `9,5325` and `i dag`/`i går`; `en` writes `9.5325` and
+  `today`/`yesterday`.
+
+| Value | What it is |
+|---|---|
+| `{cur}`, `{in}` | The currencies, `USD` and `NOK` |
+| `{pair}` | `USD/NOK`, or `100 JPY/NOK` for the price of a hundred |
+| `{unit}` | `1` or `100` |
+| `{rate}` | The last rate, with 4 decimals below 10 and 2 from 10 (`9,5325`, `98,55`) |
+| `{rate2}`, `{rate4}` | The same with 2 or 4 decimals |
+| `{chg}`, `{pct}` | The change since the day before, and in percent with one decimal (`-0,0069`, `-0,1`) |
+| `{pctp}` | The change over the chart's days, in percent |
+| `{lo}`, `{hi}` | The lowest and highest rate of the chart's days |
+| `{date}`, `{day}` | The day of the rate (`12.11.`), and the same as `i dag`/`i går` when it is today or yesterday |
+| `{days}`, `{period}` | How many rates the chart has, and as `30 dager`/`30 days` |
+| `{chart}` | The chart's rates, oldest first, as whole numbers from 0 (the lowest) to 99 (the highest) apart by spaces, for a chart element (below) |
+
+The default fields, four lines for `text`, are `{pair} {date}`, `{rate}`, `{chg} ({pct} %)`
+and `{lo} - {hi}`. Credit Norges Bank where the rate is shown; the template has it.
+
+## The price of bitcoin
+
+A source of type `btc` (AP 0.11.0 and later) shows the price of bitcoin from
+[CoinGecko](https://www.coingecko.com/)'s public API (free, no key), with its change today and a
+chart of the last days.
+
+```json
+{"sources": [{"id": "btc-nok", "type": "btc", "currency": "nok", "layout": "bitcoin",
+              "fields": ["Bitcoin {cur}", "{price}", "{pct} % {today}", "{lo} - {hi}", "{updated}", "{chart}"],
+              "tags": ["00000123456789B2"]}]}
+```
+
+On the Dashboard: **Send → Price, countdown, news or calendar → The bitcoin price, with a
+chart**, as for an exchange rate; the template is *Bitcoin price*.
+
+- `currency`: what the price is given in, as CoinGecko names it: `nok` (the default), `usd`,
+  `eur`, `sek`, ... (3 to 5 letters).
+- `days`: the days in the chart, from 7 to 30 (the default). The chart has the price at 00:00
+  UTC of each day and the price now.
+- `every_min`: from 15 (the default) to 1440. The price moves all the time, so each fetch can
+  wake the tags: a longer `every_min` saves battery. CoinGecko's free API takes a few calls a
+  minute from one address, so a few sources are fine.
+- `lang`: as for an exchange rate.
+
+| Value | What it is |
+|---|---|
+| `{cur}` | The currency, `NOK` |
+| `{price}` | The price now, whole with a space between thousands (`658 464`); under 100 with two decimals |
+| `{pct}`, `{today}` | The change since 00:00 UTC in percent (`-3,6`), and the word `i dag`/`today` |
+| `{pctp}` | The change over the chart's days, in percent |
+| `{lo}`, `{hi}` | The lowest and highest price of the chart |
+| `{updated}`, `{date}` | When the price is from, local `HH:MM`, and its day (`13.11.`) |
+| `{days}`, `{period}` | The days of the chart, and as `30 dager`/`30 days` |
+| `{chart}` | The chart's prices, as for an exchange rate |
+
+The default fields, for `text`, are `BTC {cur} {updated}`, `{price}`, `{pct} %` and
+`{lo} - {hi}`. CoinGecko's [terms](https://www.coingecko.com/en/api_terms) ask for
+**"Powered by CoinGecko"** where the data is shown: the template has it, and a layout of your
+own should too.
+
+## A chart on a tag
+
+A layout's **chart** element (AP 0.11.0 and later; **Chart** in the Design tab) draws a line
+through the numbers in a field: the lowest at the bottom of its box, the highest at the top,
+from left to right. The `{chart}` value of `fx` and `btc` is made for it, but any client can
+send such a field, for example the temperature of the last hours from Home Assistant:
+`"12.5 13 14.2 13.8"`.
+
+- The numbers are apart by spaces or `;`, with an optional `-` and a `.` or `,` before up to 4
+  decimals. Up to 64 are drawn; a field with anything else, or fewer than two numbers, draws
+  nothing.
+- `width`: the line, 1 to 4 pixels. `fill`: `none` (the default), `solid` (the box under the
+  line in the line's colour) or `light` (every other pixel, a grey on e-paper).
+- Black or red. A chart counts as a shape (with ellipses and polygons), and a layout has at
+  most two.
+
+The fields share 256 bytes: a chart of 30 numbers from 0 to 99 takes up to 89 of them.
+
 ## MET Norway's terms
 
 The AP follows MET's [terms of service](https://api.met.no/doc/TermsOfService):
@@ -221,5 +526,6 @@ This is also the way on an AP without data sources (the C6 alone).
 
 A new type is a new file like `esl_source_met.c` and its line in `types[]` in
 `esl_source.c`: fetching, caching, templates, the API and saving come with it. What the
-engine does not do yet: requests that need a key or a header, answers other than text values
-(a chart, for example), and answers over 128 KB.
+engine does not do yet: requests that need a key or a header, and answers over 128 KB. A
+chart is a text value too (`{chart}`, numbers apart by spaces, up to `ESL_VALUE_LONG` bytes),
+which a layout's chart element draws.

@@ -4,10 +4,10 @@
 Adds up what one tag spends per day: asleep, awake for each POLL (one answered
 exchange, or two listening windows when the AP does not answer), and each
 display update. The timing comes from the firmware and from measurements on the
-jig tag (docs/strombudsjett.md); the currents are estimates until phase 6
+jig tag (docs/power-budget.md); the currents are estimates until phase 6
 measures them, so every value can be changed on the command line:
 
-  python3 tools/power-budget/power_budget.py                  the table in strombudsjett.md
+  python3 tools/power-budget/power_budget.py                  the table in power-budget.md
   python3 tools/power-budget/power_budget.py --sleep-ua 6 --cells 1
   python3 tools/power-budget/power_budget.py --poll-s 120 --updates 4
 
@@ -36,7 +36,7 @@ def defaults():
         "retry_pause_ms": 6,   # CFG_RETRY_MIN/MAX_MS = 2..10, mean
         "reply_ms": 5,         # POLL sent until the reply is in (AP answers in well under 5 ms, A3)
         "wake_ms": 5,          # clock start, radio on, frame built (estimate)
-        "epd_busy_s": 2.9,     # measured: BUSY high ~2.9 s per refresh (kildelogg.md)
+        "epd_busy_s": 2.9,     # measured: BUSY high ~2.9 s per refresh (sources.md)
         "epd_init_s": 0.3,     # reset, init, writing 5 KB of image (estimate)
         "updates": 1,          # display updates per day (T6: one)
         "doze": 0,             # 1 = the core sleeps while the panel refreshes (0.9.0, #261: half-drawn images); 0 = it waits awake

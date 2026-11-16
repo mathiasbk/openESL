@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include "esl_store.h"
 
-/* Health of the tags (krav A6, "operational reliability"): which tags need
+/* Health of the tags (requirement A6 in docs/requirements.md, "operational reliability"): which tags need
  * attention, from the same table GET /api/tags shows. One byte of flags per
  * tag; GET /api/health lists them, and the AP posts the same list to a
  * webhook (esl_notify_t) whenever it changes. */

@@ -5,7 +5,8 @@
 // and examples to copy (js/layoutapi.js). The card folds away; its head says what it holds.
 //
 // The same on the web page (over USB or the bridge) and on the AP's own page, where the
-// renderer and the templates come from the published web page (firmwareBase).
+// templates come from the published web page, and so does the renderer on a board that has
+// none of its own (rendererBase, run in a sandboxed frame: js/renderframe.js).
 
 import { MODELS, layoutModel, layoutUsers, modelName, modelLabel } from "./models.js";
 import { tagLayouts, countByLayout } from "./layoutinfo.js";
@@ -13,12 +14,13 @@ import { variantFor, addTemplate, titleOf, PAGES } from "./catalog.js";
 import { layoutPanel } from "./layoutapi.js";
 import { apFonts, checkFontFile } from "./apfonts.js";
 import { makeFont, loadFontFile, previewFont, hasFont, MAX_FILE } from "./fontmaker.js";
+import { openRenderer, draw as drawPicture, rendererNote } from "./renderframe.js";
 
 const $ = (id) => document.getElementById(id);
 const MAX_LAYOUTS = 16;
 const BUILTIN = {
-  price: { id: 1, fields: ["name", "price", "subtitle"], sample: ["Semi-skimmed milk 1 L", "24,90", "kr 24,90/L"],
-           what: ["Product name", "Price, e.g. 24,90", "Small text under it"] },
+  price: { id: 1, fields: ["name", "price", "subtitle"], sample: ["Semi-skimmed milk 1 L", "2.49", "2.49/L"],
+           what: ["Product name", "Price, e.g. 2.49", "Small text under it"] },
   text: { id: 2, fields: ["line1", "line2", "line3", "line4"], sample: ["Welcome", "Open 9-21", "", ""],
           what: ["Line 1", "Line 2", "Line 3", "Line 4"] },
 };
@@ -43,7 +45,7 @@ function pruneIcons(file) {
   return file;
 }
 
-export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = false }) {
+export function initLayouts({ client, refresh, rendererBase = "", pageInfo = () => null, sameOrigin = false }) {
   let last = null;
   let model = "";
   const files = {};        // by model: { version, file } of the AP's layout file (file null: none)
@@ -53,7 +55,6 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
   const pics = new Map();  // drawn pictures by key
   let sel = null;          // { kind: "ap" | "builtin" | "tpl", name, id }
   let busy = false;
-  let warned = false;      // the missing-layout warning was shown (the card is opened once for it)
   let drawnKey = "";
   const fonts = apFonts();
   let fontState = { supported: false, info: null, files: {}, slots: {} };   // the AP's font files (js/apfonts.js)
@@ -65,29 +66,25 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     $("lay-msg").className = "hint" + (cls ? " " + cls : "");
   };
 
-  // The renderer (from the published page on the AP's own page), or null without one
-  let rendererMod;
+  // The renderer (js/renderframe.js), or null without one
   async function renderer(m) {
     try {
-      rendererMod ||= await import(firmwareBase ? new URL("js/renderer.js", firmwareBase).href : "./renderer.js");
-      const r = await rendererMod.loadRenderer(m, firmwareBase ? new URL("wasm/", firmwareBase) : undefined);
-      return r;
+      return await openRenderer(m, rendererBase);
     } catch {
       return null;
     }
   }
 
   // Draws `layout` (an id: built-in or 0x10 + n) of `file` (or none) into a canvas
-  function paint(r, file, layout, fields, flags = 0) {
-    if (file) {
-      // The renderer is shared with the designer: check with this AP's limits each time
-      r.setLimits?.(last?.layouts?.limits || null);
-      r.setFonts?.(fontState.files, fontState.slots);   // and with its font files, which the file may name
-      const res = r.loadLayouts(JSON.stringify(file));
-      if (!res.ok) return null;
+  async function paint(r, file, layout, fields, flags = 0) {
+    // the renderer is shared with the designer: with this AP's limits and font files each time
+    let out;
+    try {
+      out = await drawPicture(r, { file, limits: last?.layouts?.limits || null, fonts: { files: fontState.files, slots: fontState.slots }, layout, flags, fields, lang: last?.config?.lang });
+    } catch {
+      return null;   // the frame's renderer failed or stopped answering: drawn without a picture
     }
-    const out = r.render(layout, flags, fields);
-    if (!out.ok) return null;
+    if (!out?.ok) return null;
     const c = el("canvas", "lay-pic");
     [c.width, c.height] = [r.width, r.height];
     const ctx = c.getContext("2d");
@@ -212,7 +209,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     }
     drawFonts();
     const cat = await loadCatalog();
-    const key = JSON.stringify([model, files[model]?.version, (fontState.info?.fonts || []).map((f) => f.version), tags.map((t) => [t.mac, shown[t.mac]?.layout, shown[t.mac]?.cid, t.content_error]), !!cat, sel, busy]);
+    const key = JSON.stringify([model, files[model]?.version, (fontState.info?.fonts || []).map((f) => f.version), tags.map((t) => [t.mac, shown[t.mac]?.layout, shown[t.mac]?.cid, t.content_error]), !!cat, sel, busy, pageInfo()?.ap_version, last.config?.lang]);
     if (key === drawnKey) return;
     drawnKey = key;
     await draw(file, tags, cat);
@@ -248,21 +245,18 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       warn.append(p);
     }
     warn.hidden = !warn.childElementCount;
-    // Tags without their layout: show the warning even when the card was folded away
-    if (!warn.hidden && !warned) $("lay-card").open = true;
-    warned = !warn.hidden;
 
     // On the AP: the built-in layouts, then the file's
     const cards = [];
     for (const [name, b] of Object.entries(BUILTIN)) {
       const c = counts[name] || 0;
       cards.push(card({
-        key: "builtin:" + name, name, pic: r && paint(r, null, b.id, b.sample),
+        key: "builtin:" + name, name, pic: r && await paint(r, null, b.id, b.sample),
         sub: [el("span", "", "Built in" + (c ? ` · ${c} tag${c === 1 ? "" : "s"}` : ""))],
         sel: { kind: "builtin", name },
       }));
     }
-    (file?.layouts || []).forEach((l, i) => {
+    for (const [i, l] of (file?.layouts || []).entries()) {
       const c = counts[l.name] || 0;
       const buttons = [];
       if (canEdit) buttons.push(button("Edit", () => edit(l.name), "Open it in the designer"));
@@ -277,12 +271,12 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
       // the template's title over the name a client sends, when it comes from the library
       const title = titleOf(cat?.index.templates, l);
       cards.push(card({
-        key: "ap:" + l.name, name: l.name, title, pic: r && paint(r, file, 0x10 + i, sampleOf(l)),
+        key: "ap:" + l.name, name: l.name, title, pic: r && await paint(r, file, 0x10 + i, sampleOf(l)),
         sub: [el("span", "pill " + (c ? "ok" : "off"), uses),
               el("span", "", ` ${(l.fields || []).length} field${(l.fields || []).length === 1 ? "" : "s"}`)],
         buttons, sel: { kind: "ap", name: l.name },
       }));
-    });
+    }
     $("lay-on").replaceChildren(...cards);
 
     // Can be sent: the library's templates for this model whose layout the AP does not have
@@ -295,7 +289,7 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
         try {
           const t = await templateFile(entry);
           const v = variantFor(t, m);
-          if (r && v) pic = paint(r, { format: "esl-layouts", version: 1, model: m, icons: v.icons, layouts: [v.layout] }, 0x10, sampleOf(v.layout));
+          if (r && v) pic = await paint(r, { format: "esl-layouts", version: 1, model: m, icons: v.icons, layouts: [v.layout] }, 0x10, sampleOf(v.layout));
         } catch { /* drawn without a picture */ }
         const send = button("Send to AP", () => sendTemplate(entry), "Add it to the AP's layout file");
         send.classList.add("primary");
@@ -316,7 +310,10 @@ export function initLayouts({ client, refresh, firmwareBase = "", sameOrigin = f
     $("lay-sum").textContent = `${modelName(m)}: ${onAp.length + Object.keys(BUILTIN).length} on the AP` +
       (can.length ? ` · ${can.length} more can be sent` : "") +
       (nMissing ? ` · ⚠ ${nMissing} tag${nMissing === 1 ? " uses a layout" : "s use layouts"} the AP lacks` : "");
-    if (!r && !$("lay-msg").textContent) say("No pictures: the drawing code could not be loaded (it comes from the web page).", "");
+    // where the pictures come from, when that is worth saying (js/renderframe.js)
+    const note = rendererBase ? rendererNote(r, rendererBase, last?.ota?.version, pageInfo()?.ap_version)
+      : r ? "" : "No pictures: the drawing code could not be loaded.";
+    if (note && !$("lay-msg").textContent) say(note, "");
     await drawPanel(file, tags, cat);
   }
 

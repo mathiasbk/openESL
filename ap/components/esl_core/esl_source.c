@@ -3,7 +3,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "esl_crc32.h"
+#include "esl_image.h"
 #include "esl_proto.h"
+#include "esl_render.h"
 #include "esl_text.h"
 
 /* Data sources: the configuration, /api/sources, when each source runs, and the content made
@@ -27,6 +30,57 @@ static void unlock(esl_sources_t *s)
 long esl_source_round(double d)
 {
     return (long)(d < 0 ? d - 0.5 : d + 0.5);
+}
+
+void esl_source_fmt(double d, unsigned dec, bool en, bool thousands, bool sign, char *out, size_t cap)
+{
+    static const long long pow10[] = {1, 10, 100, 1000, 10000};
+    if (dec > 4)
+        dec = 4;
+    if (!(d > -1e14 && d < 1e14)) { /* NaN, infinite or too big for long long below */
+        snprintf(out, cap, "-");
+        return;
+    }
+    long long v = (long long)(d < 0 ? d * pow10[dec] - 0.5 : d * pow10[dec] + 0.5);
+    bool neg = v < 0;
+    unsigned long long a = (unsigned long long)(neg ? -v : v), whole = a / (unsigned long long)pow10[dec];
+    char digits[24], body[40];
+    int nd = snprintf(digits, sizeof(digits), "%llu", whole);
+    size_t n = 0;
+    for (int i = 0; i < nd; i++) {
+        if (thousands && i && (nd - i) % 3 == 0)
+            body[n++] = ' ';
+        body[n++] = digits[i];
+    }
+    if (dec) {
+        body[n++] = en ? '.' : ',';
+        n += (size_t)snprintf(body + n, sizeof(body) - n, "%0*llu", (int)dec, a % (unsigned long long)pow10[dec]);
+    }
+    body[n] = '\0';
+    snprintf(out, cap, "%s%s", neg ? "-" : sign && a ? "+" : "", body);
+}
+
+void esl_source_series(const double *v, unsigned n, char *out, size_t cap)
+{
+    double lo = 0, hi = 0;
+    size_t len = 0;
+    for (unsigned i = 0; i < n; i++) {
+        if (!i || v[i] < lo)
+            lo = v[i];
+        if (!i || v[i] > hi)
+            hi = v[i];
+    }
+    if (cap)
+        out[0] = '\0';
+    for (unsigned i = 0; i < n; i++) {
+        long p = hi > lo ? esl_source_round((v[i] - lo) * 99 / (hi - lo)) : 50;
+        int w = snprintf(out + len, cap - len, "%s%ld", i ? " " : "", p);
+        if (w < 0 || (size_t)w >= cap - len) {
+            out[len] = '\0'; /* the points that fit */
+            return;
+        }
+        len += (size_t)w;
+    }
 }
 
 static void copy_str(char *dst, size_t cap, const char *src)
@@ -65,6 +119,13 @@ const char *esl_values_get(const esl_values_t *v, const char *key)
 /* Every type of source: one file each (esl_source_<name>.c), one line here */
 static const esl_source_def_t *const types[] = {
     &esl_source_met,
+    &esl_source_image,
+    &esl_source_power,
+    &esl_source_countdown,
+    &esl_source_rss,
+    &esl_source_ical,
+    &esl_source_fx,
+    &esl_source_btc,
 };
 
 static const esl_source_def_t *type_of(uint8_t type)
@@ -193,9 +254,8 @@ static bool one(pc_t *c, int o, esl_source_cfg_t *src)
             ty = types[i];
     if (!ty) {
         char names[64] = "";
-        for (size_t i = 0, n = 0; i < sizeof(types) / sizeof(types[0]); i++)
-            n += (size_t)snprintf(names + n, n < sizeof(names) ? sizeof(names) - n : 0, "%s\"%s\" (%s)",
-                                  i ? ", " : "", types[i]->name, types[i]->about);
+        for (size_t i = 0, n = 0; i < sizeof(types) / sizeof(types[0]) && n < sizeof(names); i++)
+            n += (size_t)snprintf(names + n, sizeof(names) - n, "%s\"%s\"", i ? ", " : "", types[i]->name);
         return fail(c, "type: one of %s", names);
     }
     src->type = ty->type;
@@ -229,6 +289,13 @@ static bool one(pc_t *c, int o, esl_source_cfg_t *src)
         src->every_min = (uint16_t)d;
     }
 
+    if (ty->picture) {
+        /* the answer is the picture: nothing to lay out */
+        if (esl_json_obj_get(js, tok, o, "layout") >= 0 || esl_json_obj_get(js, tok, o, "fields") >= 0)
+            return fail(c, "%s: a source of type %s gives its tags a picture, without a layout or fields",
+                        esl_json_obj_get(js, tok, o, "layout") >= 0 ? "layout" : "fields", ty->name);
+        goto tags;
+    }
     t = esl_json_obj_get(js, tok, o, "layout");
     if (t < 0 || !get_str(c, t, src->layout, sizeof(src->layout)) ||
         (strcmp(src->layout, "text") && !esl_layout_name_valid(src->layout, strlen(src->layout))))
@@ -250,6 +317,7 @@ static bool one(pc_t *c, int o, esl_source_cfg_t *src)
         }
     }
 
+tags:
     t = esl_json_obj_get(js, tok, o, "tags");
     if (t >= 0) {
         if (tok[t].type != ESL_JSON_ARRAY || tok[t].size > ESL_SOURCE_TAGS_MAX)
@@ -328,15 +396,19 @@ void esl_source_write_cfg(const esl_source_cfg_t *c, esl_sb_t *out)
     esl_sb_json_str(out, c->place);
     esl_sb_puts(out, ",\"lang\":");
     esl_sb_json_str(out, c->lang);
-    esl_sb_printf(out, ",\"every_min\":%u,\"layout\":", (unsigned)c->every_min);
-    esl_sb_json_str(out, c->layout);
-    esl_sb_puts(out, ",\"fields\":[");
-    for (unsigned i = 0; i < c->nfields; i++) {
-        if (i)
-            esl_sb_putc(out, ',');
-        esl_sb_json_str(out, c->fields[i]);
+    esl_sb_printf(out, ",\"every_min\":%u", (unsigned)c->every_min);
+    if (!t || !t->picture) {
+        esl_sb_puts(out, ",\"layout\":");
+        esl_sb_json_str(out, c->layout);
+        esl_sb_puts(out, ",\"fields\":[");
+        for (unsigned i = 0; i < c->nfields; i++) {
+            if (i)
+                esl_sb_putc(out, ',');
+            esl_sb_json_str(out, c->fields[i]);
+        }
+        esl_sb_putc(out, ']');
     }
-    esl_sb_puts(out, "],\"tags\":[");
+    esl_sb_puts(out, ",\"tags\":[");
     for (unsigned i = 0; i < c->ntags; i++) {
         char m[17];
         esl_mac_format(c->tags[i], m);
@@ -643,9 +715,17 @@ void esl_sources_done(esl_sources_t *s, int i, const char *id, uint32_t now, int
     lock(s);
     if (i >= 0 && i < s->n && strcmp(s->cfg[i].id, id) == 0) {
         esl_source_state_t *st = &s->state[i];
+        const esl_source_def_t *ty = type_of(s->cfg[i].type);
         uint32_t every = (uint32_t)s->cfg[i].every_min * 60;
-        /* a fetch was tried: it got an answer (status), or none (no values to make content from) */
-        if (status || !values) {
+        /* the next run: every_min from now, or at the next whole multiple of it (and a few s
+           after, so the interval that starts then is the one "now") */
+        uint32_t next = ty && ty->align ? (now / every + 1) * every + 2 : now + every;
+        if (status == ESL_SOURCE_HELD) {
+            /* nothing fetched: the values were made again from the answer held */
+            st->next_at = next;
+            status = 0;
+        } else if (status || !values) {
+            /* a fetch was tried: it got an answer (status), or none (no values to make content from) */
             st->tried_at = now;
             st->http = (int16_t)status;
         }
@@ -656,7 +736,7 @@ void esl_sources_done(esl_sources_t *s, int i, const char *id, uint32_t now, int
             st->expires_at = expires;
             if (status != 304)
                 copy_str(st->last_modified, sizeof(st->last_modified), last_modified ? last_modified : "");
-            st->next_at = now + every;
+            st->next_at = next;
             if (expires > st->next_at)
                 st->next_at = expires;
         } else if (status || !values) {
@@ -688,6 +768,15 @@ size_t esl_source_url(const esl_source_cfg_t *c, char *buf, size_t cap)
 {
     const esl_source_def_t *t = type_of(c->type);
     size_t n = t ? t->url(c, buf, cap) : 0;
+    return n < cap ? n : 0;
+}
+
+size_t esl_source_fetch_url(const esl_source_cfg_t *c, uint32_t now, esl_utc_offset_fn off, char *buf, size_t cap)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    if (!t || !t->url_at)
+        return esl_source_url(c, buf, cap);
+    size_t n = t->url_at(c, now, off, buf, cap);
     return n < cap ? n : 0;
 }
 
@@ -865,4 +954,180 @@ void esl_source_apply(const esl_source_cfg_t *c, const esl_values_t *v, esl_stor
         st->tags_set++;
         st->tags_changed += r.changed;
     }
+}
+
+/* An http:// or https:// URL with a host, no spaces or control characters, and no
+   user:password@ (it would be kept in NVS, shown by GET and printed in messages) */
+bool esl_source_url_ok(const char *u)
+{
+    size_t n = strlen(u), host;
+    if (!strncmp(u, "https://", 8))
+        host = 8;
+    else if (!strncmp(u, "http://", 7))
+        host = 7;
+    else
+        return false;
+    if (n <= host || u[host] == '/')
+        return false;
+    size_t auth = strcspn(u + host, "/?#");
+    if (memchr(u + host, '@', auth))
+        return false;
+    for (size_t i = 0; i < n; i++)
+        if ((unsigned char)u[i] <= ' ' || (unsigned char)u[i] >= 0x7f)
+            return false;
+    return true;
+}
+
+bool esl_source_own_pace(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->own_pace;
+}
+
+bool esl_source_dated(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->dated;
+}
+
+uint32_t esl_source_hold_s(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return !t ? 0 : t->dated ? ESL_SOURCE_DATED_S : (uint32_t)t->hold_min * 60;
+}
+
+bool esl_source_prefix(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->prefix;
+}
+
+struct esl_source_stream {
+    const esl_source_def_t *t;
+    void *s;
+};
+
+bool esl_source_streams(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->stream_new;
+}
+
+esl_source_stream_t *esl_source_stream_new(const esl_source_cfg_t *c, uint32_t now, esl_utc_offset_fn off)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    if (!t || !t->stream_new)
+        return NULL;
+    esl_source_stream_t *st = malloc(sizeof(*st));
+    if (st && !(st->s = t->stream_new(c, now, off))) {
+        free(st);
+        st = NULL;
+    }
+    if (st)
+        st->t = t;
+    return st;
+}
+
+void esl_source_stream_feed(esl_source_stream_t *s, const char *p, size_t n)
+{
+    s->t->stream_feed(s->s, p, n);
+}
+
+bool esl_source_stream_end(esl_source_stream_t *s, char **body, size_t *len, char *err, size_t errlen)
+{
+    bool ok = s->t->stream_end(s->s, body, len, err, errlen);
+    free(s);
+    return ok;
+}
+
+bool esl_source_is_local(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->local;
+}
+
+bool esl_source_is_picture(const esl_source_cfg_t *c)
+{
+    const esl_source_def_t *t = type_of(c->type);
+    return t && t->picture;
+}
+
+void esl_source_apply_body(const esl_source_cfg_t *c, const char *body, size_t len, esl_store_t *store,
+                           esl_sources_t *s, esl_source_state_t *st)
+{
+    st->tags_set = st->tags_changed = st->tags_failed = 0;
+    st->error[0] = '\0';
+    /* the PNG is read once for each model (it only depends on the screen), and packed for
+       each tag's MAC */
+    uint8_t *img = NULL, img_model = ESL_MODEL_UNKNOWN;
+    size_t cap = 0;
+    char img_err[ESL_SOURCE_ERR_MAX] = "";
+    for (unsigned i = 0; i < c->ntags; i++) {
+        esl_tag_t t;
+        char msg[ESL_SOURCE_ERR_MAX] = "";
+        esl_content_t content;
+        size_t n = 0, raw = 0;
+        uint8_t model = esl_store_get(store, c->tags[i], &t) && t.seen ? t.model : ESL_MODEL_UNKNOWN;
+        if (s) { /* left the source: not even an error about it */
+            lock(s);
+            bool left = !still_in(s, c->id, c->tags[i]);
+            unlock(s);
+            if (left)
+                continue;
+        }
+        if (!esl_store_takes_images(store))
+            snprintf(msg, sizeof(msg), "this AP keeps no pictures");
+        else if (model == ESL_MODEL_UNKNOWN)
+            snprintf(msg, sizeof(msg), "a tag has not polled yet, so its screen is not known");
+        else if (!(raw = esl_render_size(model)))
+            snprintf(msg, sizeof(msg), "this AP cannot draw model %s", esl_model_name(model) ? esl_model_name(model) : "?");
+        if (!msg[0] && model != img_model) {
+            size_t need = raw + ESL_IMAGE_STORED_MAX(raw);
+            if (cap < need) {
+                free(img);
+                img = malloc(need);
+                cap = img ? need : 0;
+            }
+            img_err[0] = '\0';
+            if (!img)
+                snprintf(img_err, sizeof(img_err), "no memory for the picture");
+            else
+                esl_source_image_decode(c, body, len, model, img, img_err, sizeof(img_err));
+            img_model = model; /* its picture in img, or its error in img_err */
+        }
+        if (!msg[0] && img_err[0])
+            copy_str(msg, sizeof(msg), img_err);
+        if (!msg[0]) {
+            n = esl_image_pack(c->tags[i], model, img, img + raw);
+            esl_content_init_image(&content, model, esl_crc32(img + raw, n));
+        }
+        esl_set_result_t r;
+        bool gone = false;
+        if (n) {
+            /* as in esl_source_apply: the check and the set under the lock */
+            if (s)
+                lock(s);
+            gone = s && !still_in(s, c->id, c->tags[i]);
+            esl_store_err_t e = gone ? ESL_STORE_OK : esl_store_set_image(store, c->tags[i], img + raw, n, &content, &r);
+            if (e != ESL_STORE_OK)
+                snprintf(msg, sizeof(msg), "no room for the picture of a tag (NVS full, or nearly)");
+            if (s)
+                unlock(s);
+        }
+        if (gone)
+            continue;
+        if (msg[0]) {
+            st->tags_failed++;
+            if (!st->error[0]) {
+                char m[17];
+                esl_mac_format(c->tags[i], m);
+                size_t k = (size_t)snprintf(st->error, sizeof(st->error), "%.16s: ", m);
+                copy_str(st->error + k, sizeof(st->error) - k, msg);
+            }
+            continue;
+        }
+        st->tags_set++;
+        st->tags_changed += r.changed;
+    }
+    free(img);
 }

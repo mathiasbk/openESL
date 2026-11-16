@@ -54,6 +54,20 @@ void esl_rowners_forget(esl_rowners_t *o, uint8_t radio)
             memset(&o->by_slot[i], 0, sizeof(o->by_slot[i]));
 }
 
+void esl_rowners_heard(esl_rowners_t *o, esl_store_t *st, uint64_t mac, uint8_t radio, uint64_t at_ms)
+{
+    int slot = esl_store_slot_of(st, mac);
+    if (slot < 0 || (unsigned)slot >= o->n)
+        return;
+    esl_rowner_t *r = &o->by_slot[slot];
+    if (r->mac == mac && r->radio != radio && r->at_ms > at_ms)
+        return;
+    r->mac = mac;
+    r->at_ms = at_ms;
+    r->radio = radio;
+    esl_store_set_tag_radio(st, mac, radio);
+}
+
 /* = CFG_SCAN_CHANNELS (tag/src/config.h; test_rhost.c checks they match) */
 static const uint8_t scan_order[] = {15, 20, 26, 11, 12, 13, 14, 16, 17, 18, 19, 21, 22, 23, 24, 25};
 
@@ -78,16 +92,7 @@ static void own(esl_rhost_t *h, const uint8_t *psdu, size_t len, uint64_t at)
     esl_rx_frame_t f;
     if (!h->owners || !esl_frame_parse_from_tag(psdu, len, &f) || f.dst_pan != h->pan)
         return;
-    int slot = esl_store_slot_of(h->st, f.src_mac);
-    if (slot < 0 || (unsigned)slot >= h->owners->n)
-        return;
-    esl_rowner_t *o = &h->owners->by_slot[slot];
-    if (o->mac == f.src_mac && o->radio != h->index && o->at_ms > at)
-        return;
-    o->mac = f.src_mac;
-    o->at_ms = at;
-    o->radio = h->index;
-    esl_store_set_tag_radio(h->st, f.src_mac, h->index);
+    esl_rowners_heard(h->owners, h->st, f.src_mac, h->index, at);
 }
 
 /* Whether this radio serves the tag: it owns it, nobody does yet, or it asked for it. */
@@ -152,7 +157,7 @@ void esl_rhost_replay(esl_rhost_t *h, const esl_rsync_t *req, const esl_rlog_t *
 static bool same(const esl_rtag_state_t *a, const esl_rtag_state_t *b)
 {
     return a->mac == b->mac && a->next_poll_s == b->next_poll_s && a->has_cfg == b->has_cfg &&
-           (!a->has_cfg || esl_tag_cfg_version(&a->cfg) == esl_tag_cfg_version(&b->cfg)) &&
+           (!a->has_cfg || (esl_tag_cfg_version(&a->cfg) == esl_tag_cfg_version(&b->cfg) && a->cfg.ap_id == b->cfg.ap_id)) &&
            a->image_id == b->image_id && a->fw_ver == b->fw_ver && a->image_failed == b->image_failed &&
            a->fw_failed == b->fw_failed;
 }
@@ -179,6 +184,10 @@ static bool image_id(esl_rhost_t *h, const esl_tag_t *t, unsigned *draws, uint32
 {
     *id = 0;
     if (!t->image_capable || !t->has_content || t->content_err || !t->model || !h->im)
+        return true;
+    /* outside the update window (#415) a tag that shows a picture keeps it: none to offer
+       (and none drawn), so the radio answers IDLE until the window opens */
+    if (esl_store_image_held(h->st, t->shown_content_id))
         return true;
     if (t->image_id && t->image_layout_ver == esl_layouts_image_ver(h->ls, t->model, t->layout_hash)) {
         *id = t->image_id;

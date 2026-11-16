@@ -11,8 +11,10 @@
 #include "esl_health.h"
 #include "esl_tagfw.h"
 #include "esl_source.h"
+#include "esl_remote.h"
+#include "esl_jobs.h"
 
-/* The HTTP API from docs/protokoll.md part 2, independent of the HTTP server.
+/* The HTTP API from docs/protocol.md part 2, independent of the HTTP server.
  * The ESP-IDF glue (main/http_api.c) reads the request and hands it here; the
  * host tests call it directly. */
 
@@ -23,6 +25,7 @@
 typedef struct {
     bool up;                /* a radio is connected now */
     bool uart;              /* on the cable (no ip): "via":"uart", else "wifi" */
+    bool local;             /* the host's own radio (the Linux AP's, in place 0 beside network radios): "via":"local" */
     uint32_t ip;            /* its address, host order (0 on the cable) */
     uint64_t down_ms;       /* when it last lost contact (ms since boot); 0: not connected since boot */
     uint64_t seen_ms;       /* when it last sent anything (ms since boot) */
@@ -31,6 +34,8 @@ typedef struct {
     uint64_t id;            /* its own MAC from HELLO, 0 = no radio known in this place */
     uint8_t channel;        /* the channel it serves */
     unsigned tags;          /* tags it heard last (esl_rowners_count) */
+    bool no_ap_id;          /* over WiFi, from before 0.11.0 (no ESL_NLINK_F_APID): it answers the tags of
+                               other APs from its cache, "old_radios" in GET /api/health */
 } esl_radio_link_t;
 
 /* A radio that has not been connected for this long is "radio_lost" in GET /api/health
@@ -55,7 +60,19 @@ typedef struct {
     void (*set)(void *ctx, int8_t dbm, bool builtin);
     void *ctx;
 } esl_tx_power_t;
-/* The AP's clock settings, "ntp" and "tz" in GET/PUT /api/config, kept by the glue
+/* The AP id (#390, docs/protocol.md "AP id"), "ap_id" and "adopt" in GET/PUT /api/config. The
+ * API sets them in the store (esl_store_set_ap_id, esl_store_set_adopt); the glue
+ * (main/store_nvs.c) keeps them in NVS and ends an adopt after ESL_API_ADOPT_DAYS. */
+#define ESL_API_ADOPT_DAYS 14
+typedef struct {
+    uint32_t adopt_until;   /* unix s when the adopt ends; 1 = its days start once the clock is known; 0 = none */
+    /* Saves a new id, with the one it replaces (prev, 0 = none) answered too for ESL_API_ADOPT_DAYS
+       (esl_store_set_prev_id). Called before the store changes; false: not saved, nothing changes */
+    bool (*set_id)(void *ctx, uint32_t id, uint32_t prev);
+    void (*set_adopt)(void *ctx, bool all, uint32_t id); /* all or id: on for ESL_API_ADOPT_DAYS; neither: off */
+    void *ctx;
+} esl_apid_cfg_t;
+/* The AP's clock settings, "ntp", "tz" and "lang" in GET/PUT /api/config, kept by the glue
  * (main/sched.c) in NVS. */
 #define ESL_NTP_MAX 63 /* an NTP server's name */
 #define ESL_TZ_MAX  63 /* a POSIX TZ string, "CET-1CEST,M3.5.0,M10.5.0/3" */
@@ -67,6 +84,12 @@ typedef struct {
     /* Saves and uses them at once. ntp: NULL = unchanged, "" = back to builtin_ntp;
        tz: NULL = unchanged, "" = UTC. Fills in ntp and tz above. */
     void (*set)(void *ctx, const char *ntp, const char *tz);
+    /* "lang" (the language of the date fields): "" = not chosen (English, and GET says null,
+       so the Dashboard and esl-client keep their own language), else ESL_LANG_* as with
+       esl_lang_parse. Saves it, fills in lang below and calls esl_clock_set_lang. NULL: the AP
+       has no language setting, and PUT answers 422. */
+    void (*set_lang)(void *ctx, const char *lang);
+    char lang[3]; /* "", "en" or "nb" */
 } esl_clock_cfg_t;
 
 /* An NTP server's name: 1 to ESL_NTP_MAX letters, digits, '-' and '.' (a host name
@@ -123,6 +146,10 @@ typedef struct {
                                       GET /api/tags, and each tag's "radio" when more than one is known */
     unsigned n_links;
     const esl_radio_ops_t *radio_ops; /* DELETE /api/radios/{id}; NULL answers 405 */
+    esl_apid_cfg_t *apid;   /* the AP id and adopt (GET/PUT /api/config); NULL: shown from the store, PUT 422 */
+    esl_remote_t *remote;   /* a SoluM remote as a button (GET/PUT /api/remote); NULL: /api/remote answers 404 */
+    esl_jobs_t *jobs;       /* a job per PUT /api/tags batch (#421, esl_jobs.h); NULL: no "job" in its reply,
+                               and /api/jobs answers 404 */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the
@@ -171,6 +198,11 @@ void esl_api_lock_note(esl_api_lock_t *lock, bool ok, uint64_t now_ms);
  * boot. Writes a JSON body to out and returns the HTTP status code. */
 int esl_api_handle(const esl_api_t *api, const char *method, const char *uri, const char *auth,
                    const char *body, size_t body_len, uint64_t now_ms, esl_sb_t *out);
+
+/* A job as GET /api/jobs/{n} answers it (a copy from esl_jobs_get); event: with "event":"job"
+   first, as the webhook posts it. At most ESL_API_JOB_REPORT_MAX bytes. */
+void esl_api_job_report(const esl_job_t *job, uint64_t now_ms, bool event, esl_sb_t *out);
+#define ESL_API_JOB_REPORT_MAX (256 + 200 * ESL_JOB_TAGS_MAX)
 
 /* PUT /api/tag-firmware in pieces, for a transport that will not hold a whole part in
  * one block of RAM (a 16 KB block is often not to be had on the ESP32-C6): the URI under

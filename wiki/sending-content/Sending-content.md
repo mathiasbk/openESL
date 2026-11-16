@@ -30,6 +30,7 @@ The label shows it at its next poll, about a minute with the default interval. T
 | Send a whole price list from Excel or your till | [Price lists from CSV](Price-lists-from-CSV) |
 | Change prices at a set time, without your computer on | [Scheduled prices](Scheduled-prices) |
 | Show something from Home Assistant | [Home Assistant](Home-Assistant) |
+| Draw a screen for one label, without uploading a layout first | [HTTP API](HTTP-API#a-one-off-design) |
 | Send text to many labels by hand | [Dashboard](Dashboard#doing-things-to-many-labels) |
 
 ## Good to know

@@ -2,7 +2,8 @@
 
 Firmware for an ESP32-C6 that is only the 802.15.4 radio of an AP running on another chip
 (board `s3-n16r8-c6`: an ESP32-S3 with PSRAM). It forwards every frame it receives to the
-host over UART and sends the replies the host gives it. See
+host over UART (or, with the radio board `c6-usb`, over its USB port to a Linux host running
+`openesl-ap`) and sends the replies the host gives it. See
 [docs/ap-radio-link.md](../../docs/ap-radio-link.md) for the wiring and the protocol.
 
 There is one image per radio board, in `boards/<id>/`:
@@ -11,6 +12,7 @@ There is one image per radio board, in `boards/<id>/`:
 |---|---|---|
 | `c6` | any ESP32-C6 (Super Mini) | `openesl-ap-radio-esp32c6-<version>.bin` |
 | `c6-lcd` | an ESP32-C6 with a 0.96" ST7789 screen; shows the status the host sends | `openesl-ap-radio-esp32c6-lcd-<version>.bin` |
+| `c6-usb` | any ESP32-C6, the link on its own USB port instead of the UART pins, for the AP as a Linux program ([docs/linux-ap.md](../../docs/linux-ap.md)); the log goes to the UART pins | `openesl-ap-radio-esp32c6-usb-<version>.bin` |
 
 `radio.json` names the image, `sdkconfig.defaults` adds to `ap/radio/sdkconfig.defaults` (the
 screen and its pins for `c6-lcd`, Kconfig in `ap/components/esl_lcd`).

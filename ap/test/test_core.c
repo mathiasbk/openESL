@@ -33,10 +33,14 @@ void test_text(void)
     CHECK_INT(n, 6);
     CHECK_MEM(out, "\xE6\xF8\xE5\xC6\xD8\xC5", 6);
 
-    /* curly quotes, no-break space, euro sign (not in Latin-1), emoji */
+    /* curly quotes, no-break space, euro sign (not in Latin-1: spelt out), emoji */
     n = to_l1("\xE2\x80\x9C" "a\xE2\x80\x9D\xC2\xA0\xE2\x82\xAC\xF0\x9F\x98\x80", out, sizeof(out), &ovf);
-    CHECK_INT(n, 6);
-    CHECK_MEM(out, "\"a\" ??", 6);
+    CHECK_INT(n, 8);
+    CHECK_MEM(out, "\"a\" EUR?", 8);
+    /* windows-1252's other letters the font lacks: Š ž Ÿ ™ Œ œ ‹› */
+    n = to_l1("\xC5\xA0\xC5\xBE\xC5\xB8\xE2\x84\xA2\xC5\x92\xC5\x93\xE2\x80\xB9\xE2\x80\xBA", out, sizeof(out), &ovf);
+    CHECK_INT(n, 11);
+    CHECK_MEM(out, "SzYTMOEoe<>", 11);
 
     /* invalid byte, truncated sequence, overlong '/', control char */
     n = to_l1("\xFF", out, sizeof(out), &ovf);
@@ -146,6 +150,23 @@ void test_number(void)
     num("1234567.891", ESL_LE_NUM_2 | T, "1 234 567,89");
     num("-1234", ESL_LE_NUM_DASH | T, "-1 234,-");
     num("123456789012.999999", ESL_LE_NUM_2 | T, "123 456 789 013,00");
+
+    /* a decimal point when "lang" is "en" (#402), still a space between thousands (the same
+       width as before; the built-in fonts draw . and , equally wide); what comes in is read the same way */
+    esl_number_set_point(true);
+    CHECK(esl_number_point());
+    num("1299,9", ESL_LE_NUM_2, "1299.90");
+    num("1 299,90", ESL_LE_NUM_2 | T, "1 299.90");
+    num("1234567.891", ESL_LE_NUM_2 | T, "1 234 567.89");
+    num("199.5", ESL_LE_NUM_KEEP, "199.5");
+    num("199", ESL_LE_NUM_DASH, "199.-");
+    num("199,-", ESL_LE_NUM_0_DASH, "199.-");
+    num("199.00", ESL_LE_NUM_AUTO, "199");
+    num("-0.4", ESL_LE_NUM_0, "0");
+    num("1,299.90", ESL_LE_NUM_2, NULL); /* still a comma and then a dot: drawn as sent */
+    esl_number_set_point(false);
+    CHECK(!esl_number_point());
+    num("1299.9", ESL_LE_NUM_2 | T, "1 299,90");
 
     /* not a number, or no format: drawn as sent */
     num("Tilbud", ESL_LE_NUM_2, NULL);
@@ -270,7 +291,7 @@ void test_content(void)
     CHECK_INT(esl_content_text_len(&a), 252);
     CHECK_INT(ESL_MAX_TEXT_FOR(4), 252);
 
-    /* a layout from the layout file, by name (krav A14) */
+    /* a layout from the layout file, by name (requirement A14 in docs/requirements.md) */
     esl_content_t n1, n2, b1;
     CHECK_INT(esl_content_init_named(&n1, "shelf", 5, ESL_CFLAG_FRAME), ESL_CONTENT_OK);
     CHECK_INT(n1.layout, ESL_LAYOUT_NAMED);
@@ -372,7 +393,7 @@ void test_proto(void)
     CHECK_MEM(buf, longer, ESL_POLL_LEN_CFG);
 
     /* CONFIG: version 0 for all defaults, nonzero and value-derived otherwise */
-    esl_tag_cfg_t cfg = {0, 0, 0, 0, 0, 0}, cfg2;
+    esl_tag_cfg_t cfg = {0, 0, 0, 0, 0, 0, 0}, cfg2;
     CHECK_INT(esl_tag_cfg_version(&cfg), 0);
     cfg.poll_s = 120;
     uint16_t v = esl_tag_cfg_version(&cfg);
@@ -391,18 +412,18 @@ void test_proto(void)
     CHECK(esl_tag_cfg_version(&cfg2) != esl_tag_cfg_version(&cfg));
     /* the version of settings without the long backoff is the one older APs gave them (CRC
        of the first three fields), so an update sends tags no CONFIG they already have */
-    cfg2 = (esl_tag_cfg_t){120, 0, 0, 0, 0, 0};
+    cfg2 = (esl_tag_cfg_t){120, 0, 0, 0, 0, 0, 0};
     uint8_t old_b[6] = {120, 0, 0, 0, 0, 0};
     uint32_t old_crc = esl_crc32(old_b, 6);
     CHECK_INT(esl_tag_cfg_version(&cfg2), (uint16_t)(old_crc ^ (old_crc >> 16)));
-    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 60, 0};
+    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 60, 0, 0};
     CHECK(!esl_tag_cfg_is_default(&cfg2));
     CHECK(esl_tag_cfg_version(&cfg2) != 0);
     /* the channel is in the version only when it is not the default */
     v = esl_tag_cfg_version(&cfg);
     cfg.channel = 20;
     CHECK(esl_tag_cfg_version(&cfg) != v);
-    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 0, 20};
+    cfg2 = (esl_tag_cfg_t){0, 0, 0, 0, 0, 20, 0};
     CHECK(!esl_tag_cfg_is_default(&cfg2));
     CHECK_INT(esl_config_msg_build(buf, 120, &cfg), ESL_CONFIG_LEN);
     v = esl_tag_cfg_version(&cfg);
@@ -435,7 +456,7 @@ void test_proto(void)
     CHECK_MEM(buf, "\x02\x01\x3C\x00", 4);
 
     /* The link block (#261) after cfg_ver; a 14-byte POLL has none */
-    esl_poll_t p3 = {1, 3000, 5, 0, ESL_MODEL_154, true, 0xBEEF, true, 0xC8, 0x6E, 3, ESL_POLL_LF_RETRY};
+    esl_poll_t p3 = {1, 3000, 5, 0, ESL_MODEL_154, true, 0xBEEF, true, 0xC8, 0x6E, 3, ESL_POLL_LF_RETRY, false, 0};
     CHECK_INT(esl_poll_build(buf, &p3), ESL_POLL_LEN_LINK);
     CHECK_MEM(&buf[12], "\xEF\xBE\xC8\x6E\x03\x01", 6);
     CHECK(esl_poll_parse(buf, ESL_POLL_LEN_LINK, &p));
@@ -503,7 +524,7 @@ void test_frame(void)
 {
     const uint64_t mac = 0x00000123456789A8ull;
     uint8_t payload[ESL_POLL_LEN], frame[ESL_PSDU_MAX];
-    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {1, 2950, 0, 0, ESL_MODEL_UNKNOWN, false, 0, false, 0, 0, 0, 0, false, 0};
     esl_rx_frame_t rx;
 
     esl_poll_build(payload, &p);
@@ -652,7 +673,7 @@ void test_persist(void)
     blob[10] = 31;
     blob[11] = 'A'; /* not a valid name */
     CHECK(!esl_persist_decode(blob, n, &mac, &d));
-    esl_tag_cfg_t cfg = {120, 900, ESL_CFG_LOST_AP_NEVER, 0, 0, 0}, cfg2;
+    esl_tag_cfg_t cfg = {120, 900, ESL_CFG_LOST_AP_NEVER, 0, 0, 0, 0}, cfg2;
     n = esl_persist_cfg_encode(0x1122334455667788ull, &cfg, blob);
     CHECK_INT(n, ESL_PERSIST_CFG_LEN);
     CHECK_MEM(blob, "\x02\x88\x77\x66\x55\x44\x33\x22\x11\x78\x00\x84\x03\xFF\xFF\x00\x00\x00\x00", n);

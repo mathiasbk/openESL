@@ -156,6 +156,38 @@ typedef struct {
 size_t esl_coproc_ota_handle(esl_coproc_ota_rx_t *o, uint8_t type, const uint8_t *p, size_t len, uint8_t *out,
                              bool *done);
 
+/* Which link a radio image is for: the project name in its app description
+ * (esp_app_desc_t), which ap/radio/CMakeLists.txt takes from the radio board's
+ * radio.json ("app"). The radio on UART pins (boards c6 and c6-lcd, an S3's radio)
+ * is esl_radio, as since the first radio image, so an AP of any version still takes
+ * its image; the C6 on the USB port of a Linux AP (c6-usb) is esl_radio_usb. An
+ * S3 that wrote the USB image into its C6 would lose its radio until the C6 is
+ * flashed by cable again (#451): any project that starts with ESL_COPROC_RADIO_PREFIX
+ * but is not the one for the AP's link is refused. */
+#define ESL_COPROC_RADIO_PREFIX "esl_radio"
+#define ESL_COPROC_RADIO_UART_PROJECT "esl_radio"
+#define ESL_COPROC_RADIO_USB_PROJECT "esl_radio_usb"
+#define ESL_COPROC_PROJECT_MAX 32 /* esp_app_desc_t's project_name, without the '\0' */
+
+/* The project name of an ESP32 app image (data its first len bytes) into name
+ * (ESL_COPROC_PROJECT_MAX + 1 bytes): false when the bytes are too few to hold the
+ * app description or it has not its magic word. The description comes after the
+ * image header (24 bytes) and the first segment's header (8): magic word, the
+ * version at 16, the project name at 48. */
+bool esl_coproc_image_project(const uint8_t *data, size_t len, char *name);
+
+typedef enum {
+    ESL_COPROC_IMAGE_UNKNOWN,     /* too short to say, or no app description */
+    ESL_COPROC_IMAGE_RADIO,       /* a radio image for this link */
+    ESL_COPROC_IMAGE_RADIO_OTHER, /* a radio image for another link: refuse it */
+    ESL_COPROC_IMAGE_OTHER,       /* any other app (the AP's own, say) */
+} esl_coproc_image_t;
+
+/* What an image is to a host whose radio's image is the project link_project
+ * (ESL_COPROC_RADIO_UART_PROJECT on an S3); the project name into name when it is
+ * not NULL (ESL_COPROC_PROJECT_MAX + 1 bytes, "" when unknown). */
+esl_coproc_image_t esl_coproc_image_kind(const uint8_t *data, size_t len, const char *link_project, char *name);
+
 /* ---- encoding: each returns the frame length written to out
  * (ESL_COPROC_FRAME_MAX bytes), 0 if it does not fit. ---- */
 

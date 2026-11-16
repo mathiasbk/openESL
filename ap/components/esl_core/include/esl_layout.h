@@ -7,7 +7,7 @@
 #include "esl_json.h"
 #include "esl_proto.h"
 
-/* Layout files per tag model (krav G7, A12-A14; docs/protokoll.md part 3).
+/* Layout files per tag model (requirements G7, A12-A14 in docs/requirements.md; docs/protocol.md part 3).
  *
  * A layout file is JSON ("format": "esl-layouts") with up to 16 named
  * layouts for one model. esl_layout_compile() checks it against the model
@@ -43,6 +43,7 @@ typedef struct {
     uint16_t icons;      /* icons per screen */
     uint16_t file_bytes; /* compiled file */
     uint16_t json_bytes; /* JSON file */
+    uint16_t shapes;     /* ellipses and polygons per screen */
 } esl_limits_t;
 
 extern esl_limits_t esl_limits;
@@ -65,6 +66,9 @@ typedef struct {
     uint16_t qr_cap[ESL_LAYOUT_FILE_MAX];
     /* ESL_CLOCK_* of each layout: whether its fixed texts have date fields (esl_clock.h) */
     uint8_t clock[ESL_LAYOUT_FILE_MAX];
+    /* Whether each layout has a text element with a number format (decimals, thousands), so
+     * a new decimal sign (esl_number_set_point) draws it again (esl_layouts_image_ver) */
+    uint8_t nums[ESL_LAYOUT_FILE_MAX];
     /* Bit n: a layout draws with font file n (esl_font.h). Its version is part of the file's. */
     uint8_t user_fonts;
     /* Where each layout's "fields" list (the JSON array) is in the JSON file that was
@@ -192,15 +196,26 @@ bool esl_layouts_check_content(esl_layouts_t *ls, uint8_t model, const esl_conte
  * lock, into out (cap bytes). Returns the image size, 0 for an unknown model or when
  * cap is too small. ls may be NULL (no file). */
 size_t esl_layouts_render(esl_layouts_t *ls, uint8_t model, const esl_content_t *c, uint8_t *out, size_t cap);
+/* Draws content c with a compiled file that is not stored (PUT /api/tags/{mac}/draw), under
+ * the same lock, as the font files it may use are shared. ls may be NULL. */
+size_t esl_layouts_render_bin(esl_layouts_t *ls, uint8_t model, const esl_layout_bin_t *bin, const esl_content_t *c,
+                              uint8_t *out, size_t cap);
 
 /* The version a tag's image is drawn with (esl_store image_layout_ver): the model's file's
  * version, with the day or the week mixed in when the tag's layout (layout_hash, as
- * esl_tag_t has it) has date fields (esl_clock.h), so a new day draws it again. 0 when the
- * model has no file. */
+ * esl_tag_t has it) has date fields (esl_clock.h), so a new day draws it again, and the
+ * decimal sign mixed in when it formats numbers and that is a point (esl_number_point), so
+ * a new "lang" draws it again; a comma mixes in nothing, as before #402. 0 when the model
+ * has no file. */
 uint32_t esl_layouts_image_ver(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash);
 
 /* ESL_CLOCK_* of the tag's layout (layout_hash as esl_tag_t has it): whether it has date fields */
 uint8_t esl_layouts_clock(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash);
+
+/* The name of the layout whose name hashes to layout_hash (esl_tag_t has it), looked up in
+ * the file for model first, then in the other models' files (a tag whose model is not known
+ * yet), into name. False when no file has it, or layout_hash is 0. ls may be NULL. */
+bool esl_layouts_name(esl_layouts_t *ls, uint8_t model, uint32_t layout_hash, char name[ESL_LAYOUT_NAME_MAX + 1]);
 
 /* Fills env for a model; version 0 and no names if it has no file. ls may be NULL. */
 void esl_layouts_env(esl_layouts_t *ls, uint8_t model, esl_layout_env_t *env);

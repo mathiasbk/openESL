@@ -1,0 +1,8 @@
+# Python packages for the tests and tools (tools/check.py, tools/dev/setup.sh, CI).
+# pip install --user -r tools/dev/requirements.txt
+zxing-cpp==3.1.1   # tag and AP host tests: barcodes are read back from the drawn image
+pillow             # the same, and the image tools
+pyyaml             # docs/openapi.yaml against the AP code (check.py openapi)
+textual==8.2.8     # tools/flash-tui and its tests
+pyserial==3.5      # tools/flash-tui: the flasher's serial port
+rich               # tools/flash-tui (comes with textual)

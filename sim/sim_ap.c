@@ -13,7 +13,7 @@
 #include "esl_sched.h"
 #include "sim.h"
 
-#define CAP 8
+#define CAP 16   /* tags the AP keeps: enough for "esl-sim serve --tags" */
 
 static esl_api_changes_t changes;
 static esl_store_t st;
@@ -175,9 +175,9 @@ static bool fw_read(void *ctx, uint8_t model, uint32_t off, void *data, size_t l
 void sim_ap_boot(void)
 {
     static const esl_tagfw_ops_t fops = {NULL, NULL, NULL, fw_erase, fw_write, fw_read, NULL, NULL};
-    static const esl_sched_ops_t sops = {NULL, NULL, NULL, nvs_sched_save, nvs_sched_load, nvs_sched_erase};
+    static const esl_sched_ops_t sops = {NULL, NULL, NULL, nvs_sched_save, nvs_sched_load, nvs_sched_erase, NULL};
     static const esl_store_ops_t ops = {NULL, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, NULL, NULL, nvs_load, NULL, NULL, NULL,
-                                        nvs_image, nvs_load_image, nvs_channel};
+                                        nvs_image, nvs_load_image, nvs_channel, NULL};
     static const esl_layout_ops_t lops = {NULL, NULL, NULL, nvs_layout_save, nvs_layout_erase, NULL, NULL};
     static bool first = true;
 
@@ -202,6 +202,7 @@ void sim_ap_boot(void)
             esl_store_restore_cfg(&st, slot, mac, &cfg);
     }
     esl_store_restore_channel(&st, nvs.channel, nvs.ch_next, 0);   /* after the tags, as store_nvs_init() */
+    esl_store_set_ap_id(&st, 0x5A11AB1Eul);   /* as cfg/ap_id (#390): tags from 0.11.0 belong to this AP */
     esl_sched_init(&sched, sched_entries, CAP, &sops);   /* as sched_start(): the time is unknown again */
     for (unsigned slot = 0; slot < CAP; slot++)
         if (nvs.sched_len[slot])
@@ -289,6 +290,13 @@ void sim_ap_set_nvs_channel(uint8_t channel)
     nvs.channel = channel;
 }
 
+/* Another AP's id, as a second AP next to the first (no previous id answered) */
+void sim_ap_set_id(uint32_t id)
+{
+    esl_store_set_ap_id(&st, id);
+    esl_store_set_prev_id(&st, 0);
+}
+
 /* As the radio task: a planned channel move happens when the store says (esl_store_channel_step) */
 uint8_t sim_ap_channel(void)
 {
@@ -313,10 +321,19 @@ int sim_api(const char *method, const char *uri, const char *body, const char **
 {
     return sim_api_bin(method, uri, body, body ? strlen(body) : 0, out_body);
 }
+/* The AP id glue (main/store_nvs.c on the AP): nothing to keep, the sim has no NVS for it */
+static bool sim_set_id(void *ctx, uint32_t id, uint32_t prev)
+{
+    (void)ctx, (void)id, (void)prev;
+    return true;
+}
+static void sim_set_adopt(void *ctx, bool all, uint32_t id) { (void)ctx, (void)all, (void)id; }
+static esl_apid_cfg_t sim_apid = {0, sim_set_id, sim_set_adopt, NULL};
+
 
 int sim_api_bin(const char *method, const char *uri, const void *body, size_t len, const char **out_body)
 {
-    esl_api_t api = {&st, SIM_TOKEN, "sim", &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, NULL, NULL, NULL, NULL, NULL, true, &changes, NULL, 0, NULL};
+    esl_api_t api = {&st, SIM_TOKEN, "sim", &layouts, "poweron", NULL, &sched, NULL, NULL, &tagfw, NULL, NULL, NULL, NULL, NULL, true, &changes, NULL, 0, NULL, &sim_apid, NULL, NULL};
     esl_sb_t out;
     int status;
 
@@ -364,6 +381,7 @@ static int drop_up;
 static int drop_reply;
 static uint8_t drop_type;
 bool sim_die_on_drop;
+int8_t sim_link_rssi = -55;
 
 void sim_drop_uplink(int n) { drop_up = n; }
 
@@ -411,7 +429,7 @@ uint8_t sim_link(uint8_t channel, const uint8_t *frame, uint8_t len, uint8_t *re
     memset(&ev, 0, sizeof(ev));
     /* the AP's sched task ticks once a second; here only time between frames matters */
     esl_sched_tick(&sched, &st, ap_now_ms());
-    n = esl_radio_handle(&st, &layouts, ESL_DEFAULT_PAN_ID, psdu, len + ESL_FCS_LEN, -55, ap_now_ms(), tx, &ev);
+    n = esl_radio_handle(&st, &layouts, ESL_DEFAULT_PAN_ID, psdu, len + ESL_FCS_LEN, sim_link_rssi, ap_now_ms(), tx, &ev);
     if (ev.msg_type == ESL_MSG_POLL)
         sim_stats.polls++;
     else if (ev.msg_type == ESL_MSG_IMG_REQ)

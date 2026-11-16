@@ -1,4 +1,6 @@
 // main.js - tabs, the tag backups, and the two flasher wizards (js/tagwizard.js, js/apwizard.js).
+// demoap.js comes first: on ?demo=browser it swaps the page's storage before anything reads it
+import { DemoAp, demoWanted } from "./demoap.js";
 import { initEditor } from "./editor.js";
 import { BackupStore, modelOfMac, MODELS as TAG_MODELS } from "./tagflash.js";
 import { initTagWizard } from "./tagwizard.js";
@@ -20,8 +22,16 @@ const $ = (id) => document.getElementById(id);
 
 const TABS = ["home", "design", "tag", "ap", "dashboard", "setup", "api"];
 
-function showTab(name) {
-  if (!TABS.includes(name)) name = "home";
+// #dashboard/firmware: the tab, then a part of it (js/dashnav.js). Per tab the address it was
+// last shown with, so its button goes back to the same part.
+const lastHash = {};
+function showTab(hash) {
+  // the address the tab on screen has now (a part shown with pushState, js/dashnav.js)
+  const now = location.hash.slice(1);
+  if (TABS.includes(now.split("/")[0])) lastHash[now.split("/")[0]] = now;
+  let [name] = hash.split("/");
+  if (!TABS.includes(name)) name = hash = "home";
+  lastHash[name] = hash;
   document.querySelectorAll(".tabs button").forEach((b) => {
     b.setAttribute("aria-selected", b.dataset.tab === name);
     // on a phone the tabs are one row that scrolls sideways: keep the chosen one in view
@@ -36,18 +46,32 @@ function showTab(name) {
   // the API reference is large: load it the first time its tab is shown
   const frame = name === "api" && document.querySelector(".api-frame:not([src])");
   if (frame) frame.src = frame.dataset.src;
-  if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+  if (location.hash !== "#" + hash) history.replaceState(null, "", "#" + hash);
 }
-document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(lastHash[b.dataset.tab] || b.dataset.tab)));
 window.addEventListener("hashchange", () => {
   showTab(location.hash.slice(1));
   window.scrollTo(0, 0);
 });
-showTab(location.hash.slice(1));
+const startTab = location.hash.slice(1);   // before showTab() fills in #home
+showTab(startTab);
 initWifiSetup("wifi");
-initDashboard();
 
-initEditor().catch((e) => {
+// ---------- the browser demo (?demo=browser): a pretend AP with six tags in this page ----------
+
+const demoAp = demoWanted() ? new DemoAp() : null;
+if (demoAp) {
+  $("demo-bar").hidden = false;
+  // leaving keeps the tab: the same address without ?demo
+  $("demo-leave").addEventListener("click", (ev) => {
+    ev.preventDefault();
+    location.href = location.pathname + location.hash;
+  });
+  if (!startTab) showTab("dashboard");
+}
+initDashboard({ demoAp });
+
+initEditor({ demoAp }).catch((e) => {
   const s = $("status");
   s.textContent = "Could not start the renderer: " + e.message;
   s.className = "status error";

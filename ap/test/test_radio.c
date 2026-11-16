@@ -13,9 +13,9 @@
 #include <stdlib.h>
 
 /* End to end without hardware: client -> API -> store -> radio frames -> fake
- * tag, and back. Follows the test matrix in docs/fremdriftsplan.md phase 5. */
+ * tag, and back. Follows the test matrix in docs/history/work-plan.md phase 5. */
 
-#define CAP 24 /* krav G3: at least 20 tags */
+#define CAP 24 /* requirement G3 in docs/requirements.md: at least 20 tags */
 #define PAN 0x4553
 #define AUTH "Bearer t"
 
@@ -116,13 +116,13 @@ static size_t nvs_load_image(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
 static nvs_t nvs;
 static esl_layouts_t layouts; /* empty unless a test uploads a file */
 static esl_store_t st;
-static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL};
+static esl_api_t api = {&st, "t", "0.1.0", &layouts, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, false, NULL, NULL, 0, NULL, NULL, NULL, NULL};
 static char resp[ESL_API_RESP_SIZE(CAP)];
 static esl_sb_t out;
 
 /* Tags that show what the AP draws (POLL bit5): the image is drawn when the tag polls
  * with another image than its content gives, sent block by block, and never stored.
- * docs/protokoll.md "Image transfer"; plan D in design-sending-alternativer. */
+ * docs/protocol.md "Image transfer"; plan D in design-sending-alternativer. */
 static esl_image_t images;
 
 static void images_boot(void)
@@ -138,7 +138,7 @@ static void images_boot(void)
 static void ap_boot(void)
 {
     images_boot();
-    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, nvs_seen, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image, nvs_channel};
+    static const esl_store_ops_t ops = {&nvs, NULL, NULL, nvs_save, nvs_erase, nvs_cfg, nvs_next_poll, nvs_seen, NULL, nvs_load, NULL, NULL, NULL, nvs_image, nvs_load_image, nvs_channel, NULL};
     esl_store_free(&st);
     esl_store_init(&st, CAP, &ops, 0);
     if (nvs.has_next_poll)
@@ -184,10 +184,252 @@ static int put(const char *mac, const char *body)
     return esl_api_handle(&api, "PUT", uri, AUTH, body, strlen(body), 0, &out);
 }
 
+/* The glue of the AP id for the API tests (main/store_nvs.c on the AP) */
+static uint32_t saved_id, saved_prev, saved_adopt_id;
+static bool saved_adopt_all, id_save_fails;
+static unsigned id_saves, adopt_saves;
+static bool fake_set_id(void *ctx, uint32_t id, uint32_t prev)
+{
+    (void)ctx;
+    if (id_save_fails)
+        return false;
+    saved_id = id;
+    saved_prev = prev;
+    id_saves++;
+    return true;
+}
+static void fake_set_adopt(void *ctx, bool all, uint32_t id)
+{
+    (void)ctx;
+    saved_adopt_all = all;
+    saved_adopt_id = id;
+    adopt_saves++;
+}
+static esl_apid_cfg_t apid_cfg = {0, fake_set_id, fake_set_adopt, NULL};
+
+static int cfg_put(const char *body)
+{
+    return esl_api_handle(&api, "PUT", "/api/config", AUTH, body, strlen(body), 0, &out);
+}
+
+/* The AP id (#390): a label that belongs to another AP is not answered, unless it is lost for long
+   and this AP adopts that AP's labels, or it has been lost for a week (ANY_AP) */
+static void test_ap_id(void)
+{
+    esl_faketag_t own, other, old, any;
+    uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX];
+    size_t n;
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_faketag_init(&own, 0xA1D00001, 0x0B00, 3000, ESL_MODEL_29);
+    esl_faketag_init(&other, 0xA1D00002, 0x0B00, 3000, ESL_MODEL_29);
+    esl_faketag_init(&old, 0xA1D00003, 0x0900, 3000, ESL_MODEL_29);
+    esl_faketag_init(&any, 0xA1D00004, 0x0B00, 3000, ESL_MODEL_29);
+    own.apid = other.apid = any.apid = true;
+    other.ap_id = 0xBEEF0002ul;
+
+    /* an AP without an id answers everyone, as before */
+    CHECK_INT(air(&other, 1000, false), ESL_MSG_IDLE);
+    CHECK(other.ap_id == 0xBEEF0002ul);
+    CHECK(esl_store_delete(&st, other.mac));
+
+    /* with an id: a label without one (new, or firmware before #390) is answered and learns it
+       from CONFIG; so is one that already has it */
+    esl_store_set_ap_id(&st, 0xBEEF0001ul);
+    CHECK_INT(air(&own, 2000, false), ESL_MSG_CONFIG);
+    CHECK(own.ap_id == 0xBEEF0001ul);
+    CHECK_INT(air(&own, 62000, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&old, 2000, false), ESL_MSG_IDLE);     /* no id in its POLL: answered, no CONFIG */
+
+    /* the 0.6.0 labels (14-byte POLL, no link block) and the oldest (12 bytes): answered as before,
+       with no CONFIG, and their content still goes out */
+    {
+        esl_faketag_t l6, l0;
+        esl_faketag_init(&l6, 0xA1D00006, 600, 3000, ESL_MODEL_29);
+        esl_faketag_init(&l0, 0xA1D00007, 1, 3000, ESL_MODEL_29);
+        l6.no_link = true;
+        l6.images = true;
+        l0.legacy = true;
+        CHECK_INT(air(&l6, 2100, false), ESL_MSG_IDLE);
+        CHECK_INT(air(&l0, 2100, false), ESL_MSG_IDLE);
+        CHECK_INT(l6.configs, 0);
+        CHECK_INT(put("00000000A1D00006", "{\"layout\":\"text\",\"fields\":[\"Hei\"]}"), 200);
+        air(&l6, 2200, false);
+        CHECK(l6.img_shown > 0);
+        CHECK_INT(l6.configs, 0);
+    }
+
+    /* another AP's label: no answer, not added, and its requests get none either */
+    unsigned count = esl_store_count(&st);
+    CHECK_INT(air(&other, 3000, false), 0);
+    CHECK_INT(esl_store_count(&st), count);
+    CHECK(esl_store_refused(&st, other.mac));
+    n = esl_faketag_img_request(&other, PAN, rx);
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 3100, tx, NULL), 0);
+    n = esl_faketag_fw_request(&other, PAN, rx);
+    CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 3200, tx, NULL), 0);
+
+    /* lost for an hour, but this AP does not adopt that id: still no answer (the labels of an
+       AP that only restarted stay with it) */
+    other.link_flags = ESL_POLL_LF_LOST_LONG;
+    CHECK_INT(air(&other, 4000, false), 0);
+    esl_store_set_adopt(&st, false, 0xBEEF0003ul);
+    CHECK_INT(air(&other, 5000, false), 0);
+
+    /* adopting that id: taken over, with this AP's id. Content waiting for it (a restored backup)
+       comes after CONFIG, so its next POLL already has this AP's id */
+    other.images = true;
+    CHECK_INT(put("00000000A1D00002", "{\"layout\":\"text\",\"fields\":[\"Hei\"]}"), 200);
+    esl_store_set_adopt(&st, false, 0xBEEF0002ul);
+    n = esl_faketag_poll(&other, PAN, rx);
+    size_t m = esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 6000, tx, NULL);
+    CHECK_INT(esl_faketag_receive(&other, tx, m), ESL_MSG_CONFIG);
+    CHECK_INT(air(&other, 6100, false) != 0, 1);
+    CHECK(other.img_shown > 0);
+    CHECK(other.ap_id == 0xBEEF0001ul);
+    CHECK(!esl_store_refused(&st, other.mac));
+    CHECK_INT(esl_store_count(&st), count + 1);
+
+    /* adopt all: any id, but only once lost for long */
+    esl_store_set_adopt(&st, true, 0);
+    any.ap_id = 0xBEEF0005ul;
+    CHECK_INT(air(&any, 7000, false), 0);
+    any.link_flags = ESL_POLL_LF_LOST_LONG;
+    CHECK_INT(air(&any, 8000, false), ESL_MSG_CONFIG);
+    CHECK(any.ap_id == 0xBEEF0001ul);
+
+    /* lost for a week (ANY_AP): answered with no adopt at all */
+    esl_store_set_adopt(&st, false, 0);
+    CHECK(esl_store_delete(&st, any.mac));
+    any.ap_id = 0xBEEF0006ul;
+    any.link_flags = ESL_POLL_LF_LOST_LONG | ESL_POLL_LF_ANY_AP;
+    CHECK_INT(air(&any, 9000, false), ESL_MSG_CONFIG);
+    CHECK(any.ap_id == 0xBEEF0001ul);
+
+    /* the refused list is a ring: the oldest is forgotten */
+    for (unsigned i = 0; i < ESL_STORE_FOREIGN + 1; i++) {
+        esl_faketag_t f;
+        esl_faketag_init(&f, 0xF0000000ull + i, 0x0B00, 3000, ESL_MODEL_29);
+        f.apid = true;
+        f.ap_id = 0xBEEF0009ul;
+        CHECK_INT(air(&f, 10000 + i, false), 0);
+    }
+    CHECK(!esl_store_refused(&st, 0xF0000000ull));
+    CHECK(esl_store_refused(&st, 0xF0000000ull + ESL_STORE_FOREIGN));
+    /* ... but a tag the AP has not in its table gets no answer to IMG_REQ or FW_REQ all the
+       same (#398): with more than 16 neighbour tags on the channel, an IDLE would cut their
+       downloads off, or hand them this AP's firmware */
+    {
+        esl_faketag_t f;
+        esl_faketag_init(&f, 0xF0000000ull, 0x0B00, 3000, ESL_MODEL_29);
+        f.apid = true;
+        f.ap_id = 0xBEEF0009ul;
+        f.img_dl_id = 77;
+        f.img_dl_size = 4000;
+        f.fw_dl_ver = 0x0C00;
+        f.fw_dl_size = 0x8000;
+        n = esl_faketag_img_request(&f, PAN, rx);
+        CHECK(n > 0);
+        CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 10100, tx, NULL), 0);
+        n = esl_faketag_fw_request(&f, PAN, rx);
+        CHECK(n > 0);
+        CHECK_INT(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 10200, tx, NULL), 0);
+        CHECK(esl_store_req_welcome(&st, own.mac));      /* its own tags are answered */
+        own.img_dl_id = 77;
+        own.img_dl_size = 4000;
+        n = esl_faketag_img_request(&own, PAN, rx);
+        CHECK(n > 0);
+        CHECK(esl_radio_handle(&st, &layouts, PAN, rx, n, -60, 10300, tx, NULL) > 0);
+        own.img_dl_id = 0;
+        own.img_dl_size = 0;
+        uint32_t id = st.ap_id;
+        esl_store_set_ap_id(&st, 0);                     /* an AP without an id: as before */
+        CHECK(esl_store_req_welcome(&st, 0xF0000000ull));
+        CHECK(!esl_store_req_welcome(&st, 0xF0000000ull + ESL_STORE_FOREIGN)); /* still refused */
+        esl_store_set_ap_id(&st, id);
+    }
+
+    /* Health lists the other APs whose labels poll here, newest first */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 20000, &out), 200);
+    CHECK(HAS(resp, "\"other_aps\":[{\"ap_id\":\"BEEF0009\",\"tags\":16,\"polls\":17,\"seen_s_ago\":9,\"lost_long\":false,"
+                    "\"answered_s_ago\":9}"));
+    CHECK(HAS(resp, "{\"ap_id\":\"BEEF0003\"") == 0 && HAS(resp, "\"ap_id\":\"BEEF0002\""));
+    /* labels of an AP that is off: they poll with lost 1 and more, so it is not answering them */
+    {
+        esl_poll_t p = {.has_link = true, .lost = 2, .has_apid = true, .ap_id = 0xBEEF000Aul};
+        CHECK(!esl_store_poll_welcome(&st, 0xF00000AAull, &p, 21000));
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 22000, &out), 200);
+        CHECK(HAS(resp, "{\"ap_id\":\"BEEF000A\",\"tags\":1,\"polls\":1,\"seen_s_ago\":1,\"lost_long\":false,"
+                        "\"answered_s_ago\":null}"));
+        p.lost = 0; /* one its AP answered: the AP runs */
+        esl_store_poll_welcome(&st, 0xF00000AAull, &p, 23000);
+        CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 25000, &out), 200);
+        CHECK(HAS(resp, "{\"ap_id\":\"BEEF000A\",\"tags\":1,\"polls\":2,\"seen_s_ago\":2,\"lost_long\":false,"
+                        "\"answered_s_ago\":2}"));
+    }
+
+    /* GET/PUT /api/config: the id and adopt */
+    api.apid = &apid_cfg;
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/config", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"ap_id\":\"BEEF0001\",\"prev_ap_id\":null,\"adopt\":null,\"adopt_until\":null"));
+    CHECK_INT(cfg_put("{\"adopt\":\"all\"}"), 200);
+    CHECK(st.adopt_all && saved_adopt_all && adopt_saves == 1);
+    CHECK(HAS(resp, "\"adopt\":\"all\""));
+    apid_cfg.adopt_until = 1800000000ul;
+    CHECK_INT(cfg_put("{\"adopt\":\"beef0009\"}"), 200);
+    CHECK(!st.adopt_all && st.adopt_id == 0xBEEF0009ul && saved_adopt_id == 0xBEEF0009ul);
+    CHECK(HAS(resp, "\"adopt\":\"BEEF0009\",\"adopt_until\":1800000000"));
+    CHECK_INT(cfg_put("{\"adopt\":null}"), 200);
+    CHECK(!st.adopt_all && !st.adopt_id && !saved_adopt_all && !saved_adopt_id);
+    CHECK(HAS(resp, "\"adopt\":null,\"adopt_until\":null"));
+    CHECK_INT(cfg_put("{\"adopt\":\"some\"}"), 422);
+    CHECK_INT(cfg_put("{\"adopt\":\"00000000\"}"), 422);
+    CHECK_INT(cfg_put("{\"ap_id\":\"FFFFFFFF\"}"), 422);
+    CHECK_INT(cfg_put("{\"ap_id\":\"BEEF00\"}"), 422);
+    CHECK_INT(cfg_put("{\"ap_id\":12345678}"), 422);
+    CHECK_INT(cfg_put("{\"adopt\":\"beef0001\"}"), 422);                     /* its own id */
+    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\",\"adopt\":\"0A0B0C0D\"}"), 422);
+    CHECK_INT(adopt_saves, 3);
+
+    /* the id cannot be saved: 500, and nothing changes (not the poll interval either) */
+    id_save_fails = true;
+    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\",\"adopt\":\"all\"}"), 500);
+    CHECK(st.ap_id == 0xBEEF0001ul && !st.prev_id && !st.adopt_all && id_saves == 0);
+    id_save_fails = false;
+
+    /* a new id (a restore): this AP's labels carry the old one. It is still answered, at once
+       (no LOST_LONG), and the CONFIG moves them to the new id; the adopt asked for is apart */
+    CHECK_INT(cfg_put("{\"ap_id\":\"0A0B0C0D\",\"adopt\":null}"), 200);
+    CHECK(st.ap_id == 0x0A0B0C0Dul && saved_id == 0x0A0B0C0Dul && id_saves == 1);
+    CHECK(st.prev_id == 0xBEEF0001ul && saved_prev == 0xBEEF0001ul && !st.adopt_id && !st.adopt_all);
+    CHECK(HAS(resp, "\"ap_id\":\"0A0B0C0D\",\"prev_ap_id\":\"BEEF0001\",\"adopt\":null"));
+    own.link_flags = 0;
+    CHECK_INT(air(&own, 70000, false), ESL_MSG_CONFIG);
+    CHECK(own.ap_id == 0x0A0B0C0Dul);
+    CHECK_INT(air(&own, 130000, false), ESL_MSG_IDLE);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/health", AUTH, NULL, 0, 130000, &out), 200);
+    CHECK(!HAS(resp, "\"ap_id\":\"BEEF0001\""));                     /* its own old id is no other AP */
+    /* the same id again changes nothing */
+    CHECK_INT(cfg_put("{\"ap_id\":\"0a0b0c0d\"}"), 200);
+    CHECK_INT(id_saves, 1);
+    /* back again: the id before is answered now */
+    CHECK_INT(cfg_put("{\"ap_id\":\"BEEF0001\"}"), 200);
+    CHECK(st.ap_id == 0xBEEF0001ul && st.prev_id == 0x0A0B0C0Dul && saved_prev == 0x0A0B0C0Dul);
+    CHECK_INT(air(&own, 190000, false), ESL_MSG_CONFIG);
+    CHECK(own.ap_id == 0xBEEF0001ul);
+    /* when its days are up (the glue): the old id is another AP's again */
+    esl_store_set_prev_id(&st, 0);
+    CHECK_INT(cfg_put("{\"adopt\":null}"), 200);
+    api.apid = NULL;
+    CHECK_INT(cfg_put("{\"adopt\":\"all\"}"), 422);
+    esl_store_set_ap_id(&st, 0);
+}
+
 static void test_handle_filters(void)
 {
     uint8_t rx[ESL_PSDU_MAX], tx[ESL_PSDU_MAX], payload[ESL_POLL_LEN];
-    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0};
+    esl_poll_t p = {1, 3000, 0, 0, ESL_MODEL_29, false, 0, false, 0, 0, 0, 0, false, 0};
     esl_radio_event_t ev;
     size_t n;
 
@@ -697,6 +939,59 @@ static uint32_t image_id_of(const char *mac)
     snprintf(uri, sizeof(uri), "/api/tags/%s", mac);
     CHECK_INT(esl_api_handle(&api, "GET", uri, AUTH, NULL, 0, 0, &out), 200);
     return json_u32(resp, "\"image_id\":");
+}
+
+/* The update window (#415): outside it a tag that shows a picture keeps it */
+static uint32_t win_clock;
+static uint32_t win_now(void *ctx)
+{
+    (void)ctx;
+    return win_clock;
+}
+
+static void test_update_window(void)
+{
+    static const esl_store_ops_t ops = {.unix_now = win_now};
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &ops, 0);
+    esl_layouts_init(&layouts, NULL);
+    images_boot();
+    esl_clock_set_utc_offset(0);
+    esl_hours_t h = {0};
+    h.window = true;
+    h.window_from = 6 * 60;
+    h.window_to = 8 * 60;
+    esl_store_set_hours(&st, &h);
+    win_clock = 1767225600u + 12 * 3600; /* 12:00: closed */
+
+    esl_faketag_t a;
+    esl_faketag_init(&a, 0x29C, 1, 3000, ESL_MODEL_29);
+    /* its first picture goes at once */
+    CHECK_INT(put("000000000000029C", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"24,90\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
+    uint32_t first = a.shown;
+    CHECK(first != 0);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 2000), ESL_MSG_IDLE);
+    /* a new price waits for the window, and is not drawn meanwhile */
+    unsigned drawn = images.drawn;
+    CHECK_INT(put("000000000000029C", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"19,90\"]}"), 200);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 3000), ESL_MSG_IDLE);
+    CHECK_INT(a.shown, first);
+    CHECK_INT(images.drawn, drawn);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/000000000000029C", AUTH, NULL, 0, 3000, &out), 200);
+    CHECK(HAS(resp, "\"pending\":true"));
+    win_clock = 0; /* the time not known: not held */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 4000), ESL_MSG_IMG);
+    uint32_t second = a.shown;
+    CHECK(second != first);
+    CHECK_INT(put("000000000000029C", "{\"layout\":\"price\",\"fields\":[\"Melk\",\"17,90\"]}"), 200);
+    win_clock = 1767225600u + 8 * 3600; /* 08:00: closed again */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 5000), ESL_MSG_IDLE);
+    CHECK_INT(a.shown, second);
+    win_clock = 1767225600u + 7 * 3600 + 59 * 60; /* 07:59: open */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 6000), ESL_MSG_IMG);
+    CHECK(a.shown != second && a.shown != 0);
+    esl_store_set_hours(&st, NULL);
 }
 
 static void test_image_send(void)
@@ -1975,6 +2270,372 @@ static void test_image_clock(void)
     esl_clock_set_today(-1);
 }
 
+
+/* ---- one-off designs (PUT /api/tags/{mac}/draw) ---- */
+
+static int put_draw(const char *mac, const char *body)
+{
+    char uri[64];
+    snprintf(uri, sizeof(uri), "/api/tags/%s/draw", mac);
+    return esl_api_handle(&api, "PUT", uri, AUTH, body, body ? strlen(body) : 0, 0, &out);
+}
+
+#define DRAW_ELEMENTS                                                                                                 \
+    "[{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":296,\"h\":30,\"color\":\"black\"},"                                     \
+    "{\"type\":\"text\",\"field\":\"title\",\"x\":4,\"y\":0,\"w\":200,\"h\":30,\"fonts\":[\"medium\",\"small\"],"       \
+    "\"valign\":\"middle\",\"lines\":1,\"color\":\"white\"},"                                                          \
+    "{\"type\":\"ellipse\",\"x\":230,\"y\":40,\"w\":60,\"h\":60,\"border\":3},"                                        \
+    "{\"type\":\"polygon\",\"x\":150,\"y\":40,\"w\":66,\"h\":58,\"points\":[[33,0],[65,57],[0,57]]},"                \
+    "{\"type\":\"text\",\"field\":\"price\",\"x\":4,\"y\":40,\"w\":140,\"h\":60,\"fonts\":[\"large\",\"medium\"],"     \
+    "\"lines\":1},"                                                                                                    \
+    "{\"type\":\"qr\",\"field\":\"link\",\"x\":250,\"y\":2,\"w\":26,\"h\":26}]"
+
+static void test_draw(void)
+{
+    static uint8_t want[5000], back[5000];
+    const size_t raw29 = esl_render_size(ESL_MODEL_29);
+    memset(&nvs, 0, sizeof(nvs));
+    esl_layouts_init(&layouts, NULL);
+    ap_boot();
+
+    const char *body = "{\"layout\":{\"fields\":[\"title\",\"price\",\"link\"],\"elements\":" DRAW_ELEMENTS "},"
+                       "\"fields\":{\"price\":\"12,50\",\"title\":\"Hei p\\u00e5 deg\",\"link\":\"x\"}}";
+
+    /* the tag must be known and have polled */
+    CHECK_INT(put_draw("00000000000002B1", body), 404);
+    CHECK_INT(put("00000000000002B1", "{\"layout\":\"text\",\"fields\":[\"x\"]}"), 200);
+    CHECK_INT(put_draw("00000000000002B1", body), 409);
+    esl_faketag_t a;
+    esl_faketag_init(&a, 0x2B1, 1, 3000, ESL_MODEL_29);
+    a.images = a.img_rle = true;
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 1000), ESL_MSG_IMG);
+    int pic_writes = nvs.img_writes;
+
+    /* errors: method, body, keys, the compiler's own messages, field names */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000002B1/draw", AUTH, NULL, 0, 0, &out), 405);
+    CHECK_INT(put_draw("00000000000002B1", NULL), 400);
+    CHECK_INT(put_draw("00000000000002B1", "[]"), 400);
+    CHECK_INT(put_draw("00000000000002B1", "{}"), 422);
+    CHECK(HAS(resp, "layout must be one layout"));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":[\"a\"],\"elements\":[]},\"colour\":1}"), 422);
+    CHECK(HAS(resp, "unknown key \\\"colour\\\""));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{}}"), 422);
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":[\"a\"],\"elements\":"
+                                           "[{\"type\":\"blob\",\"x\":0,\"y\":0,\"w\":1,\"h\":1}]}}"), 422);
+    CHECK(HAS(resp, "type must be"));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":[\"a\"],\"elements\":"
+                                           "[{\"type\":\"rect\",\"x\":290,\"y\":0,\"w\":20,\"h\":1}]}}"), 422);
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":[\"a\"],\"elements\":[{\"type\":\"rect\",\"x\":0,"
+                                           "\"y\":0,\"w\":1,\"h\":1}]},\"fields\":{\"b\":\"x\"}}"), 422);
+    CHECK(HAS(resp, "no field \\\"b\\\""));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":[\"a\"],\"elements\":[{\"type\":\"rect\",\"x\":0,"
+                                           "\"y\":0,\"w\":1,\"h\":1}]},\"fields\":[\"x\",\"y\"]}"), 422);
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"name\":\"Bad name\",\"fields\":[\"a\"],\"elements\":[]}}"),
+              422);
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{ }}"), 422);
+    CHECK(!HAS(resp, "invalid JSON"));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"fields\":\"a\",\"elements\":[]},\"fields\":{\"a\":\"x\"}}"),
+              422);
+    CHECK(HAS(resp, "fields must list"));
+    {
+        /* more field names than a layout may have, and text for one past the limit: refused,
+           and never an index past the AP's own field table */
+        static char big[2048];
+        size_t p = (size_t)snprintf(big, sizeof(big), "{\"layout\":{\"fields\":[");
+        for (int k = 0; k < 40; k++)
+            p += (size_t)snprintf(big + p, sizeof(big) - p, "%s\"f%d\"", k ? "," : "", k);
+        snprintf(big + p, sizeof(big) - p, "],\"elements\":[]},\"fields\":{\"f39\":\"x\",\"f20\":\"y\"}}");
+        CHECK_INT(put_draw("00000000000002B1", big), 422);
+        snprintf(big + p, sizeof(big) - p, "],\"elements\":[]},\"fields\":{\"f15\":\"x\"}}");
+        CHECK_INT(put_draw("00000000000002B1", big), 422);
+        CHECK(HAS(resp, "fields must list"));
+    }
+    {
+        /* more JSON values than the API parses: a 413 that says so */
+        static char many[8192];
+        size_t p = (size_t)snprintf(many, sizeof(many), "{\"layout\":{\"fields\":[\"a\"],\"elements\":[");
+        for (int k = 0; k < 1100; k++)
+            p += (size_t)snprintf(many + p, sizeof(many) - p, "%s1", k ? "," : "");
+        snprintf(many + p, sizeof(many) - p, "]}}");
+        CHECK_INT(put_draw("00000000000002B1", many), 413);
+        CHECK(HAS(resp, "more than 1024 JSON values"));
+    }
+    CHECK_INT(nvs.img_writes, pic_writes);
+
+    /* drawn once and kept as the tag's picture */
+    CHECK_INT(put_draw("00000000000002B1", body), 200);
+    CHECK(HAS(resp, "\"changed\":true,\"pending\":true"));
+    CHECK_INT(nvs.img_writes, pic_writes + 1);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/tags/00000000000002B1", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(HAS(resp, "\"layout\":\"image\",\"fields\":[],"));
+
+    /* the same pixels as the same layout from a layout file, with the same fields */
+    {
+        const char *file = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"d\","
+                           "\"fields\":[\"title\",\"price\",\"link\"],\"elements\":" DRAW_ELEMENTS "}]}";
+        esl_layout_bin_t *bin = malloc(sizeof(*bin));
+        char err[ESL_LAYOUT_ERR_MAX];
+        CHECK(bin && esl_layout_compile(file, strlen(file), ESL_MODEL_29, bin, err, sizeof(err)));
+        esl_content_t c;
+        esl_content_init_named(&c, "d", 1, 0);
+        esl_content_add_field(&c, (const uint8_t *)"Hei p\xe5 deg", 10);
+        esl_content_add_field(&c, (const uint8_t *)"12,50", 5);
+        esl_content_add_field(&c, (const uint8_t *)"x", 1);
+        CHECK_INT((int)esl_render(ESL_MODEL_29, bin, &c, want, sizeof(want)), (int)raw29);
+        free(bin);
+    }
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -60, 61000), ESL_MSG_IMG);
+    CHECK(a.shown == image_id_of("00000000000002B1"));
+    CHECK_INT((int)screen_of(buf_of(0x2B1), back, sizeof(back)), (int)raw29);
+    CHECK(memcmp(back, want, raw29) == 0);
+    size_t ink = 0;
+    for (size_t i = 0; i < raw29; i++)
+        ink += want[i] != 0;
+    CHECK(ink > 100); /* it drew something */
+
+    /* the same drawing again changes nothing; fields by position, a name and icons work */
+    CHECK_INT(put_draw("00000000000002B1", body), 200);
+    CHECK(HAS(resp, "\"changed\":false"));
+    CHECK_INT(put_draw("00000000000002B1", "{\"layout\":{\"name\":\"door\",\"fields\":[\"t\"],\"elements\":["
+                                           "{\"type\":\"icon\",\"icon\":\"dot\",\"x\":0,\"y\":0},"
+                                           "{\"type\":\"text\",\"field\":\"t\",\"x\":20,\"y\":0,\"w\":200,\"h\":30,"
+                                           "\"fonts\":[\"small\"]}]},"
+                                           "\"icons\":{\"dot\":{\"w\":8,\"h\":8,\"data\":\"//////////8=\"}},"
+                                           "\"fields\":[\"Meeting room\"]}"),
+              200);
+    CHECK(HAS(resp, "\"changed\":true"));
+
+    /* an AP that keeps no pictures cannot keep a drawing */
+    esl_store_ops_t ops = st.ops;
+    st.ops.persist_image = NULL;
+    st.ops.load_image = NULL;
+    CHECK_INT(put_draw("00000000000002B1", body), 501);
+    st.ops = ops;
+}
+
+/* ---- jobs (#421): what became of each tag of a batch ---- */
+
+static int jobs_get(uint32_t id, uint64_t now_ms)
+{
+    char uri[48];
+    snprintf(uri, sizeof(uri), "/api/jobs/%lu", (unsigned long)id);
+    return esl_api_handle(&api, "GET", uri, AUTH, NULL, 0, now_ms, &out);
+}
+
+static const char *job_tag(const char *mac)
+{
+    const char *p = strstr(resp, mac);
+    return p ? p : "";
+}
+
+static void test_jobs(void)
+{
+    static esl_jobs_t jobs;
+    esl_faketag_t a, b, c, d;
+    char ma[17], mb[17], mc[17], md[17], body[1024];
+
+    memset(&nvs, 0, sizeof(nvs));
+    ap_boot();
+    esl_jobs_init(&jobs, 7, 60);
+    api.jobs = &jobs;
+    esl_faketag_init(&a, 0x10B0000A, 1, 3000, ESL_MODEL_29);
+    esl_faketag_init(&b, 0x10B0000B, 1, 3000, ESL_MODEL_29);
+    esl_faketag_init(&d, 0x10B0000D, 1, 3000, ESL_MODEL_29);
+    esl_faketag_init(&c, 0x10B0000C, 1, 3000, ESL_MODEL_29); /* never heard */
+    b.img_bad = true;
+    CHECK_INT(air(&a, 0, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&b, 0, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&d, 0, false), ESL_MSG_IDLE);
+    esl_mac_format(a.mac, ma);
+    esl_mac_format(b.mac, mb);
+    esl_mac_format(c.mac, mc);
+    esl_mac_format(d.mac, md);
+
+    /* the batch gets a number; a bad timeout or a webhook the AP lacks changes nothing */
+    snprintf(body, sizeof(body),
+             "{\"timeout_s\":120,\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"A\"]},"
+             "{\"mac\":\"%s\",\"layout\":\"price\",\"fields\":[\"Smør\",\"49,90\"]},{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"C\"]},"
+             "{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"D\"]}]}",
+             ma, mb, mc, md);
+    static const char *const bad[] = {"{\"timeout_s\":9,\"tags\":[]}", "{\"timeout_s\":604801,\"tags\":[]}",
+                                      "{\"timeout_s\":\"60\",\"tags\":[]}", "{\"timeout_s\":1.5,\"tags\":[]}",
+                                      "{\"notify\":1,\"tags\":[]}", "{\"notify\":true,\"tags\":[]}"};
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++)
+        CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, bad[i], strlen(bad[i]), 1000, &out), 422);
+    CHECK_INT(esl_jobs_list(&jobs, (uint32_t[ESL_JOBS_MAX]){0}), 0);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 1000, &out), 200);
+    CHECK(HAS(resp, "{\"job\":7,\"tags\":[{\"mac\":"));
+    CHECK_INT(jobs_get(7, 2000), 200);
+    CHECK(HAS(resp, "\"job\":7,\"state\":\"pending\",\"age_s\":1,\"took_s\":null,\"timeout_s\":120,\"notify\":false"));
+    CHECK(HAS(resp, "\"counts\":{\"accepted\":4,\"delivered\":0,\"failed\":0,\"timed_out\":0,\"replaced\":0,\"scheduled\":0}"));
+
+    /* a shows it, b cannot draw it, d gets other content first, c is never heard */
+    CHECK_INT(air(&a, 60000, false), ESL_MSG_IMG);
+    CHECK_INT(air(&a, 61000, false), ESL_MSG_IDLE);
+    CHECK_INT(air(&b, 60000, false), ESL_MSG_IMG);
+    CHECK(b.img_failed != 0);
+    air(&b, 65000, false); /* says so, and is not offered it again */
+    CHECK_INT(put(md, "{\"layout\":\"text\",\"fields\":[\"D2\"]}"), 200);
+    CHECK_INT(jobs_get(7, 70000), 200);
+    CHECK(HAS(job_tag(ma), "\"state\":\"delivered\",\"content_id\":"));
+    CHECK(HAS(job_tag(mb), "\"state\":\"failed\",\"content_id\":"));
+    CHECK(HAS(job_tag(mb), "\"error\":\"the tag could not show it (drawing failed)\""));
+    CHECK(HAS(job_tag(md), "\"state\":\"replaced\""));
+    CHECK(HAS(job_tag(mc), "\"state\":\"accepted\""));
+    CHECK(HAS(resp, "\"state\":\"pending\""));
+    /* the timeout counts from the batch: c is given up at 121 s */
+    CHECK_INT(jobs_get(7, 120999), 200);
+    CHECK(HAS(job_tag(mc), "\"state\":\"accepted\""));
+    CHECK_INT(jobs_get(7, 121000), 200);
+    CHECK(HAS(job_tag(mc), "\"state\":\"timed_out\""));
+    CHECK(HAS(resp, "\"state\":\"done\",\"age_s\":120,\"took_s\":120"));
+    CHECK(HAS(resp, "\"counts\":{\"accepted\":0,\"delivered\":1,\"failed\":1,\"timed_out\":1,\"replaced\":1,\"scheduled\":0}"));
+    /* final: c showing it now does not change the job */
+    air(&c, 130000, false);
+    air(&c, 131000, false);
+    CHECK_INT(jobs_get(7, 200000), 200);
+    CHECK(HAS(job_tag(mc), "\"state\":\"timed_out\""));
+
+    /* content the tag already shows is delivered at once */
+    snprintf(body, sizeof(body), "{\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"A\"]}]}", ma);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 300000, &out), 200);
+    CHECK(HAS(resp, "\"job\":8,") && HAS(resp, "\"changed\":false"));
+    CHECK_INT(jobs_get(8, 300000), 200);
+    CHECK(HAS(resp, "\"state\":\"done\"") && HAS(resp, "\"timeout_s\":3600") && HAS(job_tag(ma), "\"delivered\""));
+
+    /* the list, oldest first, without the tags */
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs", AUTH, NULL, 0, 300000, &out), 200);
+    CHECK(HAS(resp, "{\"jobs\":[{\"job\":7,") && HAS(resp, "},{\"job\":8,") && !HAS(resp, "\"tags\""));
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/", AUTH, NULL, 0, 300000, &out), 200);
+    CHECK_INT(jobs_get(9, 300000), 404);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/7/", AUTH, NULL, 0, 300000, &out), 200);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/x7", AUTH, NULL, 0, 300000, &out), 404);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/0", AUTH, NULL, 0, 300000, &out), 404);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/99999999999", AUTH, NULL, 0, 300000, &out), 404);
+    CHECK_INT(esl_api_handle(&api, "DELETE", "/api/jobs/7", AUTH, NULL, 0, 300000, &out), 405);
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs/7", NULL, NULL, 0, 300000, &out), 401);
+
+    /* RAM stays bounded: 60 tags in all here, so a big batch pushes out the oldest jobs */
+    esl_sb_t sb;
+    static char big[4096];
+    esl_sb_init(&sb, big, sizeof(big));
+    esl_sb_puts(&sb, "{\"tags\":[");
+    for (unsigned i = 0; i < ESL_API_MAX_BATCH; i++)
+        esl_sb_printf(&sb, "%s{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"A\"]}", i ? "," : "", ma);
+    esl_sb_puts(&sb, "]}");
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, big, sb.len, 310000, &out), 200);
+    CHECK(HAS(resp, "\"job\":9,"));
+    CHECK_INT(jobs.tags, 55);
+    CHECK_INT(jobs_get(7, 310000), 200);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, big, sb.len, 310000, &out), 200);
+    CHECK(HAS(resp, "\"job\":10,"));
+    CHECK_INT(jobs.tags, 50);
+    CHECK_INT(jobs_get(7, 310000), 404);
+    CHECK_INT(jobs_get(9, 310000), 404);
+    CHECK_INT(jobs_get(10, 310000), 200);
+    /* the same tag 50 times with what it shows: all delivered */
+    CHECK(HAS(resp, "\"delivered\":50,"));
+
+    /* the webhook: a job that asked for it, once it ends */
+    static esl_notify_t notify;
+    api.notify = &notify;
+    snprintf(body, sizeof(body), "{\"notify\":true,\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"N\"]}]}", ma);
+    /* no URL set: it would never be posted */
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 400000, &out), 422);
+    CHECK(HAS(resp, "notify needs a webhook"));
+    strcpy(notify.url, "http://192.168.1.10/hook");
+    snprintf(body, sizeof(body), "{\"notify\":true,\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"N\"]}]}", ma);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 400000, &out), 200);
+    CHECK(HAS(resp, "\"job\":11,"));
+    static esl_job_tag_t tags[ESL_JOB_TAGS_MAX];
+    esl_job_t j;
+    CHECK(!esl_jobs_to_notify(&jobs, &st, 400000, &j, tags)); /* not shown yet */
+    CHECK_INT(air(&a, 460000, false), ESL_MSG_IMG);
+    CHECK(!esl_jobs_to_notify(&jobs, &st, 460500, &j, tags)); /* sent, not confirmed */
+    CHECK_INT(air(&a, 461000, false), ESL_MSG_IDLE);
+    CHECK(esl_jobs_to_notify(&jobs, &st, 461000, &j, tags));
+    CHECK_INT(j.id, 11);
+    char rep[ESL_API_JOB_REPORT_MAX];
+    esl_sb_t rs;
+    esl_sb_init(&rs, rep, sizeof(rep));
+    esl_api_job_report(&j, 461000, true, &rs);
+    CHECK(!rs.overflow && HAS(rep, "{\"event\":\"job\",\"job\":11,\"state\":\"done\",") && HAS(rep, "\"notify\":true"));
+    for (unsigned i = 0; i < ESL_JOB_NOTIFY_TRIES - 1; i++) {
+        esl_jobs_notified(&jobs, 11, false); /* tried again next round */
+        CHECK(esl_jobs_to_notify(&jobs, &st, 461000, &j, tags));
+    }
+    esl_jobs_notified(&jobs, 11, false); /* given up */
+    CHECK(!esl_jobs_to_notify(&jobs, &st, 461000, &j, tags));
+    api.notify = NULL;
+
+    /* making room: the oldest settled job goes first, not a pending one or one still to be
+       posted, however old */
+    {
+        esl_jobs_t ev;
+        esl_jobs_init(&ev, 100, ESL_JOB_TAGS_MAX);
+        uint32_t p1 = esl_jobs_add(&ev, 1, 60, false, 0);   /* pending */
+        uint32_t p2 = esl_jobs_add(&ev, 0, 60, true, 0);    /* ended, not posted yet */
+        uint32_t d1 = esl_jobs_add(&ev, 0, 60, false, 0);   /* settled */
+        uint32_t d2 = esl_jobs_add(&ev, 0, 60, true, 0);    /* settled once posted */
+        esl_jobs_notified(&ev, d2, true);
+        for (unsigned i = 4; i < ESL_JOBS_MAX; i++)
+            esl_jobs_add(&ev, 1, 60, false, 0);             /* pending, newer */
+        esl_job_t x;
+        CHECK(esl_jobs_add(&ev, 0, 60, false, 0) != 0);
+        CHECK(!esl_jobs_get(&ev, d1, &x, tags));            /* the oldest settled went */
+        CHECK(esl_jobs_get(&ev, p1, &x, tags) && esl_jobs_get(&ev, p2, &x, tags) && esl_jobs_get(&ev, d2, &x, tags));
+        CHECK(esl_jobs_add(&ev, 0, 60, false, 0) != 0);
+        CHECK(!esl_jobs_get(&ev, d2, &x, tags));
+        /* the tag cap too: a full batch pushes out settled ones before the pending p1 */
+        CHECK(esl_jobs_get(&ev, p1, &x, tags));
+        /* the oldest job to post comes first */
+        uint32_t p3 = esl_jobs_add(&ev, 0, 60, true, 0);
+        CHECK(esl_jobs_to_notify(&ev, &st, 0, &x, tags) && x.id == p2);
+        esl_jobs_notified(&ev, p2, true);
+        CHECK(esl_jobs_to_notify(&ev, &st, 0, &x, tags) && x.id == p3);
+        /* when nothing is settled, the oldest of all goes */
+        esl_jobs_notified(&ev, p3, true);
+        esl_jobs_free(&ev);
+        esl_jobs_init(&ev, 1, ESL_JOB_TAGS_MAX);
+        uint32_t a1 = esl_jobs_add(&ev, 30, 60, false, 0);
+        uint32_t a2 = esl_jobs_add(&ev, 20, 60, false, 0);
+        CHECK(esl_jobs_add(&ev, 10, 60, false, 0) != 0);    /* 60 > 50 tags: a1 goes */
+        CHECK(!esl_jobs_get(&ev, a1, &x, tags) && esl_jobs_get(&ev, a2, &x, tags));
+        esl_jobs_free(&ev);
+    }
+
+    /* a report of 50 tags that all failed, with the longest text, fits */
+    esl_job_t w = {.id = UINT32_MAX, .timeout_s = ESL_JOB_TIMEOUT_MAX_S, .n = ESL_JOB_TAGS_MAX, .tags = tags};
+    for (unsigned i = 0; i < ESL_JOB_TAGS_MAX; i++)
+        tags[i] = (esl_job_tag_t){UINT64_MAX, UINT32_MAX, ESL_JOB_FAILED, ESL_JOB_WHY_CONTENT + ESL_CERR_UNFIT};
+    esl_sb_init(&rs, rep, sizeof(rep));
+    esl_api_job_report(&w, UINT64_MAX / 2, true, &rs);
+    CHECK(!rs.overflow);
+
+    /* numbers wrap past 0, and the oldest is still the one furthest back */
+    esl_jobs_free(&jobs);
+    esl_jobs_init(&jobs, UINT32_MAX, 0);
+    CHECK_INT(jobs.max_tags, ESL_JOB_TAGS_MAX);
+    CHECK_INT(esl_jobs_add(&jobs, 0, 60, false, 1), UINT32_MAX);
+    CHECK_INT(esl_jobs_add(&jobs, 0, 60, false, 1), 1);
+    uint32_t ids[ESL_JOBS_MAX];
+    CHECK_INT(esl_jobs_list(&jobs, ids), 2);
+    CHECK_INT(ids[0], UINT32_MAX);
+    CHECK_INT(ids[1], 1);
+    for (unsigned i = 0; i < ESL_JOBS_MAX - 1; i++)
+        esl_jobs_add(&jobs, 0, 60, false, 1);
+    CHECK_INT(esl_jobs_list(&jobs, ids), ESL_JOBS_MAX);
+    CHECK_INT(ids[0], 1); /* UINT32_MAX went */
+    esl_jobs_free(&jobs);
+    api.jobs = NULL;
+
+    /* without jobs the reply is as before */
+    snprintf(body, sizeof(body), "{\"tags\":[{\"mac\":\"%s\",\"layout\":\"text\",\"fields\":[\"O\"]}]}", ma);
+    CHECK_INT(esl_api_handle(&api, "PUT", "/api/tags", AUTH, body, strlen(body), 0, &out), 200);
+    CHECK(!HAS(resp, "\"job\""));
+    CHECK_INT(esl_api_handle(&api, "GET", "/api/jobs", AUTH, NULL, 0, 0, &out), 404);
+}
+
 void test_radio(void)
 {
     esl_sb_init(&out, resp, sizeof(resp));
@@ -1985,11 +2646,15 @@ void test_radio(void)
     test_channel();
     test_many_tags();
     test_image_send();
+    test_update_window();
     test_image_rle();
     test_picture();
+    test_draw();
     test_image_choice();
     test_image_2d();
     test_image_clock();
     test_draw_later();
     test_link();
+    test_ap_id();
+    test_jobs();
 }

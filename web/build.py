@@ -67,7 +67,7 @@ STATIC = ["index.html", "api.html", "css", "js", "img"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
            "web_layout_bin", "web_layout_size", "web_layout_version", "web_load_layouts",
-           "web_clear_layouts", "web_load_font", "web_clear_fonts", "web_text_bytes", "web_render", "web_limit", "web_set_limit", "web_set_today", "malloc", "free"]
+           "web_clear_layouts", "web_load_font", "web_clear_fonts", "web_text_bytes", "web_render", "web_limit", "web_set_limit", "web_set_today", "web_set_lang", "web_set_number_point", "malloc", "free"]
 
 
 # The limits an AP board can set ("limits" in ap/boards/<board>/board.json, ap/CMakeLists.txt) and
@@ -75,7 +75,8 @@ EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "
 # (the limit's own macro there gives its default)
 LIMIT_CAPS = {"runs": ("ESL_DRAW_MAX_RUNS", "ESL_DRAW_CAP_RUNS"), "rects": ("ESL_DRAW_MAX_RECTS", "ESL_DRAW_CAP_RECTS"),
               "lines": ("ESL_DRAW_MAX_LINES", "ESL_DRAW_CAP_LINES"), "icons": ("ESL_DRAW_MAX_ICONS", "ESL_DRAW_CAP_ICONS"),
-              "fileBytes": ("ESL_LBIN_MAX", "ESL_LBIN_CAP"), "jsonBytes": (None, None)}
+              "fileBytes": ("ESL_LBIN_MAX", "ESL_LBIN_CAP"), "jsonBytes": (None, None),
+              "shapes": ("ESL_DRAW_MAX_SHAPES", "ESL_DRAW_CAP_SHAPES")}
 DEFAULT_BOARD = "c6-supermini"     # ap/CMakeLists.txt
 
 
@@ -173,6 +174,10 @@ def copy_static():
     shutil.copy2(os.path.join(ROOT, "docs", "openapi.yaml"), DIST)
     # the Flash AP tab shows how an S3 and its C6 radio are wired
     shutil.copy2(os.path.join(ROOT, "docs", "images", "ap-s3-c6-wiring.svg"), os.path.join(DIST, "img"))
+    # the Overview tab shows a photo of the two tag models
+    shutil.copy2(os.path.join(ROOT, "docs", "images", "tags-29-and-154.jpg"), os.path.join(DIST, "img"))
+    # and the "What you can make" gallery (tools/gallery/render_gallery.py renders it)
+    shutil.copytree(os.path.join(ROOT, "docs", "images", "gallery"), os.path.join(DIST, "img", "gallery"))
     # the example layout files, so the editor can open them (a model with same_as uses the
     # file of the model it names, which the editor opens under that model's name)
     lay = os.path.join(DIST, "designs", "layouts")
@@ -272,6 +277,49 @@ def image_version(path):
     return None
 
 
+# esp_app_desc_t sits right after the image header and the first segment's header (24 + 8 bytes):
+# magic at 32, version at 48 and project_name at 80, 32 bytes each
+APP_DESC_MAGIC = 0xABCD5432
+
+
+def app_project(data):
+    """The project name in esp_app_desc_t of the ESP32 app image that data starts with, or None
+    when data does not start with one"""
+    if len(data) >= 112 and data[0] == 0xE9 and struct.unpack_from("<I", data, 32)[0] == APP_DESC_MAGIC:
+        return data[80:112].split(b"\0", 1)[0].decode(errors="replace")
+    return None
+
+
+def radio_app(r):
+    """The project name a radio's image must have, which says the link it is for (#451, #454):
+    "app" in its radio.json (esl_radio_usb for the Linux AP's C6 on USB), else esl_netradio for a
+    radio on the network (ap/netradio/) and esl_radio for one on UART pins (ap/radio/)"""
+    return r.get("app") or ("esl_netradio" if r["kind"] == "net" else "esl_radio")
+
+
+def check_radio_image(path, r):
+    """Stops the build when the radio image at path (the flasher's merged image, and the -ota.bin
+    next to it) was built for another link than radio r: the file name alone picked r, and a mixup
+    like #449 would otherwise reach the page and be caught only when an AP refuses the image"""
+    want = radio_app(r)
+    found = []
+    ota = path[:-4] + "-ota.bin"
+    if os.path.exists(ota):
+        with open(ota, "rb") as f:
+            found.append((ota, app_project(f.read(112))))
+    with open(path, "rb") as f:
+        img = f.read()
+    for label, ptype, sub, off, size in partitions(img):
+        if ptype == 0 and sub in (0x00, 0x10):      # the app the flasher writes
+            found.append((path, app_project(img[off:off + 112])))
+            break
+    for p, got in found:
+        if got != want:
+            sys.exit("%s: taken for radio %s by its name, but its image is project %s, not %s: it is built "
+                     "for another link (radio.json \"app\", ap/radio/CMakeLists.txt)"
+                     % (p, r["key"], got or "(no app description)", want))
+
+
 def tag_image_model(path):
     """The model (from shared/models.json) a tag firmware image is for, read from the model code in
     the OTA header of the file or of the <file>-ota.bin next to it (the flasher's image has the
@@ -332,15 +380,20 @@ def ap_boards():
     return sorted(boards.values(), key=lambda b: (not b.get("recommended"), b["status"] != "supported", b.get("base") is not None, b["id"]))
 
 
-def ap_radios():
+def ap_radios(linux=False):
     """The radio firmware for the boards with a C6 radio: ap/radio/boards/*/radio.json for boards
     with "radio": "uart" (kind "uart"), ap/netradio/boards/*/radio.json for "net" (kind "net"),
-    each with its key "<kind>-<id>" (docs/ap-radio-link.md, docs/ap-netradio.md)"""
+    each with its key "<kind>-<id>" (docs/ap-radio-link.md, docs/ap-netradio.md). linux: also the
+    radios of the AP as a Linux program ("host": "linux", c6-usb), which no board here takes"""
     radios = []
     for kind, folder in (("uart", "radio"), ("net", "netradio")):
         for path in sorted(glob.glob(os.path.join(ROOT, "ap", folder, "boards", "*", "radio.json"))):
             with open(path) as f:
                 r = json.load(f)
+            # the radio of the AP as a Linux program (c6-usb): no board here takes it, and its
+            # image must never go to an S3's C6, so the page does not list it
+            if r.get("host") == "linux" and not linux:
+                continue
             r["kind"], r["key"] = kind, "%s-%s" % (kind, r["id"])
             radios.append(r)
     return radios
@@ -348,10 +401,13 @@ def ap_radios():
 
 def ap_radio_for(path):
     """The radio whose artifact (CI: openesl-ap-radio-c6-lcd.bin) or release name
-    (openesl-ap-radio-esp32c6-v1.2.3.bin) the file name starts with, the longest match, or None"""
+    (openesl-ap-radio-esp32c6-v1.2.3.bin) the file name starts with, the longest match, or None.
+    The Linux AP's radios are matched too (and left out by add_firmware): openesl-ap-radio-c6-usb
+    also starts with openesl-ap-radio-c6-, so without them it would be taken for the S3's radio
+    on a cable, and its image offered to the C6 of an S3 (web/test/test_build.py)"""
     stem = os.path.basename(path)[:-4].lower()
     best, n = None, 0
-    for r in ap_radios():
+    for r in ap_radios(linux=True):
         for name in (r["artifact"], r["release"]):
             if (stem == name or stem.startswith(name + "-")) and len(name) > n:
                 best, n = r, len(name)
@@ -398,6 +454,7 @@ def add_firmware(*files):
     boards = ap_boards()
     aps = {}       # board id -> path
     radios = {}    # radio key -> path
+    linux = {}     # the Linux AP's radios: id -> (radio, path)
     for f in files:
         if f == "-":
             continue
@@ -409,7 +466,15 @@ def add_firmware(*files):
                 continue
             sys.exit("%s: no such file" % f)
         r = ap_radio_for(f)
+        if r and r.get("host") == "linux":
+            # the radio of the AP as a Linux program: listed apart (linux_radios), as no board on
+            # the page takes it and its image must never be offered to an S3's C6 (it talks on
+            # USB, not on the UART pins)
+            check_radio_image(f, r)
+            linux[r["id"]] = (r, f)
+            continue
         if r:
+            check_radio_image(f, r)
             radios[r["key"]] = f
             continue
         m = tag_image_model(f)
@@ -498,6 +563,16 @@ def add_firmware(*files):
             entry["ota"] = name[:-4] + "-ota"
             entry["version"] = image_version(ota)
         info["radios"].append(entry)
+    # The radios of the AP as a Linux program (docs/linux-ap.md): the Flash AP tab's "Linux AP"
+    # card flashes them; never in "radios" or "ota", which the dashboard offers to an S3's C6
+    info["linux_radios"] = []
+    for rid, (r, path) in sorted(linux.items()):
+        name = "radio-linux-%s.bin" % rid
+        manifest = name.replace(".bin", "-manifest.json")
+        ap_manifest(out, "OpenESL radio, %s" % r["label"], info["version"], name,
+                    split_ap_image(path, out, name), r["chip_family"], manifest)
+        info["linux_radios"].append({"key": "usb-" + rid, "kind": "usb", "id": rid, "label": r["label"],
+                                     "status": r["status"], "chip_family": r["chip_family"], "manifest": manifest})
     with open(os.path.join(out, "info.json"), "w") as f:
         json.dump(info, f, indent=2)
     print("Firmware in", out)

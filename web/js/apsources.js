@@ -28,8 +28,14 @@ export function sourceSummary(s, now) {
   const st = s.status || {};
   const v = st.values || {};
   if (st.error) return { text: st.error, bad: true };
+  // a countdown fetches nothing: its time left
+  if (s.type === "countdown") return { text: v.left || "Not counted yet", bad: false };
   if (!st.fetched_at) return { text: "Not fetched yet", bad: false };
-  const what = [v.temp !== undefined ? `${v.temp}°` : "", v.desc || ""].filter(Boolean).join(", ");
+  const what = s.type === "power" ? (v.now ? `${v.now} kr/kWh` : "") : s.type === "rss" ? v.h1 || ""
+    : s.type === "fx" ? (v.rate ? `${v.pair} ${v.rate}` : "")
+    : s.type === "btc" ? (v.price ? `${v.price} ${v.cur}` : "")
+    : s.type === "ical" ? [v.day1, v.time1, v.what1].filter(Boolean).join(" ") || "No events ahead"
+    : [v.temp !== undefined ? `${v.temp}°` : "", v.desc || ""].filter(Boolean).join(", ");
   return { text: `${what || "Fetched"} · fetched ${relTime(st.fetched_at, now)}`, bad: false };
 }
 
@@ -143,36 +149,203 @@ export function weatherPlan(sources, macs, to) {
   if (!target) return { error: `There is no place called ${id} on the AP` };
   target.tags = [...target.tags, ...macs];
   if (target.tags.length > TAGS_MAX) return { error: `A place can have at most ${TAGS_MAX} tags (${target.place || id} would have ${target.tags.length})` };
-  list = list.filter((s) => s.tags.length || s.id === id);
+  // a weather place the move emptied goes; another type's source that had no tags yet stays
+  const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
+  list = list.filter((s) => s.tags.length || s.id === id || (s.type !== "met" && empty.has(s.id)));
   if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} places: give the tags one it has` };
   return { sources: list, id };
 }
 
-// The models of the tags whose layout file on the AP has no layout called "weather", from
-// GET /api/layouts
+// The sources with `macs` showing the PNG at `url` (type "image", AP 0.11.0 and later): the
+// source that already fetches this URL takes them, else a new one. As weatherPlan, the tags
+// leave every other source, and a source left without tags goes. { sources, id } or { error }.
+export function picturePlanUrl(sources, macs, { url, every_min = 5, dither = false }) {
+  url = String(url || "").trim();
+  // as the AP checks it (esl_source_image.c): 159 bytes of UTF-8, no user:password@
+  if (!/^https?:\/\/[^/?#]+/.test(url) || !/^[!-~]+$/.test(url) || url.length > 159) return { error: "The address must start with http:// or https:// (up to 159 characters, no spaces or letters outside ASCII: use %-escapes)" };
+  if (/^https?:\/\/[^/?#]*@/.test(url)) return { error: "The address cannot hold a user name or password: the AP fetches it without a login" };
+  const every = Number(every_min);
+  if (!Number.isInteger(every) || every < 5 || every > 1440) return { error: "Every: 5 to 1440 minutes" };
+  const moving = new Set(macs);
+  let list = sources.map(({ status, ...s }) => ({ ...s, tags: (s.tags || []).filter((m) => !moving.has(m)) }));
+  let target = list.find((s) => s.type === "image" && s.url === url);
+  if (!target) {
+    const taken = new Set(list.map((s) => s.id));
+    let id = "picture";
+    for (let n = 2; taken.has(id); n++) id = `picture-${n}`;
+    target = { id, type: "image", url, tags: [] };
+    list.push(target);
+  }
+  Object.assign(target, { every_min: every, dither: !!dither });
+  target.tags = [...target.tags, ...macs];
+  if (target.tags.length > TAGS_MAX) return { error: `A source can have at most ${TAGS_MAX} tags` };
+  // a source the move emptied goes; another type's source that had no tags yet stays
+  const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
+  list = list.filter((s) => s.tags.length || s === target || (s.type !== "met" && empty.has(s.id)));
+  if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} sources (weather places and pictures)` };
+  return { sources: list, id: target.id };
+}
+
+// The kinds of content the AP makes by itself (AP 0.11.0 and later): the id a new source gets,
+// and what to call it in messages. Most go on the built-in layout "text"; one with a template
+// goes on the template's layout (added to the tags' layout files when they lack it), with the
+// template's fields filled from the source's values.
+export const FEEDS = {
+  power: { id: "power", what: "the electricity price" },
+  countdown: { id: "countdown", what: "the countdown" },
+  rss: { id: "news", what: "the headlines" },
+  ical: { id: "calendar", what: "the calendar" },
+  fx: { id: "fx", what: "the exchange rate", template: "home/exchange-rate.json", layout: "exchange-rate",
+    title: "Exchange rate", fields: ["{pair}", "{rate}", "{chg} ({pct} %)", "{lo} - {hi}", "{day}", "{chart}"] },
+  btc: { id: "btc", what: "the bitcoin price", template: "home/bitcoin.json", layout: "bitcoin",
+    title: "Bitcoin price", fields: ["Bitcoin {cur}", "{price}", "{pct} % {today}", "{lo} - {hi}", "{updated}", "{chart}"] },
+};
+
+const utf8Len = (t) => new TextEncoder().encode(t).length;
+
+// A source of one of FEEDS from what the dialog gives, checked as the AP checks it; { error }
+export function feedSource(spec) {
+  const t = spec?.type;
+  if (!FEEDS[t]) return { error: "Choose what the tags show" };
+  const lang = spec.lang === "en" ? "en" : "nb";
+  if (t === "power") {
+    const area = String(spec.area || "");
+    if (!/^NO[1-5]$/.test(area)) return { error: "Choose a price area, NO1 to NO5" };
+    return { type: t, area, vat: spec.vat === undefined ? area !== "NO4" : !!spec.vat, lang };
+  }
+  if (t === "fx") {
+    const currency = String(spec.currency || "").trim().toUpperCase();
+    const inCur = String(spec.in || "NOK").trim().toUpperCase() || "NOK";
+    if (!/^[A-Z]{3}$/.test(currency)) return { error: "The currency: a code of 3 letters, such as USD or EUR" };
+    if (!/^[A-Z]{3}$/.test(inCur)) return { error: "Priced in: a code of 3 letters, such as NOK" };
+    if (currency === inCur) return { error: "Priced in: another currency than the one shown" };
+    return { type: t, currency, in: inCur, lang };
+  }
+  if (t === "btc") {
+    const currency = String(spec.currency || "nok").trim().toLowerCase() || "nok";
+    if (!/^[a-z]{3,5}$/.test(currency)) return { error: "Priced in: a currency code, such as NOK, USD or EUR" };
+    return { type: t, currency, lang };
+  }
+  if (t === "countdown") {
+    const place = String(spec.place || "").trim();
+    if (!place) return { error: "Give it a name: it is shown on the tag (Christmas, Holiday)" };
+    if (utf8Len(place) > 32) return { error: "The name: at most 32 bytes" };
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(spec.date || "");
+    const d = m && new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+    if (!m || +m[1] < 1900 || +m[1] > 2100 || d.getUTCMonth() !== +m[2] - 1 || d.getUTCDate() !== +m[3]) return { error: "The date: a day from 1900 to 2100" };
+    const src = { type: t, place, date: spec.date, yearly: !!spec.yearly, lang };
+    if (spec.time) {
+      if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(spec.time)) return { error: "The time: HH:MM, or leave it empty" };
+      src.time = spec.time;
+    }
+    return src;
+  }
+  let url = String(spec.url || "").trim();
+  if (t === "ical") url = url.replace(/^webcal:\/\//i, "https://");
+  // as esl_source_url_ok: printable ASCII only
+  if (!/^https?:\/\/[^/?#]+/.test(url) || !/^[!-~]+$/.test(url) || url.length > 159) return { error: `The address must start with http:// or https://${t === "ical" ? " (or webcal://)" : ""}, up to 159 characters, no spaces or letters outside ASCII (use %-escapes)` };
+  if (/^https?:\/\/[^/?#]*@/.test(url)) return { error: "The address cannot hold a user name or password: the AP fetches it without a login" };
+  return t === "ical" ? { type: t, url, lang } : { type: t, url };
+}
+
+// Whether two sources of FEEDS show the same thing: then one source takes both sets of tags
+function sameFeed(a, b) {
+  if (a.type !== b.type) return false;
+  if (a.type === "power") return a.area === b.area && !!a.vat === !!b.vat && (a.lang || "nb") === (b.lang || "nb");
+  if (a.type === "countdown") return a.place === b.place && a.date === b.date && (a.time || "") === (b.time || "") && !!a.yearly === !!b.yearly && (a.lang || "nb") === (b.lang || "nb");
+  if (a.type === "rss") return a.url === b.url; // rss has no language
+  if (a.type === "fx") return a.currency === b.currency && (a.in || "NOK") === (b.in || "NOK") && (a.lang || "nb") === (b.lang || "nb");
+  if (a.type === "btc") return (a.currency || "nok") === (b.currency || "nok") && (a.lang || "nb") === (b.lang || "nb");
+  return a.url === b.url && (a.lang || "nb") === (b.lang || "nb");
+}
+
+// The sources with `macs` showing a source of FEEDS (spec: as feedSource takes it) on the
+// built-in layout "text". As weatherPlan, the tags leave every other source, and a source left
+// without tags goes. { sources, id } or { error }.
+export function feedPlan(sources, macs, spec) {
+  const src = feedSource(spec);
+  if (src.error) return src;
+  const moving = new Set(macs);
+  let list = sources.map(({ status, ...s }) => ({ ...s, tags: (s.tags || []).filter((m) => !moving.has(m)) }));
+  let target = list.find((s) => sameFeed(s, src));
+  if (!target) {
+    const taken = new Set(list.map((s) => s.id));
+    // a countdown is named after what it counts to, a rate after its currencies
+    const base = src.type === "countdown" ? placeId(src.place, new Set())
+      : src.type === "fx" ? `fx-${src.currency}${src.in === "NOK" ? "" : "-" + src.in}`.toLowerCase()
+      : src.type === "btc" ? `btc-${src.currency}` : FEEDS[src.type].id;
+    let id = base;
+    for (let n = 2; taken.has(id); n++) id = `${base.slice(0, 16 - String(n).length - 1)}-${n}`;
+    const f = FEEDS[src.type];
+    target = f.layout ? { id, ...src, layout: f.layout, fields: [...f.fields], tags: [] } : { id, ...src, layout: "text", tags: [] };
+    list.push(target);
+  }
+  target.tags = [...target.tags, ...macs];
+  if (target.tags.length > TAGS_MAX) return { error: `A source can have at most ${TAGS_MAX} tags` };
+  const empty = new Set(sources.filter((s) => !(s.tags || []).length).map((s) => s.id));
+  list = list.filter((s) => s.tags.length || s === target || (s.type !== "met" && empty.has(s.id)));
+  if (list.length > SOURCES_MAX) return { error: `The AP takes at most ${SOURCES_MAX} sources: remove one on the Data sources page` };
+  return { sources: list, id: target.id };
+}
+
+// The models of the tags whose layout file on the AP has no layout called name ("weather" by
+// default), from GET /api/layouts
 // (a model whose same_as names another stands for that model: it is that model's file)
-export function missingModels(tags, layouts) {
+export function missingModels(tags, layouts, name = WEATHER_LAYOUT) {
   const has = new Set();
   const fileOf = {};
   for (const m of layouts?.layouts || []) {
     if (m.same_as) fileOf[m.model] = m.same_as;
-    if ((m.layouts || []).some((l) => (typeof l === "string" ? l : l.name) === WEATHER_LAYOUT)) has.add(m.model);
+    if ((m.layouts || []).some((l) => (typeof l === "string" ? l : l.name) === name)) has.add(m.model);
   }
   return [...new Set(tags.map((t) => fileOf[t.model] || t.model).filter((m) => m && !has.has(m)))];
 }
 
-// The place each tag is in now, by MAC
-export function placeOf(sources) {
+// "host/…/file.png" of a picture's address, to name it in lists
+export function shortUrl(url) {
+  const m = /^https?:\/\/([^/?#]+)([^?#]*)/.exec(url || "");
+  if (!m) return url || "";
+  const parts = m[2].split("/").filter(Boolean);
+  return !parts.length ? m[1] : parts.length === 1 ? `${m[1]}/${parts[0]}` : `${m[1]}/…/${parts[parts.length - 1]}`;
+}
+
+// Only the host of an address ("calendar.example"), for one whose path is a secret
+export function hostOf(url) {
+  const m = /^[a-z]+:\/\/([^/?#]+)/.exec(url || "");
+  return m ? m[1] : "";
+}
+
+// What each tag shows now from a source, by MAC: "the weather for Oslo", "the headlines from
+// news.example", for the Send list
+export function showsOf(sources) {
   const out = new Map();
-  for (const s of sources || []) for (const m of s.tags || []) out.set(m, s.place || s.id);
+  const what = (s) => ({
+    met: () => `the weather for ${s.place || s.id}`,
+    image: () => `the picture from ${shortUrl(s.url)}`,
+    power: () => `the electricity price in ${s.area}`,
+    countdown: () => `the countdown to ${s.place || s.id}`,
+    rss: () => `the headlines from ${hostOf(s.url)}`,
+    ical: () => `the calendar from ${hostOf(s.url)}`,
+    fx: () => `the ${s.currency}/${s.in || "NOK"} exchange rate`,
+    btc: () => `the bitcoin price in ${(s.currency || "nok").toUpperCase()}`,
+  })[s.type]?.() ?? `the source ${s.id}`;
+  for (const s of sources || []) for (const m of s.tags || []) out.set(m, what(s));
   return out;
 }
 
-// The weather template: published next to the page (web/templates.mjs) and packed on the AP
-// (ap/main/webui.py), at templates/home/weather.json
-async function weatherTemplate() {
-  const r = await fetch(new URL("../templates/home/weather.json", import.meta.url), { cache: "no-cache" });
-  if (!r.ok) throw new Error(`the weather template could not be loaded (${r.status})`);
+// The weather place each tag is in now, by MAC (not a picture from a URL)
+export function placeOf(sources) {
+  const out = new Map();
+  for (const s of sources || []) if (s.type === "met") for (const m of s.tags || []) out.set(m, s.place || s.id);
+  return out;
+}
+
+// A template the Dashboard adds to the AP's layout files (the weather, the exchange rate,
+// bitcoin): published next to the page (web/templates.mjs) and packed on the AP
+// (ap/main/webui.py), at templates/<path>
+async function loadTemplate(path = "home/weather.json") {
+  const r = await fetch(new URL("../templates/" + path, import.meta.url), { cache: "no-cache" });
+  if (!r.ok) throw new Error(`the template ${path} could not be loaded (${r.status})`);
   return r.json();
 }
 
@@ -186,11 +359,11 @@ export function initSources() {
     $(id).textContent = text;
     $(id).className = "hint" + (cls ? " " + cls : "");
   };
-  const option = () => $("st-what").querySelector('option[value="weather"]');
-  // The choice in the Send form, only on an AP with data sources
+  const options = () => $("st-what").querySelectorAll('option[value="weather"], option[value="feed"]');
+  // The choices in the Send form, only on an AP with data sources
   const offer = (on) => {
-    option().hidden = option().disabled = !on;
-    if (!on && $("st-what").value === "weather") {
+    for (const o of options()) o.hidden = o.disabled = !on;
+    if (!on && ["weather", "feed"].includes($("st-what").value)) {
       $("st-what").value = "ap";
       $("st-what").dispatchEvent(new Event("change", { bubbles: true }));
     }
@@ -225,11 +398,20 @@ export function initSources() {
     const now = Date.now() / 1000;
     const list = data?.sources || [];
     $("src-box").hidden = !list.length;
-    $("src-sum").textContent = list.length ? `${list.length} place${list.length === 1 ? "" : "s"}` : "";
+    $("src-sum").textContent = list.length ? `${list.length} source${list.length === 1 ? "" : "s"}` : "";
     $("src-list").replaceChildren(...list.map((s) => {
       const tr = document.createElement("tr");
       const sum = sourceSummary(s, now);
-      const cells = [[`${s.place || s.id}`, `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
+      // a picture from a URL (type image, set with PUT /api/sources) is listed with its URL
+      const pic = s.type === "image";
+      // the electricity price (type power) with its price area
+      const cells = [pic ? [`${s.id} · ${shortUrl(s.url)}`, s.url] : s.type === "power" ? [`${s.id} · power ${s.area}`, "hvakosterstrommen.no"]
+        : s.type === "fx" ? [`${s.id} · ${s.currency}/${s.in || "NOK"}`, "Norges Bank"]
+        : s.type === "btc" ? [`${s.id} · bitcoin`, "CoinGecko"]
+        : s.type === "countdown" ? [`${s.place || s.id} · countdown`, `${s.date}${s.time ? " " + s.time : ""}${s.yearly ? ", every year" : ""}`]
+        : s.type === "rss" ? [`${s.id} · ${shortUrl(s.url)}`, s.url]
+        // a calendar's address is often its secret: only the host is shown
+        : s.type === "ical" ? [`${s.id} · calendar`, hostOf(s.url)] : [`${s.place || s.id}`, `${s.lat}, ${s.lon}`], [String(s.tags.length)], [sum.text]];
       for (const [text, title] of cells) {
         const td = document.createElement("td");
         td.textContent = text;
@@ -242,7 +424,7 @@ export function initSources() {
       del.type = "button";
       del.className = "small";
       del.textContent = "Remove";
-      del.title = "Stop fetching this place; its tags keep what they show until they get other content";
+      del.title = `${s.type === "countdown" ? "Stop" : "Stop fetching"} ${pic ? "this picture" : s.type === "power" ? "the electricity price" : s.type === "countdown" ? "the countdown" : s.type === "rss" ? "the headlines" : s.type === "ical" ? "the calendar" : s.type === "fx" ? "the exchange rate" : s.type === "btc" ? "the bitcoin price" : "the weather for this place"}; its tags keep what they show until they get other content`;
       del.addEventListener("click", () => remove(s));
       act.append(del);
       tr.append(act);
@@ -251,13 +433,15 @@ export function initSources() {
   }
 
   async function remove(s) {
-    if (!confirm(`Stop the weather for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
+    const what = { image: "the picture", power: "the electricity price", countdown: "the countdown", rss: "the headlines", ical: "the calendar",
+      fx: "the exchange rate", btc: "the bitcoin price" }[s.type] || "the weather";
+    if (!confirm(`Stop ${what} for ${s.place || s.id}? Its ${s.tags.length === 1 ? "tag keeps" : "tags keep"} what ${s.tags.length === 1 ? "it shows" : "they show"} now.`)) return;
     try {
       // a fresh list: the shown one may be a minute old
       const now = await client.call("GET", "/api/sources");
       data = await client.call("PUT", "/api/sources", { sources: now.sources.filter((x) => x.id !== s.id).map(({ status, ...x }) => x) });
       render();
-      msg("src-msg", `Stopped the weather for ${s.place || s.id}.`, "ok");
+      msg("src-msg", `Stopped ${what} for ${s.place || s.id}.`, "ok");
     } catch (e) {
       msg("src-msg", "Not changed: " + e.message, "error");
     }
@@ -268,7 +452,7 @@ export function initSources() {
   let layouts = null; // GET /api/layouts when the dialog opened
 
   function placesShown() {
-    const list = data?.sources || [];
+    const list = (data?.sources || []).filter((s) => s.type === "met");
     const radios = list.map((s) => {
       const l = document.createElement("label");
       const r = document.createElement("input");
@@ -415,9 +599,10 @@ export function initSources() {
     (chosen() === "" ? $("wx-place") : $("wx-ok")).focus();
   }
 
-  // The weather layout into the AP's layout file of each model that lacks it
-  async function addLayouts(c, models) {
-    const t = await weatherTemplate();
+  // A template's layout (the weather's by default) into the AP's layout file of each model
+  // that lacks it; progress in the message line msgId
+  async function addLayouts(c, models, path = "home/weather.json", title = "Weather", msgId = "wx-msg") {
+    const t = await loadTemplate(path);
     for (const model of models) {
       let doc;
       try {
@@ -427,12 +612,12 @@ export function initSources() {
         doc = { format: "esl-layouts", version: 1, model, layouts: [] }; // no file yet
       }
       const added = addTemplate(doc, t, model);
-      if (!added) throw new Error(`the weather template has no layout for the ${modelName(model)}`);
-      msg("wx-msg", `Adding the Weather layout to the ${modelName(model)} layout file …`);
+      if (!added) throw new Error(`the ${title} template has no layout for the ${modelName(model)}`);
+      msg(msgId, `Adding the ${title} layout to the ${modelName(model)} layout file …`);
       try {
         await c.call("PUT", "/api/layouts/" + encodeURIComponent(model), added.doc);
       } catch (e) {
-        throw new Error(`the ${modelName(model)} layout file did not take the Weather layout: ${e.message}`);
+        throw new Error(`the ${modelName(model)} layout file did not take the ${title} layout: ${e.message}`);
       }
     }
   }
@@ -495,6 +680,73 @@ export function initSources() {
   $("wx-place").addEventListener("focus", () => hits.length && !$("wx-coords").value && show());
   $("wx-form").addEventListener("change", dialogChanged);
   $("wx-cancel").addEventListener("click", () => $("wx-dlg").close());
+
+  // ---- Send → Price, countdown, news or calendar: one of FEEDS on the ticked tags ----
+
+  let feedFor = null; // { tags, done } while the dialog is open
+  const URL_HINTS = {
+    rss: ["https://news.example/top.rss", "Most news sites, blogs and status pages have a feed: look for RSS, or an address ending in .rss, .xml or /feed. The first 128 KB of a long feed are read."],
+    ical: ["webcal://calendar.example/family.ics", "The calendar's address in iCal format (Google: Settings, the calendar, Secret address in iCal format). Anyone who has it can read the calendar, and the AP's API shows it: protect the API with a token."],
+  };
+  function feedChanged() {
+    const t = $("feed-type").value;
+    $("feed-power").hidden = t !== "power";
+    $("feed-countdown").hidden = t !== "countdown";
+    $("feed-url-box").hidden = t !== "rss" && t !== "ical";
+    $("feed-fx").hidden = t !== "fx";
+    $("feed-btc").hidden = t !== "btc";
+    $("feed-lang-label").hidden = t === "rss";
+    if (URL_HINTS[t]) {
+      $("feed-url").placeholder = URL_HINTS[t][0];
+      $("feed-url-hint").textContent = URL_HINTS[t][1];
+    }
+    msg("feed-msg", "");
+  }
+  function feedSpec() {
+    const t = $("feed-type").value;
+    return { type: t, lang: $("feed-lang").value, area: $("feed-area").value, vat: $("feed-vat").checked,
+      place: $("feed-place").value, date: $("feed-date").value, time: $("feed-time").value,
+      yearly: $("feed-yearly").checked, url: $("feed-url").value,
+      currency: t === "fx" ? $("feed-cur").value : $("feed-btc-cur").value, in: $("feed-in").value };
+  }
+  function openFeed(tags, done) {
+    feedFor = { tags, done };
+    $("feed-n").textContent = tags.length === 1 ? "1 tag" : `${tags.length} tags`;
+    feedChanged();
+    $("feed-ok").disabled = false;
+    $("feed-dlg").showModal();
+    $("feed-type").focus();
+  }
+  $("feed-type").addEventListener("change", feedChanged);
+  // NO4 has no VAT on electricity: the box follows the area
+  $("feed-area").addEventListener("change", () => ($("feed-vat").checked = $("feed-area").value !== "NO4"));
+  $("feed-cancel").addEventListener("click", () => $("feed-dlg").close());
+  $("feed-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (!feedFor) return;
+    const spec = feedSpec();
+    const check = feedSource(spec);
+    if (check.error) return msg("feed-msg", check.error, "error");
+    $("feed-ok").disabled = true;
+    msg("feed-msg", "Saving …");
+    try {
+      // a kind with a template: its layout into the tags' layout files that lack it
+      const f = FEEDS[spec.type];
+      if (f.template) {
+        const lays = await client.call("GET", "/api/layouts");
+        const missing = missingModels(feedFor.tags, lays, f.layout);
+        if (missing.length) await addLayouts(client, missing, f.template, f.title, "feed-msg");
+      }
+      const s = await api.addFeed(feedFor.tags.map((t) => t.mac), spec);
+      const n = feedFor.tags.length;
+      $("feed-dlg").close();
+      feedFor.done?.(`The AP shows ${FEEDS[spec.type].what} on ${n === 1 ? "the tag" : `${n} tags`} (source ${s?.id ?? "saved"}); they get it within a few minutes.`);
+      feedFor = null;
+    } catch (e) {
+      msg("feed-msg", "Not saved: " + e.message, "error");
+      $("feed-ok").disabled = false;
+    }
+  });
   $("src-refresh").addEventListener("click", async () => {
     try {
       await client.call("POST", "/api/sources/refresh");
@@ -505,7 +757,7 @@ export function initSources() {
     }
   });
 
-  return {
+  const api = {
     // The dashboard connected to an AP (or disconnected: null)
     connected(c) {
       client = c;
@@ -518,9 +770,53 @@ export function initSources() {
     },
     // The place each ticked tag shows now, for the Send form's list
     placeOf: () => placeOf(data?.sources),
+    showsOf: () => showsOf(data?.sources),
     // Send → The weather: the dialog for these tags; done(message) once it is saved
     open: (tags, done) => open(tags, done).catch((e) => done?.(null, e)),
+    // Send → Price, countdown, news or calendar: the dialog for these tags; done(message)
+    openFeed: (tags, done) => openFeed(tags, done),
     // Other content was sent to tags: the AP took them out of their places, so read the list again
     reload: () => load(),
+    // Whether the AP has data sources (a picture from a URL needs them)
+    available: () => !!data,
+    // The PNG at opts.url ({ url, every_min, dither }) on these tags, fetched by the AP: the
+    // source as the AP saved it. Throws with a message when it cannot be done.
+    // A source of FEEDS (spec as feedSource takes it) on these tags: the source as the AP saved
+    // it. Throws with a message when it cannot be done.
+    async addFeed(macs, spec) {
+      const c = client;
+      if (!c || !data) throw new Error("this AP cannot fetch content by itself");
+      const now = await c.call("GET", "/api/sources");
+      const plan = feedPlan(now.sources || [], macs, spec);
+      if (plan.error) throw new Error(plan.error);
+      try {
+        data = await c.call("PUT", "/api/sources", { sources: plan.sources });
+      } catch (e) {
+        // an AP that does not know the type names the ones it knows
+        if (/type: one of /.test(e.message) && !e.message.includes(`"${spec.type}"`)) throw new Error(`this AP needs newer firmware (0.11.0 or later) for ${FEEDS[spec.type].what}`);
+        throw e;
+      }
+      render();
+      setTimeout(load, 5000);
+      return data.sources.find((x) => x.id === plan.id);
+    },
+    async addPicture(macs, opts) {
+      const c = client;
+      if (!c || !data) throw new Error("this AP cannot fetch pictures by itself");
+      const now = await c.call("GET", "/api/sources");
+      const plan = picturePlanUrl(now.sources || [], macs, opts);
+      if (plan.error) throw new Error(plan.error);
+      try {
+        data = await c.call("PUT", "/api/sources", { sources: plan.sources });
+      } catch (e) {
+        // an AP before 0.11.0 has sources of type "met" only
+        if (/type: one of "met" \([^)]*\)\s*$/.test(e.message)) throw new Error("this AP needs firmware 0.11.0 or later to fetch a picture from a web address");
+        throw e;
+      }
+      render();
+      setTimeout(load, 5000);
+      return data.sources.find((x) => x.id === plan.id);
+    },
   };
+  return api;
 }

@@ -315,10 +315,12 @@ static void test_nlink_flow(void)
 
     /* a planned channel move: the radio answers with CONFIG that announces it, and the
        host sees the tag confirm it */
+    esl_store_set_ap_id(&st, 0xBEEF0001ul);   /* the AP id goes over the link too (#390) */
     esl_store_move_channel(&st, 15, false, false, 202500);
     sync_at(203000);
     CHECK_INT(wake(&a, 261000), ESL_MSG_CONFIG);
     CHECK_INT(a.cfg.channel, 15);
+    CHECK(a.ap_id == 0xBEEF0001ul);
     CHECK_INT(wake(&b, 261500), ESL_MSG_CONFIG);
     sync_at(262000);
     CHECK_INT(esl_store_channel_step(&st, 262000), 0);
@@ -326,6 +328,7 @@ static void test_nlink_flow(void)
     CHECK_INT(wake(&b, 321500), ESL_MSG_IDLE);
     sync_at(322000);
     CHECK_INT(esl_store_channel_step(&st, 322000), 15);
+    esl_store_set_ap_id(&st, 0);
 }
 
 static void test_nlink_broken(void)
@@ -444,8 +447,21 @@ static void test_nlink_on_hello(void)
     to_host.n = to_radio.n = 0;
 }
 
+/* A radio's id: its 8-byte address, or the first 6 bytes of it that firmware 0.11.0 and older sent */
+static void test_nlink_same_radio(void)
+{
+    const uint64_t id = 0x9888E0FFFE7177C8ull, other = 0x9888E0FFFE71A3ACull;
+    CHECK(esl_nlink_same_radio(id, id));
+    CHECK(esl_nlink_same_radio(0x9888E0FFFE71ull, id));     /* the old id */
+    CHECK(esl_nlink_same_radio(0x9888E0FFFE71ull, other));  /* which two of a batch shared */
+    CHECK(!esl_nlink_same_radio(id, other));
+    CHECK(!esl_nlink_same_radio(0, 0));
+    CHECK(!esl_nlink_same_radio(0, id));
+}
+
 void test_nlink(void)
 {
+    test_nlink_same_radio();
     test_nlink_flow();
     test_nlink_old_hello();
     test_nlink_broken();

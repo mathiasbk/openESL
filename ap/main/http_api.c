@@ -385,7 +385,7 @@ done:
 }
 
 #if CONFIG_ESL_OTA
-/* ---- /api/ota: new AP firmware (krav A10) ------------------------------------- */
+/* ---- /api/ota: new AP firmware (requirement A10 in docs/requirements.md) --- */
 
 /* Checks the token like the rest of the API, with the same lockout (the
  * server runs every handler in one task, so api->lock needs no mutex here);
@@ -481,7 +481,7 @@ static esp_err_t ota_post(httpd_req_t *req)
 }
 #endif
 
-/* ---- /setup: WiFi and token (krav A1) ---------------------------------------- */
+/* ---- /setup: WiFi and token (requirement A1) ------------------------------- */
 
 #define SETUP_MAX_BODY 1024
 

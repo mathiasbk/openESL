@@ -12,5 +12,5 @@
   "artifact": "openesl-ap-lcd",
   "release": "openesl-ap-esp32c6-lcd",
   "status": "supported",
-  "tags": 500
+  "tags": 400
 }

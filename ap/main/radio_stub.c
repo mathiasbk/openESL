@@ -38,7 +38,7 @@ static void stub_task(void *arg)
         esl_faketag_init(&tags[i], STUB_MAC_BASE + 1 + (uint64_t)i, 1, (uint16_t)(3000 - 10 * i),
                          i % 2 ? ESL_MODEL_154 : ESL_MODEL_29);
 
-    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+    ESL_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
         for (int i = 0; i < CONFIG_ESL_STUB_TAGS; i++) {
             esl_faketag_t *t = &tags[i];

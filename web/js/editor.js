@@ -1,4 +1,4 @@
-// editor.js - the layout designer. Edits a layout file (docs/protokoll.md part 3) for one tag
+// editor.js - the layout designer. Edits a layout file (docs/protocol.md part 3) for one tag
 // model and draws it live with the WebAssembly renderer, which is the AP's own drawing code
 // and compiler: what the preview shows is the image the tag gets, and an error here
 // is the 422 the AP would answer when the file is uploaded.
@@ -73,6 +73,7 @@ const store = {
 // On the AP's own page (js/apdesign.js, ap/main/webui.py): the AP's API is this page's
 // origin, and the layout files stored on the AP are what the editor opens and saves
 let onAp = false;
+let demoAp = null;   // the browser demo's pretend AP (js/demoap.js), from main.js on ?demo=browser
 // The template library's index entries, for the titles in the layout list (tplpicker.js)
 let templates = [];
 
@@ -109,15 +110,16 @@ const fieldNames = () => (isBuiltin() ? BUILTIN[state.sel.slice(8)].fields : lay
 const sampleKey = () => state.model + "/" + (isBuiltin() ? state.sel : layout()?.name);
 // Text and barcode elements show a field from each update; the rest are part of the layout
 const usesField = (e) => (e.type === "text" && e.text === undefined) || e.type === "barcode" || e.type === "qr" ||
-  (e.type === "icon" && e.field !== undefined);
+  e.type === "chart" || (e.type === "icon" && e.field !== undefined);
 // An icon element names its picture (fixed size), or takes the picture a field's text names, in a box
 const iconByField = (e) => e.type === "icon" && e.field !== undefined;
 const layoutName = () => (isBuiltin() ? state.sel.slice(8) : layout()?.name);
 
 function defaultSample(name) {
-  if (/price|pris/i.test(name)) return "49,90";
-  if (/unit|enhet/i.test(name)) return "kr 99,80/kg";
+  if (/price|pris/i.test(name)) return "49.90";
+  if (/unit|enhet/i.test(name)) return "9.98/kg";
   if (/ean|gtin|barcode|strek|code/i.test(name)) return "7038010009457";
+  if (/chart|graph|spark|kurve|graf/i.test(name)) return "40 52 47 61 58 70 66 79 73 88 84 99";
   return name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, " ");
 }
 
@@ -293,6 +295,8 @@ async function offerVariant(id) {
 function compileAndDraw() {
   const r = state.renderer;
   applyLimits();
+  // the polygons' shapes as they are now, before a resize changes their boxes (fitPolygon)
+  for (const e of layout()?.elements || []) if (e.type === "polygon" && Array.isArray(e.points)) polygonNorm(e);
   const res = r.loadLayouts(JSON.stringify(doc()));
   let layoutId;
   if (isBuiltin()) {
@@ -333,12 +337,29 @@ function refreshMeters(res) {
   const meters = [];
   $("el-add-barcode").disabled = false;
   $("el-add-qr").disabled = false;
+  {
+    // a chart counts as a shape, and a layout has at most limits.charts of them
+    const u = lay ? layoutUsage(lay, lim) : null, old = !lim.shapes;
+    const full = u && (u.shapes >= lim.shapes || u.charts >= lim.charts);
+    $("el-add-chart").disabled = old || !!full;
+    $("el-add-chart").title = old ? "Your AP's firmware is too old for charts: update it to 0.11.0 or newer"
+      : full ? `A layout has at most ${lim.charts} charts, and ${lim.shapes} charts, circles and polygons together, on this AP`
+      : "A line chart of the numbers in a field (e.g. an exchange rate's last 30 days)";
+  }
+  // an AP from before ellipses and polygons (0.10.x or older) refuses them
+  for (const [k, what] of [["circle", "A circle or ellipse, filled or only its border"], ["triangle", "A triangle or polygon (up to 8 corners), filled or only its border"]]) {
+    const old = !lim.shapes, full = !old && lay && layoutUsage(lay, lim).shapes >= lim.shapes;
+    $("el-add-" + k).disabled = old || !!full;
+    $("el-add-" + k).title = old ? "Your AP's firmware is too old for circles and polygons: update it to 0.11.0 or newer"
+      : full ? `A layout has at most ${lim.shapes} circles and polygons on this AP` : what;
+  }
   if (lay) {
     const u = layoutUsage(lay, lim);
     meters.push(["Text lines", u.runs, lim.runs, "Lines of text the AP draws at most for one screen of this layout (each text box counts the most lines its fonts can fit)"]);
     meters.push(["Boxes", u.rects, lim.rects, "Boxes and inverted or highlighted text in this layout"]);
     if (u.lines) meters.push(["Lines", u.lines, lim.lines, "Line elements in this layout"]);
     if (u.icons) meters.push(["Icons", u.icons, lim.icons, "Icon elements in this layout"]);
+    if (u.shapes) meters.push(["Shapes", u.shapes, lim.shapes, "Circles, ellipses, triangles, polygons and charts in this layout"]);
     if (u.barcodes) meters.push(["Barcodes", u.barcodes, lim.barcodes, "Barcodes in this layout"]);
     $("el-add-barcode").disabled = u.barcodes >= lim.barcodes;
     $("el-add-barcode").title = u.barcodes >= lim.barcodes ? "A layout has at most one barcode" : "A field as a Code 128 or EAN-13 barcode (one per layout)";
@@ -390,6 +411,10 @@ function limitsSource() {
 // called before each loadLayouts, so the designer checks with the AP it is connected to
 function applyLimits() {
   state.renderer?.setLimits(ap.connected ? ap.limits : null);
+  if (state.renderer) {
+    state.renderer.lang = previewLang();   // the dashboard's cards set their own
+    state.renderer.numPoint = previewNumPoint();
+  }
   // and its font files (#177); without an AP, those the renderer has (the dashboard's AP's)
   if (ap.connected) state.renderer?.setFonts?.(ap.fonts, ap.fontSlots);
 }
@@ -434,7 +459,7 @@ function drawOverlay() {
   const lay = layout();
   if (lay) lay.elements.forEach((e, i) => {
     const b = document.createElement("div");
-    b.className = "box" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : e.type === "barcode" || e.type === "qr" ? " barcode" : "") +
+    b.className = "box" + (isShape(e) || e.type === "icon" ? " rect" : e.type === "barcode" || e.type === "qr" || e.type === "chart" ? " barcode" : "") +
       (e.type === "icon" && !iconByField(e) ? " fixed-size" : "") + (i === state.el ? " sel" : "");
     Object.assign(b.style, {
       left: (100 * e.x) / width + "%", top: (100 * e.y) / height + "%",
@@ -443,7 +468,8 @@ function drawOverlay() {
     b.dataset.i = i;
     const tag = document.createElement("span");
     tag.className = "tag";
-    tag.textContent = (e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field) : elementName(e)) +
+    tag.textContent = (e.type === "barcode" ? "▥ " + fieldLabel(e.field) : e.type === "qr" ? "▦ " + fieldLabel(e.field)
+      : e.type === "chart" ? "∿ " + fieldLabel(e.field) : elementName(e)) +
       (e.type === "text" && e.rotate ? " ↻" + e.rotate + "°" : "");
     b.append(tag);
     if (e.type !== "icon" || iconByField(e)) for (const h of HANDLES) {
@@ -472,16 +498,18 @@ function refreshList() {
     li.draggable = true;
     const ico = document.createElement("span");
     const inverted = e.type === "text" && ["invert", "highlight", "red_invert"].includes(e.color);
-    ico.className = "ico" + (e.type === "rect" || e.type === "line" || e.type === "icon" ? " rect" : inverted ? " inv" : "");
-    ico.textContent = { rect: e.radius ? "▢" : "▬", line: e.w > 1 && e.h > 1 ? (e.direction === "up" ? "╱" : "╲") : "─", icon: "◆", barcode: "▥", qr: "▦" }[e.type] ??
+    ico.className = "ico" + (isShape(e) || e.type === "icon" ? " rect" : inverted ? " inv" : "");
+    ico.textContent = { rect: e.radius ? "▢" : "▬", line: e.w > 1 && e.h > 1 ? (e.direction === "up" ? "╱" : "╲") : "─", icon: "◆", barcode: "▥", qr: "▦", chart: "∿",
+      ellipse: e.border ? "○" : "●", polygon: e.border ? "△" : "▲" }[e.type] ??
       (e.text !== undefined ? "“”" : "T");
     const name = document.createElement("span");
     name.className = "name";
-    name.textContent = e.type === "barcode" || e.type === "qr" ? fieldLabel(e.field) : elementName(e);
+    name.textContent = e.type === "barcode" || e.type === "qr" || e.type === "chart" ? fieldLabel(e.field) : elementName(e);
     const dim = document.createElement("span");
     dim.className = "dim";
     dim.textContent = e.type === "text" ? [(e.fonts || ["small"])[0], e.rotate ? e.rotate + "°" : "", e.color && e.color !== "black" ? COLOR_NAMES[e.color]?.split(" ")[0].toLowerCase() : ""].filter(Boolean).join(", ")
-      : e.type === "barcode" ? (e.symbology === "ean13" ? "EAN-13" : "Code 128") : e.type === "qr" ? "QR " + (e.ecc || "M") : e.color && e.color !== "black" ? e.color : "";
+      : e.type === "barcode" ? (e.symbology === "ean13" ? "EAN-13" : "Code 128") : e.type === "qr" ? "QR " + (e.ecc || "M") : e.type === "chart" ? ["chart", e.fill && e.fill !== "none" ? "filled" : "", e.color === "red" ? "red" : ""].filter(Boolean).join(", ")
+      : e.color && e.color !== "black" ? e.color : "";
     li.title = `x ${e.x}, y ${e.y}, ${e.w} × ${e.h} px`;
     li.append(ico, name, dim);
     return li;
@@ -493,6 +521,8 @@ function rectName(e) {
   if (iconByField(e)) kind = "icon named by " + e.field;
   else if (e.type === "icon") kind = "icon " + e.icon;
   else if (e.type === "line") kind = e.h === 1 ? "line" : e.w === 1 ? "vertical line" : "slanted line";
+  else if (e.type === "ellipse") kind = (e.w === e.h ? "circle" : "ellipse") + (e.border ? " outline" : "");
+  else if (e.type === "polygon") kind = (e.points?.length === 3 ? "triangle" : "polygon") + (e.border ? " outline" : "");
   else kind = e.h <= 2 && e.w > e.h ? "line" : e.w <= 2 && e.h > e.w ? "vertical line" : e.border ? "frame box" : "box";
   return kind + (e.color && e.color !== "black" ? ` (${e.color})` : "");
 }
@@ -500,6 +530,7 @@ function rectName(e) {
 function elementName(e) {
   if (e.type === "barcode") return `barcode (${fieldLabel(e.field)})`;
   if (e.type === "qr") return `QR code (${fieldLabel(e.field)})`;
+  if (e.type === "chart") return `chart (${fieldLabel(e.field)})`;
   if (e.type !== "text") return rectName(e);
   return e.text !== undefined ? `"${e.text}"` : fieldLabel(e.field);
 }
@@ -1051,7 +1082,7 @@ function refreshElement() {
     box.append(l);
     return s;
   };
-  if (e.type === "barcode" || e.type === "qr") {
+  if (e.type === "barcode" || e.type === "qr" || e.type === "chart") {
     sel("Shows", lay.fields.map((f) => [f, "field " + f]), fieldLabel(e.field), (v) => (e.field = v));
   } else if (e.type === "text") {
     // A field filled in by each update, or a fixed text that is part of the layout.
@@ -1059,7 +1090,7 @@ function refreshElement() {
     sel("Shows", [...lay.fields.map((f) => [f, "field " + f]), [FIXED, "a fixed text"]], e.text !== undefined ? FIXED : fieldLabel(e.field), (v) => {
       if (v === FIXED) {
         delete e.field;
-        e.text ??= "inkl. mva";
+        e.text ??= "incl. VAT";
       } else {
         delete e.text;
         e.field = v;
@@ -1109,13 +1140,42 @@ function refreshElement() {
   box.append(xywh);
 }
 
+// The language of {weekday} and {date} in the preview (#386): the connected AP's ("lang" in
+// GET /api/config; English until it is set, and on an AP from before 0.11), otherwise the one
+// picked next to the date-field buttons, English by default as on an AP
+function previewLang() {
+  if (ap.connected) return ap.lang === "nb" ? "nb" : "en";
+  return store.get("lang") === "nb" ? "nb" : "en";
+}
+
+// The decimal sign of formatted numbers in the preview (#402): with an AP, a point only when its
+// "lang" is "en" (an AP whose language is not set draws a comma, as every AP upgraded from
+// before 0.11.0 does); without one, the language picked next to the date-field buttons
+function previewNumPoint() {
+  return ap.connected ? ap.lang === "en" : previewLang() === "en";
+}
+
+// Today's value of a date field in lang, for the hover text: the names as the AP writes them
+// (esl_clock.c: a capital weekday, "29 October 2026" or "29. oktober 2026")
+function dateExample(f, lang, d = new Date()) {
+  const loc = lang === "nb" ? "nb-NO" : "en-GB";
+  const name = (o) => new Intl.DateTimeFormat(loc, o).format(d);
+  const p2 = (n) => String(n).padStart(2, "0");
+  if (f === "{weekday}") { const w = name({ weekday: "long" }); return w[0].toUpperCase() + w.slice(1); }
+  if (f === "{date}") return `${d.getDate()}${lang === "nb" ? "." : ""} ${name({ month: "long" })} ${d.getFullYear()}`;
+  if (f === "{date_short}") return `${p2(d.getDate())}.${p2(d.getMonth() + 1)}.${d.getFullYear()}`;
+  const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));   // ISO week
+  t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7));
+  return String(Math.ceil(((t - Date.UTC(t.getUTCFullYear(), 0, 1)) / 86400000 + 1) / 7));
+}
+
 // Date fields the AP fills in when it draws a fixed text (esl_clock.h on the AP): a button for
 // each puts it in at the cursor, with today's value on hover as the preview draws it
 const DATE_FIELDS = [
-  ["{weekday}", "the weekday, Thursday"],
-  ["{date}", "the date, 29 October 2026"],
-  ["{date_short}", "the date, 29.10.2026"],
-  ["{week}", "the week number, 44"],
+  ["{weekday}", "the weekday"],
+  ["{date}", "the date"],
+  ["{date_short}", "the date"],
+  ["{week}", "the week number"],
 ];
 
 function dateFieldButtons(inp) {
@@ -1132,7 +1192,7 @@ function dateFieldButtons(inp) {
     b.type = "button";
     b.className = "chip";
     b.textContent = f;
-    b.title = "Put in " + what;
+    b.title = `Put in ${what}, ${dateExample(f, previewLang())}`;
     b.addEventListener("click", () => {
       const at = inp.selectionStart ?? inp.value.length, end = inp.selectionEnd ?? at;
       const v = inp.value.slice(0, at) + f + inp.value.slice(end);
@@ -1147,7 +1207,22 @@ function dateFieldButtons(inp) {
     });
     chips.append(b);
   }
-  div.append(chips, p);
+  // The preview's date language: the AP's when connected, else picked here
+  const lang = document.createElement("label");
+  lang.className = "small";
+  const sel = document.createElement("select");
+  for (const [v, t] of [["en", "English"], ["nb", "Norsk"]]) sel.append(new Option(t, v));
+  sel.value = previewLang();
+  sel.disabled = ap.connected;
+  lang.title = ap.connected ? "The connected AP's date language (Settings, General)"
+    : "The language the preview writes {weekday}, {date} and the decimal sign in. The AP uses its own (Settings, General)";
+  sel.addEventListener("change", () => {
+    store.set("lang", sel.value);
+    applyLimits();
+    refreshAll();
+  });
+  lang.append("Preview dates and numbers in ", sel, ap.connected ? " (the AP's)" : "");
+  div.append(chips, lang, p);
   return div;
 }
 
@@ -1237,7 +1312,8 @@ function refreshBar() {
     if (e.type === "text") sep();
     const red = MODELS[state.model].colors?.includes("red");
     const colors = e.type === "text" ? (red ? TEXT_COLORS_RED : TEXT_COLORS)
-      : e.type === "rect" ? (red ? RECT_COLORS_RED : RECT_COLORS) : red ? LINE_COLORS_RED : LINE_COLORS;
+      : e.type === "rect" ? (red ? RECT_COLORS_RED : RECT_COLORS) : e.type === "chart" ? (red ? ["black", "red"] : ["black"])
+      : red ? LINE_COLORS_RED : LINE_COLORS; // lines, icons, ellipses, polygons
     const sw = document.createElement("span");
     sw.className = "swatch";
     sw.style.background = SWATCH[e.color || "black"];
@@ -1288,7 +1364,7 @@ function numberRows(e, row) {
   if (!on) return false;
   check(row(""), "With decimals", "On: 199,90. Off: rounded to whole kroner, 199", dec, (v) => set({ dec: v, keep: false }));
   if (keep)
-    check(row(""), "As sent", "The decimals as sent, with a decimal comma: 199,5 stays 199,5", true, () => set({ keep: false }), false, true);
+    check(row(""), "As sent", "The decimals as sent: 199,5 stays 199,5 (199.5 when the AP's language is English)", true, () => set({ keep: false }), false, true);
   else if (dec)
     check(row(""), "Hide ,00", "199 instead of 199,00 (199,90 keeps its decimals)", hide || dash, (v) => set({ hide: v }), dash, true);
   check(row(""), "With ,-", dec ? "Whole amounts end in ,-: 199,- or 199,90" : "Rounded, with ,-: 199,-", dash, (v) => set({ dash: v, hide: v && hide }), keep);
@@ -1322,6 +1398,9 @@ function moreMenu(e, btn, select, open) {
   const list = document.createElement("div");
   list.className = "menu-list";
   d.append(s, list);
+  d.addEventListener("toggle", () => {
+    if (d.open) requestAnimationFrame(() => placeMoreMenu(d));
+  });
   const row = (label) => {
     const r = document.createElement("div");
     r.className = "row";
@@ -1402,7 +1481,33 @@ function moreMenu(e, btn, select, open) {
       "border of 2 modules for phones to read it; on the 2.9\", 2 px modules scan well.";
     list.append(p);
   }
-  if (e.type === "rect" || e.type === "line") {
+  if (e.type === "chart") {
+    const w = document.createElement("input");
+    w.type = "number";
+    w.min = 1;
+    w.max = 4;
+    w.value = e.width ?? 1;
+    w.title = "Line width in pixels, 1 to 4";
+    w.setAttribute("aria-label", "Line width in pixels");
+    w.addEventListener("change", () => {
+      const v = clamp(Math.round(+w.value || 1), 1, 4);
+      if (v === (e.width ?? 1)) return;
+      if (v === 1) delete e.width;
+      else e.width = v;
+      changed({});
+    });
+    row("Width").append(w);
+    const f = row("Fill");
+    for (const [val, icon, name] of [["none", "⌇", "Only the line"], ["solid", "▙", "The box under the line filled"], ["light", "▒", "The box under the line filled with every other pixel"]])
+      btn(f, icon, name, () => (val === "none" ? delete e.fill : (e.fill = val)), (e.fill || "none") === val);
+    const p = document.createElement("p");
+    p.className = "hint";
+    p.textContent = "The field holds numbers apart by spaces (e.g. 9.41 9.47 9.54): the lowest is drawn at the bottom of " +
+      "the box, the highest at the top, left to right. The AP's exchange rate and bitcoin sources give such a field " +
+      "({chart}). Needs an AP on 0.11.0 or newer.";
+    list.append(p);
+  }
+  if (isShape(e)) {
     const half = Math.floor(Math.min(e.w, e.h) / 2);
     const num = (r, label, key, min, max, def, hint) => {
       const inp = document.createElement("input");
@@ -1425,6 +1530,35 @@ function moreMenu(e, btn, select, open) {
     if (e.type === "rect") {
       num(row("Corners"), "Corner radius in pixels", "radius", 0, half, 0, `Round corners, 0 to ${half} px (half the shorter side)`);
       num(row("Border"), "Border width in pixels", "border", 0, half, 0, "0 fills the box, more draws only a border this wide");
+    } else if (e.type === "ellipse" || e.type === "polygon") {
+      num(row("Border"), "Border width in pixels", "border", 0, half, 0, "0 fills the shape, more draws only a border this wide, inside it");
+      if (e.type === "polygon") {
+        const sh = row("Shape");
+        for (const [name, icon] of [["up", "▲"], ["down", "▼"], ["left", "◀"], ["right", "▶"], ["corner", "◢"], ["diamond", "◆"], ["arrow", "➜"]])
+          btn(sh, icon, POLYGON_TITLES[name], () => setPolygon(e, POLYGON_PRESETS[name]));
+        const pr = row("Points");
+        const inp = document.createElement("input");
+        inp.className = "points";
+        inp.value = e.points.map((p) => p.join(",")).join(" ");
+        inp.title = `${state.renderer.limits.polygonPoints || 8} corners at most, each x,y in pixels from the box's top-left corner, separated by spaces`;
+        inp.setAttribute("aria-label", "Corners of the polygon");
+        inp.addEventListener("change", () => {
+          const pts = parsePoints(inp.value, state.renderer.limits.polygonPoints || 8);
+          if (!pts) {
+            setStatus("Corners: give 3 to 8 points as x,y separated by spaces, e.g. 20,0 39,19 0,19", "error");
+            return;
+          }
+          fitBoxToPoints(e, pts, width, height);
+          changed({});
+        });
+        pr.append(inp);
+      }
+      const p = document.createElement("p");
+      p.className = "hint";
+      p.textContent = e.type === "ellipse"
+        ? "The ellipse fills its box: a square box gives a circle. Needs an AP on 0.11.0 or newer."
+        : "The corners stay in the box and follow it when you resize it. Needs an AP on 0.11.0 or newer.";
+      list.append(p);
     } else {
       const d = row("Direction");
       for (const [val, icon, name] of [["down", "╲", "Down: top-left to bottom-right"], ["up", "╱", "Up: bottom-left to top-right"]])
@@ -1449,7 +1583,8 @@ function moreMenu(e, btn, select, open) {
   const fill = e.type === "icon" ? null : row("Fill");
   if (fill) btn(fill, "Width", "Stretch across the whole screen", () => ((e.x = 0), (e.w = width)));
   if (fill) btn(fill, "Height", "Stretch over the whole height", () => ((e.y = 0), (e.h = height)));
-  if (e.type === "rect" || e.type === "line") btn(fill, "Turn", "Swap width and height (a line becomes a vertical line)", () => {
+  if (isShape(e)) btn(fill, "Turn", e.type === "polygon" ? "Turn a quarter clockwise (swaps width and height)" : "Swap width and height (a line becomes a vertical line)", () => {
+    if (e.type === "polygon") turnPolygon(e);
     [e.w, e.h] = [Math.min(e.h, width), Math.min(e.w, height)];
     e.x = clamp(e.x, 0, width - e.w);
     e.y = clamp(e.y, 0, height - e.h);
@@ -1462,6 +1597,27 @@ function moreMenu(e, btn, select, open) {
 }
 
 const narrow = matchMedia("(max-width: 1000px)");
+narrow.addEventListener("change", placeBar);
+
+// Keep the More list inside the scrollable canvas. Its anchor follows the selected element,
+// so a list that always opens to the right is clipped for elements near the tag's right edge.
+function placeMoreMenu(menu) {
+  if (!menu?.open) return;
+  const list = menu.querySelector(".menu-list");
+  if (narrow.matches) {
+    list.style.removeProperty("left");
+    list.style.removeProperty("right");
+    return;
+  }
+  const canvas = $("dz-canvas").getBoundingClientRect();
+  const anchor = menu.getBoundingClientRect();
+  list.style.left = "0px";
+  list.style.right = "auto";
+  const width = list.getBoundingClientRect().width;
+  const inset = 8;
+  const left = clamp(anchor.left, canvas.left + inset, Math.max(canvas.left + inset, canvas.right - width - inset));
+  list.style.left = Math.round(left - anchor.left) + "px";
+}
 
 // Under the selected box, or over it when there is no room under it in the view.
 function placeBar() {
@@ -1470,7 +1626,9 @@ function placeBar() {
   if (narrow.matches) {
     // On a narrow screen the bar sits at the bottom of the window (designer.css), More opens upwards
     Object.assign(bar.style, { top: "", left: "", visibility: "visible" });
-    bar.querySelector("details.menu")?.classList.add("up");
+    const menu = bar.querySelector("details.menu");
+    menu?.classList.add("up");
+    placeMoreMenu(menu);
     return;
   }
   const box = document.querySelector("#overlay .box.sel");
@@ -1488,7 +1646,9 @@ function placeBar() {
   const left = clamp(b.left - h.left + host.scrollLeft, 8, Math.max(8, host.scrollWidth - bar.offsetWidth - 8));
   Object.assign(bar.style, { top: top + "px", left: left + "px", visibility: "visible" });
   // The More list opens upwards when the bar is in the lower half of the view
-  bar.querySelector("details.menu")?.classList.toggle("up", b.top + b.height / 2 > (h.top + Math.min(h.bottom, innerHeight)) / 2);
+  const menu = bar.querySelector("details.menu");
+  menu?.classList.toggle("up", b.top + b.height / 2 > (h.top + Math.min(h.bottom, innerHeight)) / 2);
+  placeMoreMenu(menu);
 }
 
 function refreshJson() {
@@ -1511,6 +1671,7 @@ function refreshAll() {
 // Something in the document changed. form: only the numbers moved (drag/keys).
 function changed({ form = false, keepForm = false } = {}) {
   fitCorners(element());
+  fitPolygon(element());
   if (form) {
     drawOverlay();
     updatePositionInputs();
@@ -1527,9 +1688,89 @@ function changed({ form = false, keepForm = false } = {}) {
 // A box made smaller keeps its corner radius and border within half its shorter side, as
 // the compiler wants
 function fitCorners(e) {
-  if (e?.type !== "rect") return;
+  if (e?.type !== "rect" && e?.type !== "ellipse" && e?.type !== "polygon") return;
   const half = Math.floor(Math.min(e.w, e.h) / 2);
   for (const k of ["radius", "border"]) if (e[k] > half) e[k] = half;
+}
+
+// ---------- ellipses and polygons ----------
+
+// Elements drawn as a shape in a box (no text): the box's handles size them
+function isShape(e) {
+  return ["rect", "line", "ellipse", "polygon"].includes(e.type);
+}
+
+// Polygon corners as fractions of the box (0..1), so a resized box keeps its shape however
+// often it is resized: the points in the file are whole pixels. Kept per element, with the
+// points they last gave; points changed elsewhere (the JSON, undo) are taken as they are.
+const polyShape = new WeakMap();
+
+const frac = (v, n) => (n > 1 ? v / (n - 1) : 0);
+const toPx = (u, n) => Math.round(u * (n - 1));
+
+function polygonNorm(e) {
+  const k = JSON.stringify(e.points);
+  const s = polyShape.get(e);
+  if (s && s.key === k) return s.norm;
+  const norm = e.points.map(([x, y]) => [frac(x, e.w), frac(y, e.h)]);
+  polyShape.set(e, { key: k, norm });
+  return norm;
+}
+
+// After the box changed size: the corners scaled with it
+function fitPolygon(e) {
+  if (e?.type !== "polygon" || !Array.isArray(e.points)) return;
+  const norm = polygonNorm(e);
+  e.points = norm.map(([u, v]) => [toPx(u, e.w), toPx(v, e.h)]);
+  polyShape.set(e, { key: JSON.stringify(e.points), norm });
+}
+
+function setPolygon(e, norm) {
+  e.points = norm.map(([u, v]) => [toPx(u, e.w), toPx(v, e.h)]);
+  polyShape.set(e, { key: JSON.stringify(e.points), norm: norm.map((p) => [...p]) });
+}
+
+// A quarter turn clockwise: (u, v) -> (1 - v, u); the box's width and height swap after it
+function turnPolygon(e) {
+  const norm = polygonNorm(e).map(([u, v]) => [1 - v, u]);
+  [e.w, e.h] = [e.h, e.w];
+  setPolygon(e, norm);
+  [e.w, e.h] = [e.h, e.w];
+}
+
+// The shapes the Shape buttons give, as fractions of the box
+const POLYGON_PRESETS = {
+  up: [[0.5, 0], [1, 1], [0, 1]],
+  down: [[0, 0], [1, 0], [0.5, 1]],
+  left: [[1, 0], [1, 1], [0, 0.5]],
+  right: [[0, 0], [1, 0.5], [0, 1]],
+  corner: [[1, 0], [1, 1], [0, 1]],
+  diamond: [[0.5, 0], [1, 0.5], [0.5, 1], [0, 0.5]],
+  arrow: [[0, 0.3], [0.6, 0.3], [0.6, 0], [1, 0.5], [0.6, 1], [0.6, 0.7], [0, 0.7]],
+};
+const POLYGON_TITLES = {
+  up: "Triangle pointing up", down: "Triangle pointing down", left: "Triangle pointing left",
+  right: "Triangle pointing right", corner: "Right-angled triangle in the bottom-right corner",
+  diamond: "Diamond", arrow: "Arrow pointing right",
+};
+
+// "20,0 39,19 0,19" -> [[20, 0], [39, 19], [0, 19]], or null
+function parsePoints(text, max = 8) {
+  const parts = text.trim().split(/[\s;]+/).filter(Boolean);
+  if (parts.length < 3 || parts.length > max) return null;
+  const pts = parts.map((p) => /^(\d+),(\d+)$/.exec(p)).map((m) => (m ? [+m[1], +m[2]] : null));
+  return pts.every(Boolean) ? pts : null;
+}
+
+// Corners typed in, as pixels from the box's corner: the box grows to hold them (on the
+// screen), and the corners then fill it
+function fitBoxToPoints(e, pts, width, height) {
+  const w = clamp(Math.max(...pts.map((p) => p[0])) + 1, 1, width - e.x);
+  const h = clamp(Math.max(...pts.map((p) => p[1])) + 1, 1, height - e.y);
+  e.w = Math.max(e.w, w);
+  e.h = Math.max(e.h, h);
+  e.points = pts.map(([x, y]) => [Math.min(x, e.w - 1), Math.min(y, e.h - 1)]);
+  polygonNorm(e);
 }
 
 // ---------- actions ----------
@@ -1539,12 +1780,16 @@ function addElement(kind) {
   const { width, height } = MODELS[state.model];
   const e = {
     text: { type: "text", field: lay.fields[0], x: 4, y: 4, w: Math.min(120, width - 4), h: 24, fonts: ["medium", "small"] },
-    fixed: { type: "text", text: "inkl. mva", x: 4, y: height - 22, w: Math.min(100, width - 4), h: 18, fonts: ["small"] },
+    fixed: { type: "text", text: "incl. VAT", x: 4, y: height - 22, w: Math.min(100, width - 4), h: 18, fonts: ["small"] },
     rect: { type: "rect", x: 0, y: 0, w: Math.min(80, width), h: 30 },
     hline: { type: "line", x: 4, y: Math.floor(height / 2), w: width - 8, h: 1, width: 2 },
     barcode: { type: "barcode", field: lay.fields.at(-1), symbology: "code128", x: 4, y: height - 40, w: Math.min(240, width - 8), h: 36 },
     qr: { type: "qr", field: lay.fields.at(-1), x: width - Math.min(100, height - 8) - 4, y: 4, w: Math.min(100, height - 8), h: Math.min(100, height - 8), align: "center", valign: "middle" },
+    circle: { type: "ellipse", x: 8, y: 8, w: Math.min(40, height - 16), h: Math.min(40, height - 16) },
+    triangle: { type: "polygon", x: 8, y: 8, w: 40, h: 34 },
+    chart: { type: "chart", field: lay.fields.at(-1) ?? "chart", x: Math.floor(width / 2), y: 8, w: Math.floor(width / 2) - 8, h: Math.floor(height / 2) },
   }[kind];
+  if (kind === "triangle") setPolygon(e, POLYGON_PRESETS.up);
   lay.elements.push(e);
   state.el = lay.elements.length - 1;
   changed();
@@ -1942,7 +2187,7 @@ function initActions() {
   $("json").addEventListener("blur", refreshJson);
   for (const id of ["opt-highlight", "opt-frame"]) $(id).addEventListener("change", compileAndDraw);
   $("opt-boxes").addEventListener("change", drawOverlay);
-  for (const k of ["text", "fixed", "rect", "hline", "barcode", "qr"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
+  for (const k of ["text", "fixed", "rect", "hline", "circle", "triangle", "chart", "barcode", "qr"]) $("el-add-" + k).addEventListener("click", () => addElement(k));
   $("el-add-icon").addEventListener("click", () => $("icon-file").click());
   $("icon-file").addEventListener("change", (ev) => {
     addIcon(ev.target.files[0]);
@@ -1964,7 +2209,7 @@ function initActions() {
 // own page in a new tab, js/handoff.js, or the bridge in tools/esl-client under Advanced)
 const ap = { tags: [], fileVersion: null, connected: false, mac: "", info: "", files: {}, board: "", limits: null, via: "", usb: false,
              tagLayouts: {},     // tagLayouts: the layout each tag shows, by MAC (layoutinfo.js)
-             fonts: {}, fontSlots: {} };        // fonts: the AP's font files, name -> text (js/apfonts.js)
+             fonts: {}, fontSlots: {}, lang: null };        // fonts: the AP's font files, name -> text (js/apfonts.js)
 const apFontFiles = apFonts();
 const DEFAULT_BOARD = "c6-supermini";   // the board whose limits the renderer has built in (web/build.py)
 
@@ -1987,8 +2232,9 @@ function apButtons(busy = false) {
 
 function apShow() {
   if (!doc()) return;    // before the first model is loaded
-  $("ap-setup").hidden = ap.connected;
+  $("ap-setup").hidden = ap.connected || !!demoAp;   // the demo has no USB, bridge or address to choose
   $("ap-conn").hidden = $("ap-pick").hidden = $("ap-buttons").hidden = !ap.connected;
+  $("ap-change").hidden = !!demoAp;
   $("ap-conn-text").textContent = ap.info;
   $("send-h").textContent = `Send "${layoutName()}" to your AP`;
   if (!onAp) {
@@ -2019,6 +2265,7 @@ function apDisconnected() {
 }
 
 function apClient() {
+  if (demoAp) return demoAp;
   if (onAp) return new ApClient("", $("ap-token").value.trim());
   if (ap.usb) {
     if (!serialAp()) throw new Error("The USB connection to the AP is closed. Connect again.");
@@ -2111,6 +2358,11 @@ async function apConnect() {
   ap.tags = r.tags || [];
   ap.fileVersion = await apFileVersion();
   try {
+    ap.lang = (await apClient().call("GET", "/api/config")).lang ?? null;   // #386: the preview's date language
+  } catch {
+    ap.lang = null;   // not needed to connect: English, as the AP until set
+  }
+  try {
     ({ files: ap.fonts, slots: ap.fontSlots } = await apFontFiles.read(apClient()));
   } catch (e) {
     // the AP's font files are not needed to connect: layouts that name one show it as unknown
@@ -2119,7 +2371,7 @@ async function apConnect() {
     ap.fontSlots = {};
   }
   limitsChanged();
-  const where = onAp ? location.host || "this AP" : ap.usb ? "the AP over USB" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
+  const where = demoAp ? "the demo AP in this browser" : onAp ? location.host || "this AP" : ap.usb ? "the AP over USB" : apBase($("ap-url").value).base.replace(/^https?:\/\//, "");
   ap.info = `Connected to ${where} · AP ${r.ap?.fw || "?"}, ${ap.tags.length} tags`;
   ap.tagLayouts = {};
   if (onAp) {
@@ -2412,7 +2664,8 @@ function handoffMessage(ev) {
 
 function initAp() {
   // what Connect needs (the token on the AP, the port or the bridge's address on the web), "" before there is one
-  const canConnect = onAp ? initOnAp() : initOnWeb();
+  const how = onAp ? initOnAp() : initOnWeb();
+  const canConnect = demoAp ? () => "demo" : how;
   $("ap-connect").addEventListener("click", () => {
     ap.usb = false;
     apRun("Connecting", apConnect);
@@ -2477,8 +2730,10 @@ function initIntro() {
   });
 }
 
-export async function initEditor({ sameOrigin = false } = {}) {
+// demoAp: the browser demo's pretend AP (js/demoap.js), used instead of a real one
+export async function initEditor({ sameOrigin = false, demoAp: demo = null } = {}) {
   onAp = sameOrigin;
+  demoAp = demo;
   try {
     state.samples = JSON.parse(store.get("samples") || "{}");
   } catch {
@@ -2498,4 +2753,6 @@ export async function initEditor({ sameOrigin = false } = {}) {
     apReady = true;
     await apStart();
   }
+  // the demo AP is there at once, so the layout list shows what it has
+  if (demoAp) apRun("Connecting", apConnect);
 }

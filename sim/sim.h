@@ -31,6 +31,7 @@ void sim_ap_boot(void);
 /* The channel in the AP's NVS (0 = none, menuconfig's), as if set without telling the tags:
    it is on it from its next boot (#258) */
 void sim_ap_set_nvs_channel(uint8_t channel);
+void sim_ap_set_id(uint32_t id); /* as another AP, with that id (#390); the previous id is not answered */
 /* Switches the AP off: frames from the tag get no answer, the API answers 503. */
 void sim_ap_off(void);
 bool sim_ap_up(void);
@@ -74,6 +75,8 @@ void sim_drop_uplink(int n);
 void sim_drop_reply(uint8_t msg_type, int n);
 /* The AP switches off when it drops a reply (it died in the middle of the exchange). */
 extern bool sim_die_on_drop;
+/* The signal the AP measures for the next frames, in dBm (default -55) */
+extern int8_t sim_link_rssi;
 
 typedef struct {
     unsigned polls, img_reqs;               /* frames from the tag the AP handled */
@@ -88,6 +91,11 @@ extern sim_stats_t sim_stats;
 extern uint64_t sim_tag_mac;     /* as in the API: 00000123456789A8 */
 extern const char *sim_tag_model; /* "2.9" or "1.54" */
 extern bool sim_verbose;          /* print every exchange */
+extern uint16_t sim_tag_battery_mv; /* what the tag measures and reports (default 2950) */
+extern int8_t sim_tag_temp_c;       /* default 20 */
+/* Where the tag's frames go: sim_link (the AP in this program), or for "esl-sim tag" a
+   socket to the AP in another program */
+extern uint8_t (*sim_tag_link)(uint8_t channel, const uint8_t *frame, uint8_t len, uint8_t *reply);
 
 void sim_tag_flash_erase(void);   /* a new tag: nothing in flash */
 /* Power-on: app_init() (start screen or the content from flash), then the first poll at once. */
@@ -103,6 +111,7 @@ int sim_tag_draws(void);         /* times the display was drawn */
 uint16_t sim_tag_interval_s(void);
 uint16_t sim_tag_last_sleep_s(void);
 uint8_t sim_tag_misses(void);
+uint32_t sim_tag_ap_id(void);   /* the AP id it keeps (#390) */
 uint8_t sim_tag_channel(void);   /* the channel its radio is on (radio_init) */
 uint64_t sim_tag_next_wake_ms(void);
 uint64_t sim_tag_last_draw_ms(void);
@@ -117,6 +126,16 @@ bool sim_tag_app_is(const uint8_t *img, size_t len);
 bool sim_tag_ota_confirmed(void);
 /* The screen as the tag drew it last, in the image format of esl_render.h. Returns the size. */
 size_t sim_tag_screen(uint8_t *out, size_t cap);
+/* The upgrade test (esl-sim-tag, upgrade.c). What a restart keeps (settings record, SPI
+   flash, code flash, e-paper image) and the simulated time, to a file and back; load
+   before sim_tag_boot(). */
+bool sim_tag_state_save(const char *path);
+/* The settings the firmware works with (app.cfg as bytes, its layout that of the firmware) */
+size_t sim_tag_cfg(uint8_t *out, size_t cap);
+bool sim_tag_state_load(const char *path);
+/* Called after the bootloader has run for a firmware update, before the application
+   starts again (NULL: it starts here) */
+extern void (*sim_on_restart)(void);
 /* The screen as PNG (2x, black/white; red as grey). The tag is drawn in the orientation of the layouts. */
 bool sim_tag_save_png(const char *path);
 /* Called after every wake-up with a new drawing (NULL = none). */

@@ -100,3 +100,55 @@ test("the renderer takes the connected AP's limits", async () => {
   r.setLimits(null);
   assert.deepEqual(r.limits, dflt);
 });
+
+// Ellipses and polygons: counted together; an AP that reports no "shapes" (0.10.x or older)
+// refuses them, so the renderer does too while it has that AP's limits.
+test("ellipses and polygons count as shapes, and an older AP takes none", async () => {
+  const model = Object.keys(MODELS)[0];
+  const r = await loadRenderer(model, WASM);
+  const lay = { elements: [
+    { type: "ellipse", x: 0, y: 0, w: 10, h: 10 },
+    { type: "polygon", x: 20, y: 0, w: 10, h: 10, points: [[5, 0], [9, 9], [0, 9]] },
+    { type: "rect", x: 40, y: 0, w: 10, h: 10 },
+  ] };
+  const u = layoutUsage(lay, r.limits);
+  assert.equal(u.shapes, 2);
+  assert.equal(u.rects, 1);
+  assert.equal(r.limits.shapes, 8);
+  assert.equal(r.limits.polygonPoints, 8);
+  const file = JSON.stringify({ format: "esl-layouts", version: 1, model, layouts: [{ name: "a", fields: ["a"], elements: lay.elements }] });
+  assert.equal(r.loadLayouts(file).ok, true);
+  // a connected AP with limits but no shapes: firmware from before them
+  r.setLimits({ runs: 32, rects: 20, lines: 16, icons: 8, fileBytes: 4096, jsonBytes: 8192, fields: 16, textBytes: 256 });
+  assert.equal(r.limits.shapes, 0);
+  assert.match(r.loadLayouts(file).error, /too old for ellipses and polygons/);
+  r.setLimits({ runs: 32, rects: 20, lines: 16, icons: 8, fileBytes: 4096, jsonBytes: 8192, fields: 16, textBytes: 256, shapes: 1 });
+  assert.match(r.loadLayouts(file).error, /at most 1 ellipses, polygons and charts/);
+  r.setLimits(null);
+  assert.equal(r.limits.shapes, 8);
+});
+
+// Charts count as shapes too, at most limits.charts per layout; an AP from before them refuses them
+test("charts count as shapes, at most two, and an older AP takes none", async () => {
+  const model = Object.keys(MODELS)[0];
+  const r = await loadRenderer(model, WASM);
+  const chart = { type: "chart", field: "a", x: 0, y: 0, w: 40, h: 20 };
+  const lay = { elements: [chart, { type: "ellipse", x: 50, y: 0, w: 10, h: 10 }] };
+  const u = layoutUsage(lay, r.limits);
+  assert.equal(u.shapes, 2);
+  assert.equal(u.charts, 1);
+  assert.equal(r.limits.charts, 2);
+  const file = (els) => JSON.stringify({ format: "esl-layouts", version: 1, model, layouts: [{ name: "a", fields: ["a"], elements: els }] });
+  assert.equal(r.loadLayouts(file(lay.elements)).ok, true);
+  assert.match(r.loadLayouts(file([chart, chart, chart])).error, /at most 2 charts/);
+  // the numbers are drawn: a rising line from the bottom-left to the top-right
+  r.loadLayouts(file([chart]));
+  const img = r.render(0x10, 0, ["1 2 3"]);
+  assert.equal(img.ok, true);
+  assert.equal(img.pixels[19 * r.width + 0], 1);
+  assert.equal(img.pixels[0 * r.width + 39], 1);
+  assert.equal(img.pixels[0], 0);
+  r.setLimits({ runs: 32, rects: 20, lines: 16, icons: 8, fileBytes: 4096, jsonBytes: 8192, fields: 16, textBytes: 256 });
+  assert.match(r.loadLayouts(file([chart])).error, /too old for charts/);
+  r.setLimits(null);
+});

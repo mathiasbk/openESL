@@ -1,4 +1,5 @@
 #include "esl_store.h"
+#include "esl_clock.h"
 #include <stdlib.h>
 #include <string.h>
 
@@ -116,6 +117,7 @@ static void tag_defaults(const esl_store_t *st, esl_tag_cfg_t *out)
     memset(out, 0, sizeof(*out));
     out->poll_s = st->next_poll_s;
     out->channel = announced_channel(st);
+    out->ap_id = st->ap_id;
 }
 
 /* esl_store_tag_ap() under the lock */
@@ -127,15 +129,117 @@ static esl_tag_cfg_t tag_ap(const esl_store_t *st, const esl_tag_t *t, const esl
     return a;
 }
 
-static uint16_t tag_poll_s(const esl_store_t *st, const esl_tag_t *t)
+/* ---- Night mode and update window ---- */
+
+bool esl_hours_in(uint16_t from, uint16_t to, uint32_t m)
+{
+    return from <= to ? m >= from && m < to : m >= from || m < to;
+}
+
+/* Seconds since local midnight */
+static uint32_t local_sod(uint32_t unix_s)
+{
+    int64_t l = (int64_t)unix_s + esl_clock_utc_offset();
+    int64_t r = l % 86400;
+    return (uint32_t)(r < 0 ? r + 86400 : r);
+}
+
+bool esl_hours_night_now(const esl_hours_t *h, uint32_t unix_s)
+{
+    return h->night_poll_s && unix_s && esl_hours_in(h->night_from, h->night_to, local_sod(unix_s) / 60);
+}
+
+bool esl_hours_window_closed(const esl_hours_t *h, uint32_t unix_s)
+{
+    return h->window && unix_s && !esl_hours_in(h->window_from, h->window_to, local_sod(unix_s) / 60);
+}
+
+static void put16(uint8_t *p, uint16_t v)
+{
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+}
+
+static uint16_t get16(const uint8_t *p)
+{
+    return (uint16_t)(p[0] | p[1] << 8);
+}
+
+/* version 1: night from, to, poll_s; window from, to; flags (bit 0: window on); a spare byte */
+size_t esl_hours_encode(const esl_hours_t *h, uint8_t *out)
+{
+    out[0] = 1;
+    put16(&out[1], h->night_from);
+    put16(&out[3], h->night_to);
+    put16(&out[5], h->night_poll_s);
+    put16(&out[7], h->window_from);
+    put16(&out[9], h->window_to);
+    out[11] = h->window ? 1 : 0;
+    return ESL_HOURS_LEN;
+}
+
+bool esl_hours_decode(const uint8_t *in, size_t len, esl_hours_t *h)
+{
+    if (len < ESL_HOURS_LEN || in[0] != 1)
+        return false;
+    esl_hours_t v = {get16(&in[1]), get16(&in[3]), get16(&in[5]), get16(&in[7]), get16(&in[9]), (in[11] & 1) != 0};
+    if (!esl_hours_valid(&v))
+        return false;
+    *h = v;
+    return true;
+}
+
+bool esl_hours_valid(const esl_hours_t *h)
+{
+    if (h->night_poll_s && (h->night_poll_s < ESL_NIGHT_POLL_MIN_S || h->night_poll_s > ESL_NIGHT_POLL_MAX_S ||
+                            h->night_from > 1439 || h->night_to > 1439 || h->night_from == h->night_to))
+        return false;
+    if (h->window && (h->window_from > 1439 || h->window_to > 1439 || h->window_from == h->window_to))
+        return false;
+    return true;
+}
+
+/* The night interval instead of v (a tag's own, not 0) when it is longer, it is night at
+   unix_s and the tag then wakes before the night ends */
+/* Seconds from sod (seconds since local midnight) to the next minute m of the day */
+static uint32_t secs_to(uint32_t sod, uint16_t m)
+{
+    uint32_t t = (uint32_t)m * 60;
+    return t > sod ? t - sod : t + 86400 - sod;
+}
+
+static uint16_t night_poll(const esl_store_t *st, uint16_t v, uint32_t unix_s)
+{
+    const esl_hours_t *h = &st->hours;
+    if (v >= h->night_poll_s || !esl_hours_night_now(h, unix_s))
+        return v;
+    /* an update window in the night: open now, the tags keep their own interval in it;
+       later in the night, they are back on it when it opens, so every tag polls in it */
+    if (h->window && !esl_hours_window_closed(h, unix_s))
+        return v;
+    uint32_t sod = local_sod(unix_s), left = secs_to(sod, h->night_to);
+    if (h->window && secs_to(sod, h->window_from) < left)
+        left = secs_to(sod, h->window_from);
+    return h->night_poll_s <= left ? h->night_poll_s : v;
+}
+
+/* The tag's interval without the night (0 = it keeps its own) */
+static uint16_t tag_day_poll_s(const esl_store_t *st, const esl_tag_t *t)
 {
     uint16_t v = t->cfg.poll_s ? t->cfg.poll_s : st->next_poll_s;
     /* A tag keeps the last next_poll_s it got when a reply has 0, and an image tag may
-       last have got ESL_IMAGE_BUSY_S, a tag fetching blocks ESL_BLOCKS_POLL_S: it is
-       told its interval outright */
-    if (!v && (t->image_capable || (t->poll_flags & ESL_POLL_F_OTA)))
+       last have got ESL_IMAGE_BUSY_S, a tag fetching blocks ESL_BLOCKS_POLL_S, a tag in
+       night mode the night interval: it is told its interval outright */
+    if (!v && (t->image_capable || (t->poll_flags & ESL_POLL_F_OTA) || st->hours.night_poll_s))
         v = ESL_TAG_BUILTIN_POLL_S;
     return v;
+}
+
+/* The interval the tag is told now (unix_s: the time, 0 when unknown) */
+static uint16_t tag_poll_s(const esl_store_t *st, const esl_tag_t *t, uint32_t unix_s)
+{
+    uint16_t v = tag_day_poll_s(st, t);
+    return v ? night_poll(st, v, unix_s) : v;
 }
 
 /* Slot for an entry loaded at boot: free, or already holding the same MAC. */
@@ -161,6 +265,7 @@ static void set_content(esl_store_t *st, unsigned slot, const esl_content_t *c)
     t->layout_hash = esl_content_layout_hash(c);
     t->has_content = true;
     t->has_image = c->layout == ESL_LAYOUT_IMAGE;
+    t->layout_price = c->layout == ESL_LAYOUT_PRICE;
     t->content_err = ESL_CERR_NONE;
     t->content_unfit = false;
     t->content_check = true;  /* against the file at its next POLL (esl_store_check_tag): it may come
@@ -190,7 +295,7 @@ static bool env_has(const esl_layout_env_t *env, uint32_t layout_hash)
 /*
  * Under the lock: the answer to a POLL for a known tag.
  *
- * Priority when several things are waiting (docs/protokoll.md part 1, "Priority"):
+ * Priority when several things are waiting (docs/protocol.md part 1, "Priority"):
  *   1. CONFIG - settings
  *   2. IDLE   - the caller then offers an image (esl_image) or firmware (esl_tagfw)
  * The AP draws the content itself, so here it only notes why content cannot be
@@ -209,7 +314,7 @@ static uint16_t next_poll(const esl_tag_t *t, uint16_t poll_s, uint64_t now_ms)
 }
 
 static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll, const esl_layout_env_t *env,
-                          uint64_t now_ms, uint8_t *reply)
+                          uint64_t now_ms, uint32_t unix_s, uint8_t *reply)
 {
     esl_tag_cfg_t ap, eff;
 
@@ -217,7 +322,9 @@ static size_t poll_answer(esl_store_t *st, esl_tag_t *t, const esl_poll_t *poll,
     ap = tag_ap(st, t, &ap);
     esl_tag_effective_cfg(t, &ap, &eff);
     /* tag_poll_s, not eff.poll_s: 0 would leave an image tag at ESL_IMAGE_BUSY_S */
-    uint16_t next = next_poll(t, tag_poll_s(st, t), now_ms);
+    uint16_t poll_s = tag_poll_s(st, t, unix_s);
+    uint16_t next = next_poll(t, poll_s, now_ms);
+    t->night_told = poll_s != tag_day_poll_s(st, t); /* it may sleep the night interval */
     t->content_err = ESL_CERR_NONE;
     if (t->has_content && !(poll->flags & ESL_POLL_F_IMAGE))
         t->content_err = ESL_CERR_NO_IMAGE;
@@ -254,13 +361,15 @@ void esl_tag_effective_cfg(const esl_tag_t *t, const esl_tag_cfg_t *ap, esl_tag_
     if (!out->poll_s)
         out->poll_s = ap->poll_s;
     out->channel = ap->channel;
+    out->ap_id = ap->ap_id;
 }
 
 bool esl_tag_cfg_pending(const esl_tag_t *t, const esl_tag_cfg_t *ap)
 {
     esl_tag_cfg_t eff;
     esl_tag_effective_cfg(t, ap, &eff);
-    return t->seen && t->cfg_capable && t->shown_cfg_ver != esl_tag_cfg_version(&eff);
+    return t->seen && t->cfg_capable &&
+           (t->shown_cfg_ver != esl_tag_cfg_version(&eff) || (ap->ap_id && t->other_ap_id));
 }
 
 void esl_store_init(esl_store_t *st, unsigned max, const esl_store_ops_t *ops, uint16_t next_poll_s)
@@ -437,6 +546,7 @@ static esl_store_err_t set_saved(esl_store_t *st, uint64_t mac, const esl_conten
         t->content_id = old.content_id;
         t->layout_hash = old.layout_hash;
         t->has_image = old.has_image;
+        t->layout_price = old.layout_price;
         t->image_id = old.image_id;
         t->image_failed = old.image_failed;
         t->content_err = old.content_err;
@@ -600,12 +710,13 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->cfg_capable = poll->has_cfg_ver;
         t->channel_capable = poll->has_link;
         t->shown_cfg_ver = poll->cfg_ver;
+        t->other_ap_id = poll->has_apid && poll->ap_id != st->ap_id;
         t->polls++;
         note_signal(t, poll, rssi);
         t->image_capable = (poll->flags & ESL_POLL_F_IMAGE) != 0;
         t->image_rle = t->image_capable && (poll->flags & ESL_POLL_F_IMG_RLE);
         t->image_2d = t->image_capable && (poll->flags & ESL_POLL_F_IMG_2D);
-        n = poll_answer(st, t, poll, env, now_ms, reply);
+        n = poll_answer(st, t, poll, env, now_ms, unix_s, reply);
         t->seen_dirty = !save;
         if (save)
             seen_record(t, &rec);
@@ -902,6 +1013,42 @@ void esl_store_restore_next_poll(esl_store_t *st, uint16_t next_poll_s)
     apply_next_poll(st, next_poll_s);
 }
 
+void esl_store_restore_hours(esl_store_t *st, const esl_hours_t *h)
+{
+    static const esl_hours_t off;
+    lock(st);
+    st->hours = h && esl_hours_valid(h) ? *h : off;
+    unlock(st);
+}
+
+void esl_store_set_hours(esl_store_t *st, const esl_hours_t *h)
+{
+    esl_store_restore_hours(st, h);
+    if (st->ops.persist_hours) {
+        esl_hours_t now;
+        esl_store_get_hours(st, &now);
+        st->ops.persist_hours(st->ops.ctx, now.night_poll_s || now.window ? &now : NULL);
+    }
+}
+
+void esl_store_get_hours(esl_store_t *st, esl_hours_t *out)
+{
+    lock(st);
+    *out = st->hours;
+    unlock(st);
+}
+
+bool esl_store_image_held(esl_store_t *st, uint32_t content_id)
+{
+    if (!content_id)
+        return false;
+    uint32_t unix_s = st->ops.unix_now ? st->ops.unix_now(st->ops.ctx) : 0;
+    lock(st);
+    bool held = esl_hours_window_closed(&st->hours, unix_s);
+    unlock(st);
+    return held;
+}
+
 uint16_t esl_store_get_next_poll(esl_store_t *st)
 {
     lock(st);
@@ -917,6 +1064,127 @@ void esl_store_tag_defaults(esl_store_t *st, esl_tag_cfg_t *out)
     unlock(st);
 }
 
+void esl_store_set_ap_id(esl_store_t *st, uint32_t ap_id)
+{
+    lock(st);
+    st->ap_id = ap_id;
+    unlock(st);
+}
+
+void esl_store_set_prev_id(esl_store_t *st, uint32_t prev_id)
+{
+    lock(st);
+    st->prev_id = prev_id;
+    unlock(st);
+}
+
+void esl_store_set_adopt(esl_store_t *st, bool all, uint32_t id)
+{
+    lock(st);
+    st->adopt_all = all;
+    st->adopt_id = id;
+    unlock(st);
+}
+
+static int foreign_find(const esl_store_t *st, uint64_t mac)
+{
+    for (int i = 0; i < ESL_STORE_FOREIGN; i++)
+        if (st->foreign[i].mac == mac && mac)
+            return i;
+    return -1;
+}
+
+static void note_other_ap(esl_store_t *st, uint32_t id, bool lost_long, bool answered, uint64_t now_ms)
+{
+    esl_other_ap_t *a = NULL, *oldest = &st->other_aps[0];
+    for (unsigned i = 0; i < ESL_STORE_OTHER_APS && !a; i++) {
+        esl_other_ap_t *o = &st->other_aps[i];
+        if (o->ap_id == id)
+            a = o;
+        else if (!o->ap_id || (oldest->ap_id && o->last_ms < oldest->last_ms))
+            oldest = o;
+    }
+    if (!a) {
+        a = oldest;
+        memset(a, 0, sizeof(*a));
+        a->ap_id = id;
+    }
+    a->polls++;
+    a->last_ms = now_ms;
+    a->lost_long = lost_long;
+    if (answered)
+        a->answered_ms = now_ms ? now_ms : 1;
+}
+
+unsigned esl_store_other_aps(esl_store_t *st, esl_other_ap_t *out, unsigned max)
+{
+    esl_other_ap_t all[ESL_STORE_OTHER_APS];
+    unsigned n = 0;
+    lock(st);
+    for (unsigned i = 0; i < ESL_STORE_OTHER_APS; i++) {
+        const esl_other_ap_t *o = &st->other_aps[i];
+        if (!o->ap_id || o->ap_id == st->ap_id || o->ap_id == st->prev_id)
+            continue;
+        all[n] = *o;
+        all[n].tags = 0;
+        for (unsigned k = 0; k < ESL_STORE_FOREIGN; k++)
+            if (st->foreign[k].mac && st->foreign[k].ap_id == o->ap_id)
+                all[n].tags++;
+        n++;
+    }
+    unlock(st);
+    for (unsigned i = 1; i < n; i++) /* newest first */
+        for (unsigned k = i; k > 0 && all[k - 1].last_ms < all[k].last_ms; k--) {
+            esl_other_ap_t t = all[k];
+            all[k] = all[k - 1];
+            all[k - 1] = t;
+        }
+    if (n > max)
+        n = max;
+    memcpy(out, all, n * sizeof(*out));
+    return n;
+}
+
+bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint64_t now_ms)
+{
+    lock(st);
+    uint32_t id = poll->has_apid ? poll->ap_id : ESL_APID_NONE;
+    bool own = id == st->ap_id || (st->prev_id && id == st->prev_id);
+    bool ok = !st->ap_id || id == ESL_APID_NONE || own || (poll->link_flags & ESL_POLL_LF_ANY_AP) ||
+              ((poll->link_flags & ESL_POLL_LF_LOST_LONG) && (st->adopt_all || id == st->adopt_id));
+    if (st->ap_id && id != ESL_APID_NONE && !own)
+        note_other_ap(st, id, (poll->link_flags & ESL_POLL_LF_LOST_LONG) != 0, poll->lost == 0, now_ms);
+    int i = foreign_find(st, mac);
+    if (ok && i >= 0) {
+        st->foreign[i].mac = 0;
+    } else if (!ok) {
+        if (i < 0) {
+            i = (int)st->foreign_at;
+            st->foreign_at = (st->foreign_at + 1) % ESL_STORE_FOREIGN;
+        }
+        st->foreign[i].mac = mac;
+        st->foreign[i].ap_id = id;
+    }
+    unlock(st);
+    return ok;
+}
+
+bool esl_store_req_welcome(esl_store_t *st, uint64_t mac)
+{
+    lock(st);
+    bool ok = foreign_find(st, mac) < 0 && (!st->ap_id || find(st, mac) >= 0);
+    unlock(st);
+    return ok;
+}
+
+bool esl_store_refused(esl_store_t *st, uint64_t mac)
+{
+    lock(st);
+    bool r = foreign_find(st, mac) >= 0;
+    unlock(st);
+    return r;
+}
+
 void esl_store_set_builtin_channel(esl_store_t *st, uint8_t channel)
 {
     lock(st);
@@ -925,10 +1193,19 @@ void esl_store_set_builtin_channel(esl_store_t *st, uint8_t channel)
     unlock(st);
 }
 
+/* The longest a tag may sleep: in night mode the night interval, when longer */
 static uint64_t tag_poll_ms(const esl_store_t *st, const esl_tag_t *t)
 {
-    uint16_t s = tag_poll_s(st, t);
-    return (uint64_t)(s ? s : ESL_TAG_BUILTIN_POLL_S) * 1000;
+    uint16_t s = tag_day_poll_s(st, t);
+    if (!s)
+        s = ESL_TAG_BUILTIN_POLL_S;
+    if (st->hours.night_poll_s > s)
+        s = st->hours.night_poll_s;
+    /* told a night interval that may be longer than the one set now (night mode turned
+       off or shortened since): it may still sleep that long */
+    if (t->night_told && s < ESL_NIGHT_POLL_MAX_S)
+        s = ESL_NIGHT_POLL_MAX_S;
+    return (uint64_t)s * 1000;
 }
 
 /* Plans a move to channel (under the lock): long enough for every tag to get CONFIG and
@@ -1129,11 +1406,28 @@ esl_tag_cfg_t esl_store_tag_ap(esl_store_t *st, const esl_tag_t *t, const esl_ta
     return a;
 }
 
-uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac)
+uint16_t esl_store_tag_expect_s(esl_store_t *st, uint64_t mac)
 {
+    uint32_t unix_s = st->ops.unix_now ? st->ops.unix_now(st->ops.ctx) : 0; /* not under the lock */
     lock(st);
     int idx = find(st, mac);
-    uint16_t v = idx >= 0 ? tag_poll_s(st, at(st, (unsigned)idx)) : st->next_poll_s;
+    uint16_t v = st->next_poll_s;
+    if (idx >= 0) {
+        const esl_tag_t *t = at(st, (unsigned)idx);
+        v = tag_poll_s(st, t, unix_s);
+        if (t->night_told && st->hours.night_poll_s > v)
+            v = st->hours.night_poll_s;
+    }
+    unlock(st);
+    return v;
+}
+
+uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac)
+{
+    uint32_t unix_s = st->ops.unix_now ? st->ops.unix_now(st->ops.ctx) : 0; /* not under the lock */
+    lock(st);
+    int idx = find(st, mac);
+    uint16_t v = idx >= 0 ? tag_poll_s(st, at(st, (unsigned)idx), unix_s) : st->next_poll_s;
     unlock(st);
     return v;
 }

@@ -54,6 +54,13 @@ export function setupPicture(kind, chip) {
   if (kind === "wifi")
     return svg("0 0 200 110", devkit(22, 12, chip) + small(140, 36, "C6") + wifi(108, 40) +
       `<path d="M80 62 H136" stroke="${ON}" stroke-width="1.6" stroke-dasharray="3 4"/>` + waves(184, 62));
+  // the AP as a Linux program: a small computer with a C6 on a USB cable (or over WiFi)
+  if (kind === "linux")
+    return svg("0 0 200 110", `<rect x="18" y="30" width="78" height="52" rx="5" fill="${PCB}"/>` +
+      `<rect x="26" y="38" width="62" height="28" rx="2" fill="#0d1b2e"/>` + text(57, 56, 9, "#9fd39f", "Linux") +
+      usbc(83, 72, true) + small(128, 36, "C6") +
+      `<path d="M96 75 C112 75 118 86 145 80" fill="none" stroke="${USB}" stroke-width="2.2" stroke-linecap="round"/>` +
+      waves(172, 62));
   if (kind === "screen") return svg("60 16 120 66", small(83, 28, chip, true) + waves(130, 53) + tag(148, 40));
   if (chip === "C6") return svg("60 18 120 66", small(83, 33, chip) + waves(130, 55) + tag(148, 42));
   // a bigger board: the C5, an S3 on its own, or a chip added later

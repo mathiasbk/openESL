@@ -32,12 +32,13 @@ The whole process: [CONTRIBUTING.md](https://github.com/mathiasbk/openESL/blob/m
 
 | Read | For |
 |---|---|
-| [docs/README.md](https://github.com/mathiasbk/openESL/blob/master/docs/README.md) | Requirements, architecture and the main choices |
-| [docs/protokoll.md](https://github.com/mathiasbk/openESL/blob/master/docs/protokoll.md) | The radio protocol, the HTTP API and the layout format |
+| [docs/code-map.md](https://github.com/mathiasbk/openESL/blob/master/docs/code-map.md) | Where the code for what lives, and where to start for a change |
+| [docs/README.md](https://github.com/mathiasbk/openESL/blob/master/docs/README.md) | All the developer documents, and the main choices |
+| [docs/protocol.md](https://github.com/mathiasbk/openESL/blob/master/docs/protocol.md) | The radio protocol, the HTTP API and the layout format |
 | [ap/README.md](https://github.com/mathiasbk/openESL/blob/master/ap/README.md) | The AP firmware |
 | [tag/README.md](https://github.com/mathiasbk/openESL/blob/master/tag/README.md) | The label firmware |
 | [web/README.md](https://github.com/mathiasbk/openESL/blob/master/web/README.md) | The web page: designer, flashers, dashboard |
-| [docs/kildelogg.md](https://github.com/mathiasbk/openESL/blob/master/docs/kildelogg.md) | Hardware facts the code relies on, and where each came from |
+| [docs/sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/sources.md) | Hardware facts the code relies on, and where each came from |
 
 ## Clean implementation
 

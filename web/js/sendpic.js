@@ -96,7 +96,7 @@ export function quantize(rgba, w, h, { red = false, dither = true } = {}) {
   return out;
 }
 
-// Pixel values (w x h, row by row) -> the raw screen image the API takes (protokoll.md, IMG
+// Pixel values (w x h, row by row) -> the raw screen image the API takes (protocol.md, IMG
 // fmt 0): column by column, (h + 7) / 8 bytes each, bit 7 of a column's first byte the top
 // row, 1 = ink; the black plane, then on a model with red the red plane
 export function packRaw(pixels, w, h, red = false) {

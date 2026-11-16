@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "esl_json.h"
 
-/* WiFi setup, independent of ESP-IDF (krav A1). The glue in main/wifi.c does
+/* WiFi setup, independent of ESP-IDF (requirement A1 in docs/requirements.md). The glue in main/wifi.c does
  * the radio work; this part checks what the user sent and writes the pages and
  * JSON, so the host tests can cover it.
  *

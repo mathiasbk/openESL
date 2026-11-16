@@ -11,7 +11,7 @@ elseif(CONFIG_ESL_RADIO_DRIVER_NET)
 else()
     list(APPEND srcs radio.c radio_tx.c)
     if(CONFIG_ESL_RADIO_DRIVER_IEEE802154)
-        list(APPEND srcs radio_ieee802154.c)
+        list(APPEND srcs radio_ieee802154.c remote.c)
     elseif(CONFIG_ESL_RADIO_DRIVER_UART)
         list(APPEND srcs radio_uart.c)
     elseif(NOT CMAKE_BUILD_EARLY_EXPANSION)  # no sdkconfig yet in that pass

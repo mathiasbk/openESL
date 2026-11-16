@@ -246,7 +246,7 @@ static void uart_task(void *arg)
     int64_t last_stats = esp_timer_get_time(), last_read_us = 0;
 
     esl_coproc_parser_init(&parser);
-    ESP_ERROR_CHECK(esp_task_wdt_add(NULL));
+    ESL_CHECK(esp_task_wdt_add(NULL));
     for (;;) {
         esp_task_wdt_reset();
         if (xQueueReceive(uart_events, &ev, pdMS_TO_TICKS(1000)) == pdTRUE) {

@@ -56,6 +56,8 @@
 .wz-token { display: flex; gap: var(--space-1); min-width: 0; }
 .wz-token input { flex: 1; min-width: 0; }
 .wz-indent { margin: 0 0 0 104px; }
+.wz-steps-text { margin: var(--space-2) 0; padding-left: var(--space-4); }
+.wz-steps-text li { margin-bottom: var(--space-1); }
 .wz-log { background: var(--bg); border-radius: var(--radius-sm); padding: var(--space-2); font-size: var(--fs-xs); white-space: pre-wrap; margin: var(--space-2) 0 0; }
 .wz-foot { display: flex; align-items: center; gap: 10px; margin: 20px 0 8px; }
 .wz-done { text-align: center; padding: 26px 18px; }

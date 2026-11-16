@@ -2,7 +2,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <stdlib.h>
 #include "esp_err.h"
+#include "esp_log.h"
 #include "esl_api.h"
 #include "esl_image.h"
 #include "esl_layout.h"
@@ -10,12 +12,26 @@
 #include "esl_screen.h"
 #include "esl_store.h"
 
+/* ESP_ERROR_CHECK that still says what failed. The AP is built with silent assertions
+ * (sdkconfig.defaults), which make ESP_ERROR_CHECK a bare abort(): a step at boot that
+ * fails every time would then restart the AP over and over without a word. This logs the
+ * file, line and error name first, then aborts the same way. */
+#define ESL_CHECK(x) do {                                                                  \
+        esp_err_t esl_rc_ = (x);                                                           \
+        if (esl_rc_ != ESP_OK) {                                                           \
+            ESP_LOGE("check", "%s:%d: %s", __FILE_NAME__, __LINE__, esp_err_to_name(esl_rc_)); \
+            abort();                                                                       \
+        }                                                                                  \
+    } while (0)
+
 /* store_nvs.c: the tag table with a FreeRTOS mutex and NVS persistence */
 esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s);
 /* The clock for the time a tag was last heard (stored with it); call after sched_start(). */
 void store_nvs_set_clock(esl_sched_t *sched);
 /* Saves every tag's last poll now: before a planned restart (OTA). */
 void store_nvs_flush(void);
+/* The AP id and adopt for the API (GET/PUT /api/config, #390); after store_nvs_init() */
+esl_apid_cfg_t *store_nvs_apid(void);
 /* The layout files per model, same mutex; call after store_nvs_init(). */
 esp_err_t layouts_nvs_init(esl_layouts_t *ls);
 /* Reads a string from NVS namespace "cfg", falling back to def. */
@@ -116,6 +132,12 @@ void captive_dns_stop(void);
 /* radio.c (AP or sniffer mode, over the link of the radio driver) or
  * radio_stub.c. ls (layout files, which the AP draws with) may be NULL. */
 esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint16_t pan_id);
+/* remote.c (the C6's own radio): a SoluM remote as a button (esl_remote.h), for api->remote;
+ * can_listen: the radio can visit channel 11. radio.c hands it every frame (remote_frame,
+ * from the radio task) and visits channel 11 while remote_listening(). */
+esl_remote_t *remote_start(bool can_listen);
+void remote_frame(const esl_link_rx_t *f);
+bool remote_listening(void);
 /* radio_tx.c (not with the stub radio): the transmit power for api->tx_power, loaded
  * from NVS on the first call; radio_start() uses it. radio_set_tx_power() (radio.c,
  * radio_net.c) hands a new one to the radio, from any task. */

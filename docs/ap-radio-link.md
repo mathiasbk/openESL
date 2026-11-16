@@ -3,7 +3,7 @@
 The AP normally runs on one ESP32-C6, which does WiFi and 802.15.4 on the same radio by
 time-division and has 512 KB of RAM. For more tags, the AP can instead run on an
 ESP32-S3 with PSRAM, with an ESP32-C6 next to it as a pure 802.15.4 radio
-([issue #146](https://github.com/mathiasbk/openESL/issues/146), risiko.md R4).
+([issue #146](https://github.com/mathiasbk/openESL/issues/146), history/risks.md R4).
 
 | Chip | Firmware | Does |
 |---|---|---|
@@ -16,7 +16,7 @@ ESP32-S3 N16R8: four tags online, polls answered in about 2.3 ms (`replies.worst
 updated over WiFi and the radio over the cable (twice, about 8 s each). The C6 with screen as the
 radio is experimental: its image builds, but it is not tried yet.
 
-For a C6 elsewhere on the WiFi network with no wire to the S3, a separate setup with other limits, see [ap-netradio.md](ap-netradio.md).
+For a C6 elsewhere on the WiFi network with no wire to the S3, a separate setup with other limits, see [ap-netradio.md](ap-netradio.md). The same link also runs over the C6's own USB port to a Linux host (radio board `c6-usb`, `openesl-ap --radio uart:/dev/ttyACM0`, [linux-ap.md](linux-ap.md)).
 
 ## Wiring
 
@@ -81,6 +81,14 @@ and no BOOT or RESET pin: the C6 Super Mini has neither on its pins.
   both ways. If that does not happen within 60 s, the C6 goes back to the old one by itself,
   so a bad image costs a restart, not a USB cable.
 - The C6 takes only `esl_radio` images, and the S3 sends one only when its radio speaks link v2.
+- The project name says which link a radio image is for: `esl_radio` for the radio on UART pins
+  (radio boards `c6` and `c6-lcd`, as in every release so far), `esl_radio_usb` for the C6 on the
+  USB port of a [Linux AP](linux-ap.md) (`c6-usb`, from 0.11.0; `"app"` in its `radio.json`). An
+  S3 that wrote the USB image into its C6 would lose its radio, so it answers any other
+  `esl_radio*` image with `422` before it sends anything, and the C6 refuses an image that is
+  not its own name too (0.10.0 and older APs and radios do the same, as they take only
+  `esl_radio`). Only the name changed, so an S3 and its C6 of any version still update each
+  other in either order.
 
 **Once over USB:** a C6 flashed before 0.8.2 has one app slot and link v1 (`radio.ota` false in
 `GET /api/ota`). It keeps working with a newer S3, but it has to be flashed once more from the

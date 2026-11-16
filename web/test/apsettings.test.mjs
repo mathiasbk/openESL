@@ -2,7 +2,8 @@
 // AP takes (esl_tz_ok, esl_ntp_name_ok, esl_webhook_url_ok in ap/components/esl_core).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { TZ_PRESETS, tzForZone, checkTz, checkNtp, checkWebhook, clockSkew, currentSettings, settingsChanges, configBody } from "../js/apsettings.js";
+import { TZ_PRESETS, tzForZone, checkTz, checkNtp, checkWebhook, clockSkew, currentSettings, settingsChanges, configBody,
+  spanText, spanBody, readSpan, windowWarning } from "../js/apsettings.js";
 
 test("every preset time zone is one the AP takes", () => {
   for (const [tz] of TZ_PRESETS) assert.equal(checkTz(tz), null, tz);
@@ -51,6 +52,10 @@ test("what the AP has, as the Settings page shows it", () => {
   assert.deepEqual(currentSettings({ list: { ap: { poll_s: 300 } }, wifi: null, config: { poll_s: 300, webhook: "http://ha:8123/x" } }),
     { poll_s: 300, webhook: "http://ha:8123/x" });
   assert.equal(currentSettings({ ...last, config: { ...last.config, ntp: "ntp.uio.no" } }).ntp, "ntp.uio.no");
+  // the date language from AP firmware 0.11.0; an older AP has none, so it is not offered
+  assert.equal(currentSettings({ ...last, config: { ...last.config, lang: "nb" } }).lang, "nb");
+  assert.equal(currentSettings({ ...last, config: { ...last.config, lang: null } }).lang, "", "not chosen");
+  assert.ok(!("lang" in currentSettings(last)));
 });
 
 test("only what differs is saved, with built-in values as a reset", () => {
@@ -61,6 +66,9 @@ test("only what differs is saved, with built-in values as a reset", () => {
   assert.deepEqual(settingsChanges({ tz: "CET", poll_s: 0 }, { poll_s: 0 }), {});
   assert.deepEqual(configBody({ tz: "", ntp: "", webhook: "" }), { tz: null, ntp: null, webhook: null });
   assert.deepEqual(configBody({ poll_s: 60, hostname: "x" }, { builtin_poll_s: 60 }), { poll_s: null });
+  assert.deepEqual(configBody({ lang: "nb" }), { lang: "nb" });
+  assert.deepEqual(configBody({ lang: "" }), { lang: null });
+  assert.deepEqual(settingsChanges({ lang: "nb", tz: "" }, { lang: "en" }), { lang: "nb" });
   assert.deepEqual(configBody({ poll_s: 300, webhook: "http://ha/x" }, { builtin_poll_s: 60 }), { poll_s: 300, webhook: "http://ha/x" });
 });
 
@@ -79,4 +87,28 @@ test("the channel: the one the AP moves to while a move waits, built-in as a res
   assert.ok(!("channel" in currentSettings({ ...last, config: { poll_s: 0, webhook: null } })));
   assert.deepEqual(configBody({ channel: 25 }, last.config), { channel: null });
   assert.deepEqual(configBody({ channel: 20 }, last.config), { channel: 20 });
+});
+
+test("night mode and update window go to the AP as it takes them (#415)", () => {
+  const config = { poll_s: 300, builtin_poll_s: 0, night: { from: "22:00", to: "06:00", poll_s: 1800 }, update_window: null };
+  const cur = currentSettings({ config, list: { ap: { poll_s: 300 } } });
+  assert.equal(cur.night, "22:00-06:00/1800");
+  assert.equal(cur.update_window, "");
+  assert.ok(!("night" in currentSettings({ config: { poll_s: 0 }, list: { ap: {} } })), "an AP before 0.11.0 has neither");
+  const ch = settingsChanges({ night: "", update_window: "06:00-08:00" }, cur);
+  assert.deepEqual(configBody(ch, config), { night: null, update_window: { from: "06:00", to: "08:00" } });
+  assert.deepEqual(spanBody("23:30-05:00/600"), { from: "23:30", to: "05:00", poll_s: 600 });
+  assert.equal(spanText(null), "");
+  assert.equal(spanText({ from: "06:00", to: "08:00" }), "06:00-08:00");
+  assert.equal(readSpan(false, "", "", "Night mode"), "");
+  assert.equal(readSpan(true, "22:00", "06:00", "Night mode", 900), "22:00-06:00/900");
+  assert.ok(readSpan(true, "08:00", "08:00", "Update window").error);
+  assert.ok(readSpan(true, "", "08:00", "Update window").error);
+});
+
+test("windowWarning: a window shorter than the poll interval", () => {
+  assert.equal(windowWarning("", 600), "");
+  assert.equal(windowWarning("06:00-08:00", 600), "");
+  assert.match(windowWarning("06:00-06:05", 600), /shorter than the poll interval \(10 min\)/);
+  assert.equal(windowWarning("23:59-00:01", 0), ""); // over midnight, the tags' own 60 s
 });

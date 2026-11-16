@@ -13,12 +13,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include "esl_api.h"
+#include "esl_clock.h"
+#include "esl_text.h"
 
 #define CAP 8
 
 static esl_store_t st;
 static esl_layouts_t layouts;
-static esl_notify_t notify;
+static esl_notify_t notify = {"http://192.168.1.10:8123/api/webhook/openesl", NULL, NULL}; /* "notify" in a batch needs one */
 
 /* A WiFi side that only remembers what it was given. */
 static esl_wifi_status_t wifi = {.mode = ESL_WIFI_SETUP, .setup_ssid = "openesl-1A2B", .setup_ip = "192.168.4.1",
@@ -141,13 +143,23 @@ static size_t img_load(void *ctx, unsigned slot, uint8_t *buf, size_t cap)
     return img_len[slot];
 }
 
-static const esl_store_ops_t store_ops = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-                                          NULL, NULL, NULL, NULL, img_save, img_load, NULL};
+/* the AP's clock, as store_nvs.c gives it: night mode and the update window need it (#415) */
+static uint32_t unix_now(void *ctx)
+{
+    (void)ctx;
+    return 1792065600u; /* as the schedule's below */
+}
 
-static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase};
+static const esl_store_ops_t store_ops = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, unix_now,
+                                          NULL, NULL, NULL, NULL, img_save, img_load, NULL, NULL};
+
+static const esl_sched_ops_t sched_ops = {NULL, NULL, NULL, blob_save, blob_load, blob_erase, NULL};
+
+/* A SoluM remote whose radio can visit channel 11; main() lets it hear one press */
+static esl_remote_t remote = {.can_listen = true, .boot = 2817364121u};
 
 /* The clock settings as on the AP (main/sched.c): ntp "" goes back to the built-in server */
-static esl_clock_cfg_t clock_cfg = {"pool.ntp.org", "", "pool.ntp.org", &clock_cfg, NULL};
+static esl_clock_cfg_t clock_cfg = {"pool.ntp.org", "", "pool.ntp.org", &clock_cfg, NULL, NULL, ""};
 
 static void clock_set(void *ctx, const char *ntp, const char *tz)
 {
@@ -156,6 +168,15 @@ static void clock_set(void *ctx, const char *ntp, const char *tz)
         snprintf(c->ntp, sizeof(c->ntp), "%s", ntp[0] ? ntp : c->builtin_ntp);
     if (tz)
         snprintf(c->tz, sizeof(c->tz), "%s", tz);
+}
+
+static void lang_set(void *ctx, const char *lang)
+{
+    esl_clock_cfg_t *c = ctx;
+    int l = esl_lang_parse(lang, strlen(lang));
+    snprintf(c->lang, sizeof(c->lang), "%s", lang);
+    esl_clock_set_lang(l < 0 ? ESL_LANG_EN : (uint8_t)l);
+    esl_number_set_point(l == ESL_LANG_EN);
 }
 
 static esl_radio_link_t links[ESL_STORE_RADIOS] = {
@@ -179,16 +200,25 @@ static int forget_radio(void *ctx, uint64_t id)
     return 404;
 }
 
+static bool apid_set_id(void *ctx, uint32_t id, uint32_t prev) { (void)ctx; (void)id; (void)prev; return true; }
+static void apid_set_adopt(void *ctx, bool all, uint32_t id) { (void)ctx; (void)all; (void)id; }
+
 int main(void)
 {
     static char resp[ESL_API_RESP_SIZE(CAP)];
     static char body[ESL_API_MAX_BODY + 64];
-    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL, NULL, 0, NULL};
+    esl_api_t api = {&st, "s3cret", "0.1.0", &layouts, "poweron", &wifi_ops, &sched, &notify, NULL, &tagfw, NULL, NULL, NULL, NULL, &clock_cfg, true, NULL, NULL, 0, NULL, NULL, &remote, NULL};
     static esl_api_changes_t changes = {.boot = 0x5eed0001};
     api.changes = &changes; /* GET /api/tags?since= */
+    static esl_jobs_t jobs; /* a job per batch (#421): the batch examples make jobs 1, 2, ... */
+    esl_jobs_init(&jobs, 1, ESL_JOBS_MAX * ESL_JOB_TAGS_MAX);
+    api.jobs = &jobs;
     static esl_tx_power_t tx_power = {20, 20, NULL, NULL};
     api.tx_power = &tx_power; /* "tx_power" in /api/config, as on a C6 */
+    static const uint8_t press[12] = {0x41, 0x88, 0x05, 0xFF, 0xFF, 0xFF, 0xFF, 0xEF, 0xBE, 0x19, 0x02, 0x00};
+    esl_remote_frame(&remote, press, sizeof(press), -61, 0, NULL);
     clock_cfg.set = clock_set;
+    clock_cfg.set_lang = lang_set; /* "lang" in /api/config */
     static const esl_link_stats_t radio_stats = {.polls = 12, .blocks = 340, .tx_failed = 1, .slow = 2, .worst_us = 6100};
     api.radio_stats = &radio_stats; /* "replies" in GET /api/tags, as on a C6 */
     /* radios over WiFi, as on an S3 with C6 radios (docs/ap-netradio.md): one connected on the
@@ -201,6 +231,9 @@ int main(void)
     static esl_sources_t sources;   /* data sources, as on an S3: kept in RAM, never fetched */
     esl_sources_init(&sources, NULL);
     api.sources = &sources;
+    static esl_apid_cfg_t apid = {0, apid_set_id, apid_set_adopt, NULL};
+    api.apid = &apid; /* "ap_id" and "adopt" in /api/config (#390) */
+    esl_store_set_ap_id(&st, 0x1A2B3C4Dul);
     uint64_t now_ms = 1000;
     char line[512];
 
@@ -243,7 +276,7 @@ int main(void)
             if (images && shown && esl_store_get(&st, mac, &t) && t.has_content && t.content_id == shown)
                 esl_store_image_known(&st, mac, shown, 0, shown);
             esl_poll_t p = {2, 2950, shown, images ? ESL_POLL_F_IMAGE | ESL_POLL_F_IMG_RLE : 0, (uint8_t)model,
-                            true, 0, true, 0xC4, 108, 1, ESL_POLL_LF_RETRY};
+                            true, 0, true, 0xC4, 108, 1, ESL_POLL_LF_RETRY, false, 0};
             esl_layouts_env(&layouts, (uint8_t)model, &env);
             esl_store_on_poll(&st, mac, &p, -61, now_ms, &env, reply);
             puts("OK");

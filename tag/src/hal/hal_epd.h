@@ -3,7 +3,7 @@
  *
  * Which ZBS243 pins these are has not been measured yet (phase 0, multimeter from
  * chip to FPC). Until then the implementation in hal/zbs243/hal_epd.c is empty.
- * SPI is bit-banged in epd.c (tag-firmware.md: "SPI to the display can be bit-banged").
+ * SPI is bit-banged in epd.c (docs/tag-firmware.md: "SPI to the display can be bit-banged").
  */
 #ifndef HAL_EPD_H
 #define HAL_EPD_H

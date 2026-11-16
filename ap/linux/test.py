@@ -1,0 +1,775 @@
+#!/usr/bin/env python3
+"""Tests openesl-ap (ap/linux) as a program, over HTTP, with the simulated radio.
+
+    python3 test.py build/host/openesl-ap
+
+Starts the binary with --radio sim on a free local port and a fresh data directory, and
+checks that the API answers with and without the token, that both tag models get content
+drawn and sent block by block until they report it, that a restart keeps the content, the
+AP id and the token, that an AP id file that cannot be read is not replaced, that the
+dashboard is served, and the HTTP server's limits (connections, bad heads). Then
+--radio uart against a radio played by this script on a pseudo-terminal, speaking the
+link of docs/ap-radio-link.md (ap/components/esl_coproc). Then --netradio beside the
+simulated radio, with network radios played by this script over TCP (esl_nlink.h): their
+places and channels, the tags they report, which radio serves a tag, the images they get,
+a radio turned away and one forgotten. Then --netradio with no radio of its own (--radio
+none, the default beside --netradio): the network radios in places 0..3, place 0 on the AP's
+channel and following its moves. Exits 1 on the first failure.
+"""
+import json
+import os
+import pty
+import select
+import struct
+import termios
+import tty
+import shutil
+import signal
+import socket
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+SIM = "sim:2,200"
+TAGS = ("00000000FAC70001", "00000000FAC70002")  # 2.9" and 1.54"
+
+
+def free_port():
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        return s.getsockname()[1]
+
+
+class Ap:
+    def __init__(self, binary, data, token=None, extra=(), radio=SIM):
+        self.port = free_port()
+        args = [binary, "--data", data, "--listen", f"127.0.0.1:{self.port}", *(["--radio", radio] if radio else []),
+                *extra]
+        if token:
+            args += ["--token", token]
+        self.log = open(os.path.join(os.path.dirname(data), "ap.log"), "ab")
+        self.p = subprocess.Popen(args, stdout=self.log, stderr=self.log)
+        self.token = token
+        for _ in range(100):
+            try:
+                self.request("GET", "/dashboard", auth=False)
+                return
+            except (urllib.error.URLError, ConnectionError):
+                time.sleep(0.05)
+        raise SystemExit("openesl-ap did not start")
+
+    def request(self, method, path, body=None, auth=True):
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(f"http://127.0.0.1:{self.port}{path}", data=data, method=method)
+        if auth and self.token:
+            req.add_header("Authorization", f"Bearer {self.token}")
+        if data is not None:
+            req.add_header("Content-Type", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as r:
+                return r.status, r.read()
+        except urllib.error.HTTPError as e:
+            return e.code, e.read()
+
+    def json(self, method, path, body=None):
+        status, raw = self.request(method, path, body)
+        if status >= 300:
+            check(False, f"{method} {path} -> {status} {raw[:200]!r}")
+        return json.loads(raw)
+
+    def stop(self):
+        self.p.send_signal(signal.SIGTERM)
+        rc = self.p.wait(timeout=10)
+        self.log.close()
+        return rc
+
+
+def raw_request(port, data):
+    """Sends data as it is; the status of the answer, None when the server just closed"""
+    with socket.create_connection(("127.0.0.1", port), timeout=5) as s:
+        try:
+            s.sendall(data)
+            line = s.recv(64).split(b"\r\n")[0].split()
+        except (ConnectionResetError, BrokenPipeError):
+            return None
+    return int(line[1]) if len(line) > 1 else None
+
+
+# ---- a radio coprocessor on a pseudo-terminal (esl_coproc.h) ----
+
+def crc16(data):
+    crc = 0xFFFF
+    for b in data:
+        crc ^= b << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return crc
+
+
+def coproc_frame(typ, payload):
+    body = bytes([typ, len(payload)]) + payload
+    return b"\xa5" + body + struct.pack("<H", crc16(body))
+
+
+class FakeRadio:
+    """Answers CONFIG and PING with HELLO, hands the host RX frames and collects its TX"""
+
+    def __init__(self):
+        self.master, slave = pty.openpty()
+        tty.setraw(slave)
+        self.path = os.ttyname(slave)
+        self.slave = slave
+        self.buf = b""
+        self.cfg = None
+        self.configs = 0
+        self.silent = False
+        self.tx = []
+
+    def pump(self, timeout):
+        end = time.time() + timeout
+        while time.time() < end:
+            r, _, _ = select.select([self.master], [], [], 0.05)
+            if r:
+                self.buf += os.read(self.master, 4096)
+            while True:
+                i = self.buf.find(b"\xa5")
+                if i < 0 or len(self.buf) < i + 5:
+                    break
+                typ, n = self.buf[i + 1], self.buf[i + 2]
+                if len(self.buf) < i + 5 + n:
+                    break
+                body, crc = self.buf[i + 1:i + 3 + n], self.buf[i + 3 + n:i + 5 + n]
+                self.buf = self.buf[i + 5 + n:]
+                if struct.unpack("<H", crc)[0] != crc16(body):
+                    continue
+                payload = body[2:]
+                if typ == 0x02:                       # CONFIG
+                    self.cfg = payload[:7]
+                    self.configs += 1
+                if typ in (0x01, 0x02) and self.cfg and not self.silent:  # PING, CONFIG -> HELLO
+                    hello = bytes([2, 1]) + struct.pack("<H", 0x0101) + bytes(range(8)) + self.cfg
+                    os.write(self.master, coproc_frame(0x81, hello))
+                if typ == 0x03:                       # TX: ref + PSDU
+                    self.tx.append(payload)
+
+    def rx(self, ref, psdu, before=b"", split=None):
+        f = before + coproc_frame(0x82, bytes([ref, 256 - 60, self.cfg[0]]) + psdu)
+        if split:
+            os.write(self.master, f[:split])
+            time.sleep(0.005)   # well inside ESL_COPROC_GAP_US (20 ms)
+            f = f[split:]
+        os.write(self.master, f)
+
+    def hello(self, cfg):
+        os.write(self.master, coproc_frame(0x81, bytes([2, 1]) + struct.pack("<H", 0x0101) + bytes(range(8)) + cfg))
+
+
+def poll_psdu(mac, seq=1, model=1):
+    p = bytearray(18)
+    p[0], p[1] = 0x01, 1
+    struct.pack_into("<HHIBBH", p, 2, 1000, 2950, 0, 0x20, model, 0)
+    return bytes([0x41, 0xC8, seq]) + struct.pack("<HH", 0x4553, 0) + struct.pack("<Q", mac) + bytes(p) + b"\0\0"
+
+
+def test_uart(binary, tmp):
+    radio = FakeRadio()
+    data = os.path.join(tmp, "uart")
+    port = free_port()
+    log = open(os.path.join(tmp, "uart.log"), "ab")
+    p = subprocess.Popen([binary, "--data", data, "--listen", f"127.0.0.1:{port}", "--radio", "uart:" + radio.path,
+                          "--channel", "15", "--token", "t"], stdout=log, stderr=log)
+    try:
+        radio.cfg = bytes([25, 0x53, 0x45, 0, 0, 10, 0])
+        radio.rx(5, poll_psdu(0x00000000FAC70066))      # kept from before the host opened the port
+        radio.cfg = None
+        radio.pump(3)
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/tags", headers={"Authorization": "Bearer t"})
+        listed = [x["mac"] for x in json.load(urllib.request.urlopen(req, timeout=5))["tags"]]
+        check(not radio.tx and "00000000FAC70066" not in listed,
+              "uart: a frame from before the radio is configured is ignored")
+        check(radio.cfg is not None and radio.cfg[0] == 15 and radio.cfg[1:3] == b"\x53\x45",
+              "uart: the radio gets CONFIG with the channel and PAN")
+        mac = 0x00000000FAC70077
+        radio.rx(7, poll_psdu(mac))
+        radio.pump(1)
+        check(len(radio.tx) == 1 and radio.tx[0][0] == 7, "uart: a POLL as RX gets a TX with its ref")
+        reply = radio.tx[0][1:]
+        check(reply[0] == 0x41 and reply[1] == 0x8C and struct.unpack("<Q", reply[5:13])[0] == mac,
+              "uart: the reply is addressed to the tag")
+        check(reply[15] in (0x02, 0x08), "uart: the reply is IDLE or CONFIG")
+
+        radio.rx(8, poll_psdu(mac, seq=2), split=9)
+        radio.pump(1)
+        check(len(radio.tx) == 2 and radio.tx[1][0] == 8, "uart: a frame that comes in two reads")
+        radio.rx(9, poll_psdu(mac, seq=3), before=b"\x00boot noise\xa5\x01\xff")
+        radio.pump(1)
+        check(len(radio.tx) == 3 and radio.tx[2][0] == 9, "uart: a frame after noise and a broken start")
+        n = radio.configs
+        radio.hello(bytes([11]) + radio.cfg[1:])        # restarted with other settings
+        radio.pump(1)
+        check(radio.configs > n, "uart: a HELLO with other settings gets CONFIG again")
+
+        radio.silent = True                              # hangs: answers nothing
+        radio.pump(17)                                   # 15 s to be taken as gone, then the reset
+        with open(os.path.join(tmp, "uart.log")) as lf:
+            check("resetting it" in lf.read(), "uart: a radio that goes silent is reset")
+        radio.silent = False
+
+        os.close(radio.master)                           # unplugged
+        radio.master = None
+        time.sleep(1)
+        check(p.poll() is None, "uart: the radio going away does not stop the program")
+        check(urllib.request.urlopen(f"http://127.0.0.1:{port}/dashboard", timeout=5).status == 200,
+              "uart: and the API still answers")
+    finally:
+        p.send_signal(signal.SIGTERM)
+        rc = p.wait(timeout=10)
+        log.close()
+        if radio.master is not None:
+            os.close(radio.master)
+        os.close(radio.slave)
+    check(rc == 0, "uart: SIGTERM stops it cleanly")
+
+
+# ---- network radios (esl_nlink.h) ----
+
+class FakeNetRadio:
+    """A C6 with ap/netradio/ as the host sees it: HELLO, then SYNCs with a log"""
+
+    def __init__(self, port, rid):
+        self.s = socket.create_connection(("127.0.0.1", port), timeout=5)
+        self.buf = b""
+        self.ack = 0
+        self.boot = rid & 0xFFFFFFFF
+        self.s.sendall(self.frame(0x01, struct.pack("<BIHQHHIBB", 1, self.boot, 1100, rid, 100, 8, 8192, 2, 3)))
+
+    @staticmethod
+    def frame(typ, payload):
+        return struct.pack("<HB", len(payload) + 1, typ) + payload
+
+    def read(self, timeout=5):
+        """The next frame from the host: (type, payload); None when the host closed"""
+        end = time.time() + timeout
+        while True:
+            if len(self.buf) >= 3:
+                n = struct.unpack_from("<H", self.buf)[0]
+                if len(self.buf) >= 2 + n:
+                    typ, p = self.buf[2], self.buf[3:2 + n]
+                    self.buf = self.buf[2 + n:]
+                    return typ, p
+            self.s.settimeout(max(0.05, end - time.time()))
+            try:
+                d = self.s.recv(65536)
+            except (ConnectionResetError, socket.timeout):
+                d = b""
+            if not d:
+                return None
+            self.buf += d
+
+    def config(self):
+        f = self.read()
+        check(f is not None and f[0] == 0x81, "netradio: HELLO is answered with CONFIG")
+        return f[1][0]
+
+    def sync(self, log=(), wants=()):
+        """A SYNC with log (psdus, heard now); the answer's frames up to END"""
+        now = int(time.time() * 1000) & 0x7FFFFFFF
+        w = list(wants)[:8] + [0] * (8 - len(wants))
+        q = struct.pack("<IIIHIBQIB", self.boot, self.ack, now, len(log), 0, 0, 0, 0, 0)
+        q += struct.pack("<8Q", *w) + struct.pack("<HHHB", 0, 100, 8, 0) + b"\0"
+        out = self.frame(0x02, q)
+        for i, psdu in enumerate(log):
+            out += self.frame(0x03, struct.pack("<IIbB", i + 1, now, -50, len(psdu)) + psdu)
+        self.s.sendall(out)
+        frames = []
+        while True:
+            f = self.read()
+            if f is None:
+                check(False, "netradio: a SYNC is answered up to its END")
+            frames.append(f)
+            if f[0] == 0x89:
+                self.ack = struct.unpack_from("<I", f[1])[0]
+                return frames
+
+    def close(self):
+        self.s.close()
+
+
+def tag_states(frames):
+    """mac -> channel of the TAG frames in an answer"""
+    return {struct.unpack_from("<Q", p)[0]: struct.unpack_from("<H", p, 33)[0] for t, p in frames if t == 0x83}
+
+
+def test_netradio(binary, tmp):
+    data = os.path.join(tmp, "net")
+    nport = free_port()
+    ap = Ap(binary, data, token="t", extra=["--channel", "15", "--netradio", f"127.0.0.1:{nport}"])
+    try:
+        r1 = FakeNetRadio(nport, 0x0000AABBCC000001)
+        check(r1.config() == 20, "netradio: the first network radio gets channel 20 (15 is the AP's)")
+        radios = ap.json("GET", "/api/radios")["radios"]
+        check(len(radios) == 2 and radios[0]["radio"] == 0 and radios[0]["via"] == "local"
+              and radios[0]["channel"] == 15, "netradio: the AP's own radio is radio 0 on its channel")
+        check(radios[1]["id"] == "0000AABBCC000001" and radios[1]["channel"] == 20 and radios[1]["connected"]
+              and radios[1]["ip"] == "127.0.0.1", "netradio: the network radio is radio 1, connected")
+
+        mac = 0x00000000FAC70099
+        states = tag_states(r1.sync(log=[poll_psdu(mac)]))
+        check(states.get(mac) == 20, "netradio: a tag it heard is told to it, with its channel")
+        tags = wait_for(ap, "netradio: the tag it heard is listed", lambda t: "00000000FAC70099" in t)
+        check(tags["00000000FAC70099"]["radio"] == 1, "netradio: and served by radio 1")
+        sim = wait_for(ap, "netradio: the simulated tags poll", lambda t: all(m in t for m in TAGS))
+        check(all(sim[m]["radio"] == 0 for m in TAGS), "netradio: the AP's own radio serves the tags it hears")
+
+        r = ap.json("PUT", "/api/tags/00000000FAC70099", {"layout": "price", "fields": ["Milk", "24.90", "NOK"]})
+        images = []
+        for _ in range(5):
+            images += [f for f in r1.sync(wants=[mac]) if f[0] == 0x85]
+            if images:
+                break
+        check(images, "netradio: the image of its tag goes to the radio")
+
+        # a simulated tag heard by radio 1 is its; once the AP's own radio hears it again, it is the AP's
+        sim_mac = int(TAGS[0], 16)
+        r1.sync(log=[poll_psdu(sim_mac)])
+        wait_for(ap, "netradio: a tag the AP's own radio hears after radio 1 goes back to radio 0",
+                 lambda t: t[TAGS[0]]["radio"] == 0)
+
+        r2 = FakeNetRadio(nport, 0x0000AABBCC000002)
+        check(r2.config() == 26, "netradio: the second gets channel 26")
+        r3 = FakeNetRadio(nport, 0x0000AABBCC000003)
+        check(r3.config() == 11, "netradio: the third gets channel 11")
+        r4 = FakeNetRadio(nport, 0x0000AABBCC000004)
+        check(r4.read() is None, "netradio: a fourth network radio is turned away")
+        r4.close()
+
+        check(ap.request("DELETE", "/api/radios/0000AABBCC000002")[0] == 409,
+              "netradio: a connected radio cannot be forgotten")
+        own = ap.json("GET", "/api/radios")["radios"][0]["id"]
+        check(ap.request("DELETE", f"/api/radios/{own}")[0] == 409, "netradio: nor the AP's own radio")
+        r2.close()
+        time.sleep(0.5)
+        check(ap.request("DELETE", "/api/radios/0000AABBCC000002")[0] == 200,
+              "netradio: a radio that is gone can be forgotten")
+        ids = [x["id"] for x in ap.json("GET", "/api/radios")["radios"]]
+        check("0000AABBCC000002" not in ids and len(ids) == 3, "netradio: and is no longer listed")
+        r1.close()
+        r3.close()
+        check(ap.stop() == 0, "netradio: SIGTERM stops it cleanly")
+
+        ap = Ap(binary, data, token="t", extra=["--channel", "15", "--netradio", f"127.0.0.1:{nport}"])
+        radios = {x["id"]: x for x in ap.json("GET", "/api/radios")["radios"]}
+        check(radios.get("0000AABBCC000003", {}).get("channel") == 11 and "0000AABBCC000002" not in radios,
+              "netradio: the places and channels are kept across a restart")
+        r3 = FakeNetRadio(nport, 0x0000AABBCC000003 << 16 | 0x77C8)
+        check(r3.config() == 11, "netradio: a known radio gets its channel back, also by the id older firmware sent")
+        ids = [x["id"] for x in ap.json("GET", "/api/radios")["radios"]]
+        check("AABBCC00000377C8" in ids and "0000AABBCC000003" not in ids, "netradio: and is known by its new id")
+        r5 = FakeNetRadio(nport, 0x0000AABBCC000005)
+        check(r5.config() == 26, "netradio: a new one takes the forgotten place's channel")
+        r3.close()
+        r5.close()
+    finally:
+        rc = ap.stop()
+    check(rc == 0, "netradio: SIGTERM stops it cleanly again")
+
+
+def config_channel(frames):
+    """The channel of the CONFIG in an answer, None when it has none"""
+    return next((p[0] for t, p in frames if t == 0x81), None)
+
+
+def test_netradio_only(binary, tmp):
+    data = os.path.join(tmp, "net-only")
+    nport = free_port()
+    port = free_port()
+    p = subprocess.run([binary, "--data", data, "--listen", f"127.0.0.1:{port}", "--radio", "none"],
+                       capture_output=True, timeout=10)
+    check(p.returncode == 2 and b"--netradio" in p.stderr, "none: --radio none without --netradio is refused")
+
+    extra = ["--channel", "15", "--netradio", f"127.0.0.1:{nport}"]
+    ap = Ap(binary, data, token="t", extra=extra, radio=None)
+    try:
+        status = ap.json("GET", "/api/tags")
+        check(status["tags"] == [], "none: --netradio without --radio has no simulated tags")
+        check(not status["ap"]["radios"], "none: and no radio until one connects")
+        check("replies" not in status["ap"], "none: nor the own radio's replies")
+        check(ap.request("DELETE", "/api/radios/" + "00" * 7 + "01")[0] == 404,
+              "none: there is no own radio to refuse to forget")
+
+        r0 = FakeNetRadio(nport, 0x0000AABBCC000010)
+        check(r0.config() == 15, "none: the first network radio is on the AP's channel")
+        radios = ap.json("GET", "/api/radios")["radios"]
+        check(len(radios) == 1 and radios[0]["radio"] == 0 and radios[0]["id"] == "0000AABBCC000010"
+              and radios[0]["channel"] == 15 and radios[0]["via"] == "wifi" and radios[0]["connected"],
+              "none: it is radio 0, over WiFi")
+        check(all(r["via"] != "local" for r in radios), "none: no local radio is listed")
+
+        # the AP moves to another channel: radio 0 gets it with its next answer
+        r = ap.json("PUT", "/api/config", {"channel": 24})
+        check(r.get("channel_next") in (24, None), "none: the AP can be moved to another channel")
+        moved = None
+        for _ in range(30):
+            moved = config_channel(r0.sync()) or moved
+            if moved:
+                break
+            time.sleep(0.2)
+        check(moved == 24, "none: radio 0 follows the AP's move")
+        radios = ap.json("GET", "/api/radios")["radios"]
+        check(radios[0]["channel"] == 24, "none: and is listed on the new channel")
+
+        r1 = FakeNetRadio(nport, 0x0000AABBCC000011)
+        check(r1.config() == 15, "none: the second network radio gets a channel of its own (15, free since the move)")
+        mac = 0x00000000FAC70077
+        r0.sync(log=[poll_psdu(mac)])
+        tags = wait_for(ap, "none: a tag radio 0 heard is listed", lambda t: "00000000FAC70077" in t)
+        check(tags["00000000FAC70077"]["radio"] == 0, "none: and served by radio 0")
+        r1.sync(log=[poll_psdu(mac, seq=2)])
+        wait_for(ap, "none: a tag radio 1 hears after radio 0 is served by radio 1",
+                 lambda t: t["00000000FAC70077"]["radio"] == 1)
+
+        r2 = FakeNetRadio(nport, 0x0000AABBCC000012)
+        r3 = FakeNetRadio(nport, 0x0000AABBCC000013)
+        check(r2.config() == 20 and r3.config() == 26, "none: four network radios in all")
+        r4 = FakeNetRadio(nport, 0x0000AABBCC000014)
+        check(r4.read() is None, "none: a fifth is turned away")
+        r4.close()
+        st = ap.request("DELETE", "/api/radios/0000AABBCC000010")
+        check(st[0] == 409,
+              "none: radio 0 cannot be forgotten while it is connected")
+        for x in (r0, r2, r3):
+            x.close()
+        time.sleep(0.5)
+        for rid in ("10", "12", "13"):
+            check(ap.request("DELETE", f"/api/radios/0000AABBCC0000{rid}")[0] == 200,
+                  f"none: radio ...{rid}, gone, is forgotten")
+        r1.close()
+        time.sleep(0.5)
+        check(ap.stop() == 0, "none: SIGTERM stops it cleanly")
+
+        ap = Ap(binary, data, token="t", extra=extra, radio="none")
+        radios = ap.json("GET", "/api/radios")["radios"]
+        check([(x["radio"], x["id"]) for x in radios] == [(1, "0000AABBCC000011")],
+              "none: the places are kept across a restart")
+        r1 = FakeNetRadio(nport, 0x0000AABBCC000011)
+        check(r1.config() == 24, "none: the only radio left moves to place 0, on the AP's channel")
+        radios = ap.json("GET", "/api/radios")["radios"]
+        check([(x["radio"], x["channel"]) for x in radios] == [(0, 24)], "none: and is listed there")
+        r1.close()
+    finally:
+        rc = ap.stop()
+    check(rc == 0, "none: SIGTERM stops it cleanly again")
+
+    # without --radio and --netradio: simulated tags, as before
+    ap = Ap(binary, os.path.join(tmp, "default"), token="t", radio=None)
+    try:
+        wait_for(ap, "the default radio without --netradio is sim", lambda t: all(m in t for m in TAGS))
+    finally:
+        ap.stop()
+
+
+def check(ok, what):
+    if not ok:
+        print(f"FAIL: {what}")
+        sys.exit(1)
+    print(f"ok   {what}")
+
+
+def wait_for(ap, what, cond, timeout=10):
+    end = time.time() + timeout
+    while time.time() < end:
+        tags = {t["mac"]: t for t in ap.json("GET", "/api/tags")["tags"]}
+        if cond(tags):
+            return tags
+        time.sleep(0.1)
+    check(False, what)
+
+
+def api_call(port, method, path, body=None, token="tok", timeout=15):
+    req = urllib.request.Request(f"http://127.0.0.1:{port}{path}", data=body, method=method)
+    if token:
+        req.add_header("Authorization", f"Bearer {token}")
+    if body is not None:
+        req.add_header("Content-Type", "application/octet-stream")
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.status, json.loads(r.read() or b"null")
+    except urllib.error.HTTPError as e:
+        raw = e.read()
+        try:
+            return e.code, json.loads(raw)
+        except ValueError:
+            return e.code, raw
+    except (urllib.error.URLError, ConnectionError, socket.timeout):
+        return None, None
+
+
+def version_of(binary):
+    return subprocess.run([binary, "--version"], capture_output=True, text=True).stdout.split()[1]
+
+
+def patched(binary, out, version=None, broken=False):
+    """A copy of binary that says it is another version (same length, so every copy of the string is
+    replaced), and with broken=True answers --version but cannot start (its radio "sim" is gone)"""
+    data = open(binary, "rb").read()
+    if version:
+        old = version_of(binary).encode()
+        new = (b"9" if old[:1] != b"9" else b"8") + old[1:]
+        data = data.replace(old, new)
+    if broken:
+        data = data.replace(b"sim\0", b"zzz\0")
+    with open(out, "wb") as f:
+        f.write(data)
+    os.chmod(out, 0o755)
+    return out
+
+
+class Guarded:
+    """openesl-ap started by openesl-ap-run, as the service does, from its own folder"""
+
+    def __init__(self, binary, folder, env):
+        os.makedirs(folder, exist_ok=True)
+        self.bin = os.path.join(folder, "openesl-ap")
+        shutil.copy(binary, self.bin)
+        self.port = free_port()
+        script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "openesl-ap-run")
+        self.log = open(os.path.join(folder, "run.log"), "ab")
+        self.p = subprocess.Popen([script, self.bin, "--data", os.path.join(folder, "data"), "--listen",
+                                   f"127.0.0.1:{self.port}", "--radio", SIM, "--token", "tok"],
+                                  stdout=self.log, stderr=self.log, env={**os.environ, **env})
+        self.wait_up()
+
+    def wait_up(self, version=None, timeout=20):
+        end = time.time() + timeout
+        while time.time() < end:
+            st, o = api_call(self.port, "GET", "/api/ota")
+            if st == 200 and (version is None or o["version"] == version):
+                return o
+            time.sleep(0.2)
+        check(False, f"openesl-ap is up (version {version})")
+
+    def ota(self, body, query=""):
+        return api_call(self.port, "POST", "/api/ota" + query, body)
+
+    def stop(self):
+        self.p.send_signal(signal.SIGTERM)
+        try:
+            return self.p.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            self.p.kill()
+            return None
+
+
+def test_update(binary, tmp):
+    """POST /api/ota with openesl-ap-run: the swap, the refusals and both ways back (#467)"""
+    old = version_of(binary)
+    new_bin = patched(binary, os.path.join(tmp, "new"), version=True)
+    new = version_of(new_bin)
+    check(new != old, f"a test binary with another version ({old} -> {new})")
+    with open(binary, "rb") as f:
+        same = f.read()
+
+    # without openesl-ap-run nothing could bring the old one back: refused
+    d = os.path.join(tmp, "upd-unguarded")
+    os.makedirs(d)
+    ap = Ap(binary, os.path.join(d, "data"), token="tok")
+    st, o = api_call(ap.port, "GET", "/api/ota")
+    check(st == 200 and o["self_update"] is False and o["self_update_blocked"] == "unguarded" and o["version"] == old,
+          "GET /api/ota says it cannot update itself without openesl-ap-run")
+    st, o = api_call(ap.port, "POST", "/api/ota", open(new_bin, "rb").read())
+    check(st == 501, f"POST /api/ota without openesl-ap-run is 501 ({st})")
+    check(ap.stop() == 0, "and it keeps running and stops cleanly")
+
+    # the way forward
+    f = os.path.join(tmp, "upd-ok")
+    g = Guarded(binary, f, {"OPENESL_CONFIRM_S": "2", "OPENESL_TRIAL_S": "30"})
+    o = g.wait_up(old)
+    check(o["self_update"] is True and o["confirmed"] is True and o["other_slot"] is None, f"running {old}, confirmed")
+    check(api_call(g.port, "POST", "/api/ota", b"x", token="wrong")[0] == 401, "a wrong token is 401")
+    check(g.ota(b"")[0] == 422, "an empty body is refused")
+    st, o = g.ota(b"#!/bin/sh\necho hi\n" + b"x" * 100)
+    check(st == 422, f"a script is refused ({st})")
+    flipped = bytearray(open(new_bin, "rb").read())
+    flipped[18] ^= 0xFF  # e_machine of another architecture
+    st, o = g.ota(bytes(flipped))
+    check(st == 422 and "machine" in o["error"], f"an ELF for another architecture is refused ({st} {o})")
+    st, o = g.ota(same)
+    check(st == 409 and "not newer" in o["error"], f"the running version again is refused ({st} {o})")
+    check(not os.path.exists(g.bin + ".new") and not os.path.exists(g.bin + ".prev"),
+          "refused files leave nothing behind")
+    st, o = g.ota(open(new_bin, "rb").read())
+    check(st == 200 and o["version"] == new and o["previous"] == old and o["restarting"], f"update accepted ({st} {o})")
+    o = g.wait_up(new)
+    check(o["other_slot"] == "prev" and o["other_version"] == old, f"the old one is kept as .prev ({o})")
+    end = time.time() + 15
+    while time.time() < end and not api_call(g.port, "GET", "/api/ota")[1]["confirmed"]:
+        time.sleep(0.3)
+    check(api_call(g.port, "GET", "/api/ota")[1]["confirmed"] and not os.path.exists(g.bin + ".trial"),
+          "the new version confirms itself and the trial marker is gone")
+    check(version_of(g.bin) == new and version_of(g.bin + ".prev") == old, "the files on disk are the two versions")
+    st, o = g.ota(same)
+    check(st == 409, "a downgrade is refused")
+    st, o = g.ota(same, "?force=1")
+    check(st == 200 and o["version"] == old, f"?force=1 installs an older one ({st} {o})")
+    g.wait_up(old)
+    check(g.stop() == 0, "openesl-ap-run stops with the program")
+
+    # a new version that cannot start is replaced by the old one
+    f = os.path.join(tmp, "upd-crash")
+    g = Guarded(binary, f, {"OPENESL_CONFIRM_S": "2", "OPENESL_TRIAL_S": "30"})
+    g.wait_up(old)
+    bad = patched(binary, os.path.join(tmp, "bad"), version=True, broken=True)
+    st, o = g.ota(open(bad, "rb").read())
+    check(st == 200, f"a program that runs --version is accepted ({st} {o})")
+    end = time.time() + 30  # the markers go once the old version is back; before that GET still answers as it
+    while time.time() < end and os.path.exists(g.bin + ".trial"):
+        time.sleep(0.2)
+    o = g.wait_up(old, timeout=30)
+    check(version_of(g.bin) == old and not os.path.exists(g.bin + ".prev") and not os.path.exists(g.bin + ".trial"),
+          "it died on start, so the old version is back and the markers are gone")
+    check(o["confirmed"] is True, "and the old one runs as confirmed")
+    check(b"did not start" in open(os.path.join(f, "run.log"), "rb").read(), "the script says why")
+    st, o = g.ota(open(new_bin, "rb").read())
+    check(st == 200, "a good update goes through afterwards")
+    g.wait_up(new)
+    check(g.stop() == 0, "stops cleanly")
+
+    # a new version that runs but does not confirm in time is replaced as well
+    f = os.path.join(tmp, "upd-hang")
+    g = Guarded(binary, f, {"OPENESL_CONFIRM_S": "1000", "OPENESL_TRIAL_S": "4"})
+    g.wait_up(old)
+    st, o = g.ota(open(new_bin, "rb").read())
+    check(st == 200, "update accepted")
+    o = g.wait_up(new, timeout=10)
+    check(o["confirmed"] is False, "the new version waits to be confirmed")
+    st, o2 = g.ota(same, "?force=1")
+    check(st == 409, f"no second update while one is on trial ({st})")
+    g.wait_up(old, timeout=30)
+    check(version_of(g.bin) == old and not os.path.exists(g.bin + ".trial"), "it did not confirm in time: the old one is back")
+    check(g.stop() == 0, "stops cleanly")
+
+
+def main():
+    if len(sys.argv) != 2:
+        raise SystemExit(__doc__)
+    binary = os.path.abspath(sys.argv[1])
+    tmp = tempfile.mkdtemp(prefix="openesl-ap-test-")
+    data = os.path.join(tmp, "data")
+    try:
+        # first start: the token is made and kept in the data directory
+        ap = Ap(binary, data)
+        token_file = os.path.join(data, "token")
+        check(os.path.exists(token_file), "a token is made at the first start")
+        ap.token = open(token_file).read().strip()
+        check(ap.request("GET", "/api/tags", auth=False)[0] == 401, "the API wants the token")
+        status, _ = ap.request("GET", "/", auth=False)
+        check(status in (200, 302), "/ answers")
+        status, page = ap.request("GET", "/dashboard", auth=False)
+        check(status == 200, "the dashboard is served")
+        check(b"/setup" not in page, "the page has no link to /setup, which this AP does not serve")
+
+        tags = wait_for(ap, "both simulated tags poll", lambda t: all(m in t for m in TAGS))
+        check(tags[TAGS[0]]["model"] == "2.9" and tags[TAGS[1]]["model"] == "1.54", "the models are read from POLL")
+
+        ids = {}
+        for mac, price in zip(TAGS, ("24.90", "9.90")):
+            r = ap.json("PUT", f"/api/tags/{mac}", {"layout": "price", "fields": ["Milk 1 L", price, "NOK"]})
+            check(r["changed"] and r["pending"], f"{mac}: content accepted")
+            ids[mac] = r["content_id"]
+        wait_for(ap, "both tags fetch their image and report it",
+                 lambda t: all(t[m]["shown_content_id"] == ids[m] and not t[m]["pending"] for m in TAGS))
+        # a batch is a job (#421): it ends once both tags show the new content
+        r = ap.json("PUT", "/api/tags", {"timeout_s": 60, "tags": [
+            {"mac": mac, "layout": "price", "fields": ["Milk 1 L", price, "NOK"]}
+            for mac, price in zip(TAGS, ("19.90", "8.90"))]})
+        job = r.get("job")
+        check(isinstance(job, int) and job > 0, f"a batch gets a job number ({job})")
+        end = time.time() + 10
+        while time.time() < end:
+            j = ap.json("GET", f"/api/jobs/{job}")
+            if j["state"] == "done":
+                break
+            time.sleep(0.1)
+        check(j["state"] == "done" and j["counts"]["delivered"] == 2
+              and [t["state"] for t in j["tags"]] == ["delivered", "delivered"], "the job ends with both delivered")
+        check(any(x["job"] == job for x in ap.json("GET", "/api/jobs")["jobs"]), "GET /api/jobs lists it")
+        ids = {t["mac"]: t["content_id"] for t in j["tags"]}
+        ap_id = ap.json("GET", "/api/config").get("ap_id")
+        check(isinstance(ap_id, str) and len(ap_id) == 8, f"the AP has an id ({ap_id})")
+        check(ap.stop() == 0, "SIGTERM stops it cleanly")
+
+        # restart on the same data: content, AP id and token kept
+        ap = Ap(binary, data, token=None)
+        ap.token = open(token_file).read().strip()
+        tags = wait_for(ap, "the tags are known after a restart", lambda t: all(m in t for m in TAGS))
+        check(all(tags[m]["content_id"] == ids[m] for m in TAGS), "the content survives a restart")
+        check(ap.json("GET", "/api/config").get("ap_id") == ap_id, "the AP id survives a restart")
+        wait_for(ap, "the restarted simulated tags get their image again",
+                 lambda t: all(t[m]["shown_content_id"] == ids[m] for m in TAGS))
+        r = ap.request("DELETE", f"/api/tags/{TAGS[1]}")
+        check(r[0] < 300, "a tag can be deleted")
+        status, raw = ap.request("GET", f"/api/tags/{TAGS[1]}")
+        check(status == 404 or json.loads(raw).get("content_id") in (0, None), "a deleted tag's content is gone")
+
+        # the HTTP server's limits
+        check(raw_request(ap.port, b"PUT /api/tags/x HTTP/1.1\r\nContent-Length: 12abc\r\n\r\n") == 400,
+              "a Content-Length that is not a number gets 400")
+        check(raw_request(ap.port, b"PUT /api/tags/x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n0\r\n\r\n") == 411,
+              "a chunked body gets 411")
+        check(raw_request(ap.port, b"GET /api/" + b"x" * 600 + b" HTTP/1.1\r\n\r\n") == 414, "a long URI gets 414")
+        check(raw_request(ap.port, b"GET / HTTP/1.1\r\nX: " + b"x" * 9000 + b"\r\n\r\n") in (431, None),
+              "a head over 8 KB is refused")
+        idle = [socket.create_connection(("127.0.0.1", ap.port)) for _ in range(40)]
+        status = raw_request(ap.port, b"GET /dashboard HTTP/1.1\r\n\r\n")
+        for s_ in idle:
+            s_.close()
+        check(status == 503, "more than 32 connections at once get 503")
+        time.sleep(0.3)
+        check(ap.request("GET", "/dashboard", auth=False)[0] == 200, "it serves again once they close")
+        check(ap.stop() == 0, "SIGTERM stops it cleanly again")
+
+        # the stored channel: a forced move that was waiting comes back with its flag, a channel
+        # out of range is dropped (as store_nvs.c)
+        with open(os.path.join(data, "channel"), "wb") as f:
+            f.write(bytes([0, 0x80 | 15]))
+        ap = Ap(binary, data)
+        ap.token = open(token_file).read().strip()
+        cfg = ap.json("GET", "/api/config")
+        check(cfg.get("channel") == 25 and cfg.get("channel_next") == 15, "a waiting forced channel move is kept")
+        check(ap.stop() == 0, "SIGTERM stops it")
+        with open(os.path.join(data, "channel"), "wb") as f:
+            f.write(bytes([99, 0x80 | 99]))
+        ap = Ap(binary, data)
+        ap.token = open(token_file).read().strip()
+        cfg = ap.json("GET", "/api/config")
+        check(cfg.get("channel") == 25 and cfg.get("channel_next") is None, "a bad stored channel is dropped")
+        check(ap.stop() == 0, "SIGTERM stops it")
+        os.remove(os.path.join(data, "channel"))
+
+        # an AP id file that exists but cannot be read whole is not replaced: no id this start
+        id_file = os.path.join(data, "ap_id")
+        with open(id_file, "r+b") as f:
+            f.truncate(3)
+        ap = Ap(binary, data)
+        ap.token = open(token_file).read().strip()
+        check(ap.json("GET", "/api/config").get("ap_id") is None, "a cut ap_id file gives no AP id")
+        check(os.path.getsize(id_file) == 3, "and is left as it is")
+        check(ap.stop() == 0, "SIGTERM stops it cleanly a third time")
+
+        test_uart(binary, tmp)
+        test_netradio(binary, tmp)
+        test_netradio_only(binary, tmp)
+        test_update(binary, tmp)
+    finally:
+        log = os.path.join(tmp, "ap.log")
+        if os.path.exists(log) and os.environ.get("OPENESL_AP_TEST_LOG"):
+            print(open(log).read())
+        shutil.rmtree(tmp, ignore_errors=True)
+    print("all openesl-ap tests passed")
+
+
+if __name__ == "__main__":
+    main()

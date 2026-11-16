@@ -22,6 +22,19 @@ static uint8_t map_codepoint(uint32_t cp)
         return '"';
     case 0x2022:
         return 0xB7; /* bullet -> middle dot */
+    /* windows-1252 letters the tag font lacks (it has Latin-1 only) */
+    case 0x0160: return 'S';
+    case 0x0161: return 's';
+    case 0x017D: return 'Z';
+    case 0x017E: return 'z';
+    case 0x0178: return 'Y';
+    case 0x0192: return 'f';
+    case 0x2039: return '<';
+    case 0x203A: return '>';
+    case 0x02C6: return '^';
+    case 0x02DC: return '~';
+    case 0x2020: return '+';
+    case 0x2030: return '%'; /* per mille */
     default:
         return '?';
     }
@@ -31,10 +44,23 @@ static uint8_t map_codepoint(uint32_t cp)
  * to out (at most 3), or 0 if cp is not one of them. */
 static size_t expand_codepoint(uint32_t cp, uint8_t out[3])
 {
-    if (cp == 0x2026) { /* horizontal ellipsis -> "..." */
-        out[0] = out[1] = out[2] = '.';
-        return 3;
-    }
+    static const struct {
+        uint16_t cp;
+        char s[4];
+    } many[] = {
+        {0x2026, "..."}, /* horizontal ellipsis */
+        {0x20AC, "EUR"}, /* the tag font has no euro sign */
+        {0x2122, "TM"},
+        {0x0152, "OE"},
+        {0x0153, "oe"},
+        {0x2021, "++"},
+    };
+    for (size_t i = 0; i < sizeof(many) / sizeof(many[0]); i++)
+        if (many[i].cp == cp) {
+            size_t n = strlen(many[i].s);
+            memcpy(out, many[i].s, n);
+            return n;
+        }
     return 0;
 }
 
@@ -109,6 +135,11 @@ size_t esl_utf8_to_latin1(const char *in, size_t in_len, uint8_t *out, size_t ou
     }
     return o;
 }
+
+static volatile bool num_point; /* esl_number_set_point */
+
+void esl_number_set_point(bool point) { num_point = point; }
+bool esl_number_point(void) { return num_point; }
 
 #define NUM_INT_MAX  12 /* digits before the decimal sign */
 #define NUM_FRAC_MAX 6  /* and after it: 10^18 still fits in 64 bits */
@@ -193,6 +224,9 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
         dash = mode == ESL_LE_NUM_0_DASH;
     }
 
+    /* a space between thousands either way: a comma would be 1-4 px wider in every font,
+       so content checked to fit with the comma could no longer fit after a change of lang */
+    const uint8_t dsign = num_point ? '.' : ',';
     char digits[24];
     uint64_t whole = v / p, frac = v % p;
     unsigned nw = 0;
@@ -210,14 +244,14 @@ size_t esl_format_number(const uint8_t *in, size_t len, uint8_t opts, uint8_t *o
             out[n++] = ' ';
     }
     if (nd) {
-        out[n++] = ',';
+        out[n++] = dsign;
         for (i = nd; i-- > 0;) {
             out[n + i] = (uint8_t)('0' + frac % 10);
             frac /= 10;
         }
         n += nd;
     } else if (dash) {
-        out[n++] = ',';
+        out[n++] = dsign;
         out[n++] = '-';
     }
     return n;

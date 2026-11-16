@@ -19,7 +19,7 @@ python3 esl_client.py show 00000123456789A8
 ```
 
 - `--wait` waits until the label reports that it shows the new content.
-- `date` sends today's date in Norwegian with up to two lines of your own. With `--days 7`, the next days are scheduled on the AP, so the label changes date at midnight by itself.
+- `date` sends today's date with up to two lines of your own, in the AP's date language (Settings; from AP firmware 0.11.0), else this computer's (Norwegian or English). With `--days 7`, the next days are scheduled on the AP, so the label changes date at midnight by itself.
 
 ## Price lists and schedules
 
@@ -32,9 +32,11 @@ python3 esl_client.py show 00000123456789A8
 | `health` | Labels that need attention; exits 1 if there are any |
 | `config --poll-s 60` / `config --webhook URL` | Default poll interval / health webhook |
 | `config --tz "CET-1CEST,M3.5.0,M10.5.0/3"` / `config --ntp HOST` | The AP's time zone / NTP server |
+| `config --lang nb` | The language of dates on labels: `en` or `nb` (AP 0.11.0 or newer). `date` writes in it too |
+| `config --night 22:00-06:00/1800` / `config --update-window 06:00-08:00` | Night mode / update window, `off` ends either ([Access point settings](Access-point-settings)) (AP 0.11.0 or newer) |
 | `layouts`, `layout-put 2.9 FILE` | List or upload layout files |
 | `ota FILE --wait` | New AP firmware, or the C6 radio's on an S3 + C6 ([Updating the AP](Updating-the-access-point)) |
-| `tag-ota FILE` | New label firmware ([Updating labels](Updating-labels)) |
+| `tag-ota FILE --to MAC` | New label firmware, to one label first; `--all` for every label of the model ([Updating labels](Updating-labels)) |
 | `backup FILE`, `restore FILE` | [Backup and restore](Backup-and-restore) |
 | `log week.csv`, `report week.csv` | Long-term test: a row per label per minute, then a summary |
 | `mac 020663461013` | A label's MAC from the number under its barcode |

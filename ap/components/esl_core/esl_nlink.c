@@ -258,6 +258,8 @@ bool esl_nlink_radio_on(esl_nlink_radio_t *r, uint8_t type, const uint8_t *p, si
         }
         if (g.at + 2 <= g.n) /* the channel (#256); an older host's TAG ends before it: the default channel */
             s.cfg.channel = get16(&g);
+        if (g.at + 4 <= g.n) /* the AP id (#390); an older host sends none: 0 */
+            s.cfg.ap_id = get32(&g);
         if (g.bad)
             return false;
         esl_rcache_set_tag(rc, &s); /* no room: the host sends it again (it asks, ack) */
@@ -343,7 +345,9 @@ static void host_clear(void *ctx)
 static bool host_tag(void *ctx, const esl_rtag_state_t *s)
 {
     esl_nlink_host_t *n = ctx;
-    uint8_t b[40];
+    /* 39 bytes now. Room to spare: a field added later that did not fit would fail send_buf,
+       which marks the link broken, so the radio would reconnect over and over */
+    uint8_t b[64];
     wbuf_t w = {b, 0, sizeof(b)};
     put64(&w, s->mac);
     put16(&w, s->next_poll_s);
@@ -358,6 +362,7 @@ static bool host_tag(void *ctx, const esl_rtag_state_t *s)
     put16(&w, s->cfg.long_poll_s);
     put16(&w, s->cfg.long_after_min);
     put16(&w, s->cfg.channel);
+    put32(&w, s->cfg.ap_id);
     /* sent is not refused: whether the radio had room shows in its next SYNC */
     return out_ok(n, send_buf(n->write, n->wctx, ESL_NLINK_TAG, &w));
 }
@@ -510,6 +515,11 @@ static bool parse_sync(rbuf_t *g, esl_rsync_t *q)
         }
     }
     return !g->bad;
+}
+
+bool esl_nlink_same_radio(uint64_t stored, uint64_t id)
+{
+    return stored && (stored == id || stored == id >> 16);
 }
 
 bool esl_nlink_host_on(esl_nlink_host_t *n, uint8_t type, const uint8_t *p, size_t len)

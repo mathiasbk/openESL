@@ -3,7 +3,7 @@
  *
  * Register facts are from Dmitry Grinberg's ZBS243 reverse engineering, as used in
  * atc1441's ZBS_Flasher examples and the OpenEPaperLink tag firmware (see zbs243.h
- * and docs/kildelogg.md). The code itself is written for this project.
+ * and docs/sources.md). The code itself is written for this project.
  *
  * No interrupts are used: the delay polls timer 0, the UART polls its TX flag, and
  * the temperature sensor's "done" flag is polled.
@@ -240,7 +240,7 @@ void hal_mac_read(uint8_t *mac8)
     /*
      * The MAC is at info page 0x10-0x17, least significant byte first, which is
      * the air order. ZBS_Flasher's "mac -m" writes it there; checked against
-     * the flasher's MAC backups (kildelogg 2026-10-14).
+     * the flasher's MAC backups (docs/sources.md 2026-10-14).
      */
     static __xdata uint8_t buf[8];
     uint8_t i;
@@ -278,7 +278,7 @@ static void epd_byte(uint8_t b)
  * wakes it (hal_xflash_open), and hal_xflash_close puts it back (the display
  * traffic keeps its nCS high, and the chip stays powered through the ZBS243's
  * sleep). Whole-byte writes to P1,
- * since reading a port back does not give the written levels (kildelogg.md);
+ * since reading a port back does not give the written levels (sources.md);
  * the levels are those gpio_init() set, with P1.1 low in between.
  */
 static void eeprom_sleep(void)
@@ -336,7 +336,16 @@ static uint16_t measure_battery_mv(void)
     P2_0 = 0;                        /* hardware reset */
     hal_delay_ms(1);
     P2_0 = 1;
-    hal_delay_ms(1);
+    hal_delay_ms(10);                /* as epd.c hw_reset() */
+    /*
+     * An SSD-type controller drops BUSY once out of reset. A UC-type one (UC8151 family,
+     * on some boards, see epd.c) holds it high when idle and has no such detector: it
+     * goes back to deep sleep (0x07 0xA5), and the voltage is unknown.
+     */
+    if (!epd_wait(100)) {
+        mv = 0;
+        goto sleep;
+    }
     epd_cmd1(0x12, -1);              /* soft reset */
     epd_wait(30);
     epd_cmd1(0x22, 0xC0);            /* clock and analog on */
@@ -357,7 +366,11 @@ static uint16_t measure_battery_mv(void)
     }
     epd_cmd1(0x13, -1);
     epd_wait(15);
-    epd_cmd1(0x10, 0x03);            /* deep sleep */
+sleep:
+    /* Deep sleep for either controller: SSD-type 0x10, then UC-type 0x07 0xA5 (ignored by an
+       SSD-type controller that is already asleep) */
+    epd_cmd1(0x10, 0x03);
+    epd_cmd1(0x07, 0xA5);
     return mv;
 }
 

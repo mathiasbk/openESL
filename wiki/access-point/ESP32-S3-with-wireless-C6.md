@@ -1,6 +1,6 @@
 # ESP32-S3 with a wireless C6 radio
 
-**Status:** experimental, and **not secure yet**. It has run on one S3 and one C6 with two labels, and new prices reached both screens, but it is not in a release. The link between the two chips has no password yet: any device on your network could pretend to be the radio or the AP. Use it only on a network you trust until that is done.
+**Status:** experimental, and **not secure yet**. It has run on one S3 and one C6 with two labels, and new prices reached both screens. It is in every release since 0.6.0, and since 0.10.0 one S3 can have up to four wireless C6 radios (not tried on hardware with several yet). The link between the two chips has no password yet: any device on your network could pretend to be the radio or the AP. Use it only on a network you trust until that is done.
 
 A separate setup from the [ESP32-S3 + C6](ESP32-S3-and-C6) on a cable: the ESP32-S3 runs the AP, and the ESP32-C6 that talks to the labels sits somewhere else on the same WiFi network, each on its own USB charger, with no wire between them. Useful when the labels are in a room the S3 cannot be in. The S3 can fetch the [weather](Weather) for labels by itself, as on a cable.
 
@@ -22,7 +22,7 @@ These come from measurements on a C6, not guesses.
 - **New labels and new images cost a little battery.** Until the radio has what a label needs, it tells the label to come back in 5 s, at most 3 times in a row.
 - **If WiFi or the S3 goes down,** the labels keep showing what they have and get nothing new. After a long outage the dashboard misses some battery readings.
 - **No password on the link yet** (see Status).
-- **Two chips to update:** the S3 over the air as usual, the radio separately.
+- **Two chips to update:** the S3 over the air as usual, the radio separately. Keep them on the same version: with a radio from before 0.11.0 the AP's own labels show settings pending, and it answers the labels of other APs as well, and the [health report](Health-and-webhook#labels-of-other-aps) lists it under `old_radios` until it is updated.
 
 ## Setting it up
 
@@ -31,10 +31,12 @@ On the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, pick **S3 + C6 o
 By hand instead:
 
 1. Flash the S3 with the `s3-n16r8-netradio` firmware, as any AP.
-2. Flash the C6 with the radio firmware (`openesl-ap-netradio-c6`).
+2. Flash the C6 with the radio firmware (`openesl-ap-netradio-esp32c6-<version>.bin` from a release).
 3. Open the C6's USB port in a serial terminal and type `ssid <your network>`, `pass <password>` and `reboot`. It finds the S3 on its own; if not, type `host <the S3's address>` (it still looks for the S3 by itself if that address stops answering). `status` shows how it is doing.
 
 The dashboard's AP facts show the radio as **Radio (C6)**: its address and when it was last heard, or how long it has not been connected. After 30 seconds without it the dashboard shows a red line at the top, and the [health report and webhook](Health-and-webhook#lost-radio) say `radio_lost`. The address comes from the connection, so there is nothing to set for it on the AP. Settings for the radio on the dashboard are not there yet.
+
+The same radios also work beside the [Linux AP](Linux-AP)'s own radio.
 
 The details: [docs/ap-netradio.md](https://github.com/mathiasbk/openESL/blob/master/docs/ap-netradio.md#setting-it-up).
 

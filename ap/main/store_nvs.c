@@ -10,9 +10,12 @@
 #include "esp_timer.h"
 #include "sdkconfig.h"
 #include "nvs.h"
+#include "esp_random.h"
+#include "esp_mac.h"
+#include "esl_crc32.h"
 
 /* Content per tag lives in NVS namespace "esl_tags", one blob per table slot
- * (key "t<slot>"), so a tag keeps its slot across reboots (krav A4, G4). A
+ * (key "t<slot>"), so a tag keeps its slot across reboots (requirements A4, G4 in docs/requirements.md). A
  * tag's own settings (poll_s etc.) are a second blob in the same slot (key
  * "c<slot>"), and the run-time default interval is "poll_s" (u16) in namespace
  * "cfg", next to ssid/pass/token; without it the menuconfig value is used.
@@ -246,6 +249,25 @@ static void persist_next_poll(void *ctx, const uint16_t *next_poll_s)
         ESP_LOGE(TAG, "saving cfg/poll_s failed: %s", esp_err_to_name(err));
 }
 
+/* cfg/hours: night mode and update window (#415, esl_hours_encode); none = both off */
+static void persist_hours(void *ctx, const esl_hours_t *hours)
+{
+    (void)ctx;
+    nvs_handle_t h;
+    uint8_t blob[ESL_HOURS_LEN];
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = hours ? nvs_set_blob(h, "hours", blob, esl_hours_encode(hours, blob)) : nvs_erase_key(h, "hours");
+        if (err == ESP_ERR_NVS_NOT_FOUND)
+            err = ESP_OK;
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "saving cfg/hours failed: %s", esp_err_to_name(err));
+}
+
 /* cfg/channel is the radio's channel (none = menuconfig's), cfg/ch_next a move announced
    to the tags (esl_store_restore_channel announces it again after a restart) */
 static esp_err_t set_or_erase_u8(nvs_handle_t h, const char *key, uint8_t v)
@@ -294,11 +316,231 @@ static uint32_t unix_now(void *ctx)
     return clock_ref ? esl_sched_now(clock_ref, (uint64_t)esp_timer_get_time() / 1000, NULL) : 0;
 }
 
+/* ---- The AP id (#390, docs/protocol.md "AP id") ----
+ *
+ * cfg/ap_id is made once, at random, the first time this firmware starts, and sent to the
+ * tags in CONFIG. A tag that has it is then answered only by this AP (and by one that adopts
+ * this id, or by any AP once it has been lost for a week).
+ * An AP that makes its id with an empty tag table (new, or NVS erased) adopts every tag that
+ * has been lost for an hour, for ADOPT_AUTO_S: its old tags carry the id it had before.
+ * cfg/adopt_end is when that ends (unix s), 1 = it starts when the clock is known. */
+#define ADOPT_AUTO_S ((uint32_t)ESL_API_ADOPT_DAYS * 24 * 3600)
+/* cfg/adopt_end mirrored, 0 = no adopt; cfg/adopt_id is the id adopted, none = every id.
+ * cfg/prev_id is the AP's own id before the last change (a restore, PUT "ap_id"), answered for
+ * ADOPT_AUTO_S too: cfg/prev_end, as adopt_end. Both ends are unix s; 1 = the days start once
+ * the clock is known. With no clock at all, the uptime since it was set counts instead (a
+ * restart starts the days over). */
+static esl_apid_cfg_t apid_cfg;
+static SemaphoreHandle_t apid_mutex; /* the HTTP task (PUT) and seen_task (the ends) */
+static uint32_t prev_end;
+static uint64_t adopt_from_us, prev_from_us; /* uptime when set, for the no-clock fallback */
+
+static esp_err_t set_or_erase_u32(nvs_handle_t h, const char *key, uint32_t v)
+{
+    esp_err_t err = v ? nvs_set_u32(h, key, v) : nvs_erase_key(h, key);
+    return err == ESP_ERR_NVS_NOT_FOUND ? ESP_OK : err;
+}
+
+/* the id first: a power cut between the two writes leaves the narrower of the two adopts */
+static void adopt_save(uint32_t end, uint32_t id)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = set_or_erase_u32(h, "adopt_id", end ? id : 0);
+        if (err == ESP_OK)
+            err = set_or_erase_u32(h, "adopt_end", end);
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "saving cfg/adopt_end failed: %s", esp_err_to_name(err));
+    apid_cfg.adopt_until = end;
+}
+
+static void prev_save(uint32_t end)
+{
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        if (!end)
+            err = set_or_erase_u32(h, "prev_id", 0);
+        if (err == ESP_OK)
+            err = set_or_erase_u32(h, "prev_end", end);
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err != ESP_OK)
+        ESP_LOGE(TAG, "saving cfg/prev_end failed: %s", esp_err_to_name(err));
+    prev_end = end;
+}
+
+/* 1: the clock is known now, the days start; -1: they are up; 0: neither */
+static int days_check(uint32_t end, uint32_t now, uint64_t from_us)
+{
+    if (!end)
+        return 0;
+    if (!now)
+        return end == 1 && (uint64_t)esp_timer_get_time() - from_us >= (uint64_t)ADOPT_AUTO_S * 1000000 ? -1 : 0;
+    if (end == 1)
+        return 1;
+    return now >= end ? -1 : 0;
+}
+
+/* Starts the adopt and previous-id times once the clock is known, and ends them */
+static void adopt_tick(void)
+{
+    if (!apid_mutex)
+        return;
+    xSemaphoreTake(apid_mutex, portMAX_DELAY);
+    uint32_t now = unix_now(NULL);
+    bool on = store_ref->adopt_all || store_ref->adopt_id; /* turned off meanwhile: not started again */
+    int a = days_check(apid_cfg.adopt_until, now, adopt_from_us);
+    if (a < 0 || (apid_cfg.adopt_until && !on)) {
+        esl_store_set_adopt(store_ref, false, 0);
+        adopt_save(0, 0);
+        ESP_LOGI(TAG, "adopt ended (%u days)", (unsigned)ESL_API_ADOPT_DAYS);
+    } else if (a > 0) {
+        adopt_save(now + ADOPT_AUTO_S, store_ref->adopt_all ? 0 : store_ref->adopt_id);
+    }
+    int p = days_check(prev_end, now, prev_from_us);
+    if (p < 0) {
+        esl_store_set_prev_id(store_ref, 0);
+        prev_save(0);
+        ESP_LOGI(TAG, "the previous AP id is no longer answered (%u days)", (unsigned)ESL_API_ADOPT_DAYS);
+    } else if (p > 0) {
+        prev_save(now + ADOPT_AUTO_S);
+    }
+    xSemaphoreGive(apid_mutex);
+}
+
+/* PUT /api/config "ap_id" (esl_api.h): saved before the store changes */
+static bool api_set_id(void *ctx, uint32_t id, uint32_t prev)
+{
+    (void)ctx;
+    xSemaphoreTake(apid_mutex, portMAX_DELAY);
+    uint32_t now = unix_now(NULL), end = prev ? (now ? now + ADOPT_AUTO_S : 1) : 0;
+    nvs_handle_t h;
+    esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+    if (err == ESP_OK) {
+        err = set_or_erase_u32(h, "prev_id", prev);
+        if (err == ESP_OK)
+            err = set_or_erase_u32(h, "prev_end", end);
+        if (err == ESP_OK)
+            err = nvs_set_u32(h, "ap_id", id);
+        if (err == ESP_OK)
+            err = nvs_commit(h);
+        nvs_close(h);
+    }
+    if (err == ESP_OK) {
+        prev_end = end;
+        prev_from_us = (uint64_t)esp_timer_get_time();
+        ESP_LOGI(TAG, "AP id set to %08lX (%08lX still answered for %u days)", (unsigned long)id,
+                 (unsigned long)prev, (unsigned)ESL_API_ADOPT_DAYS);
+    } else {
+        ESP_LOGE(TAG, "saving cfg/ap_id failed: %s", esp_err_to_name(err));
+    }
+    xSemaphoreGive(apid_mutex);
+    return err == ESP_OK;
+}
+
+static void api_set_adopt(void *ctx, bool all, uint32_t id)
+{
+    (void)ctx;
+    xSemaphoreTake(apid_mutex, portMAX_DELAY);
+    uint32_t now = unix_now(NULL);
+    if (!all && !id)
+        adopt_save(0, 0);
+    else
+        adopt_save(now ? now + ADOPT_AUTO_S : 1, all ? 0 : id);
+    adopt_from_us = (uint64_t)esp_timer_get_time();
+    xSemaphoreGive(apid_mutex);
+    if (all)
+        ESP_LOGI(TAG, "adopting lost tags of any AP");
+    else if (id)
+        ESP_LOGI(TAG, "adopting lost tags of AP %08lX", (unsigned long)id);
+    else
+        ESP_LOGI(TAG, "adopt off");
+}
+
+esl_apid_cfg_t *store_nvs_apid(void)
+{
+    return &apid_cfg;
+}
+
+static void ap_id_init(esl_store_t *st)
+{
+    nvs_handle_t h;
+    uint32_t id = 0, end = 0, adopt_id = 0, prev = 0, pend = 0;
+    if (!apid_mutex)
+        apid_mutex = xSemaphoreCreateMutex();
+    apid_cfg.set_id = api_set_id;
+    apid_cfg.set_adopt = api_set_adopt;
+    esp_err_t rd = nvs_open("cfg", NVS_READONLY, &h);
+    if (rd == ESP_OK) {
+        rd = nvs_get_u32(h, "ap_id", &id);
+        if (nvs_get_u32(h, "adopt_end", &end) != ESP_OK)
+            end = 0;
+        if (nvs_get_u32(h, "adopt_id", &adopt_id) != ESP_OK)
+            adopt_id = 0;
+        if (nvs_get_u32(h, "prev_id", &prev) != ESP_OK || nvs_get_u32(h, "prev_end", &pend) != ESP_OK)
+            prev = pend = 0;
+        nvs_close(h);
+    }
+    if (rd != ESP_OK && rd != ESP_ERR_NVS_NOT_FOUND) {
+        /* the id may be there but cannot be read: a new one would turn this AP's own tags away,
+           so this start runs without one (every tag is answered, as before #390) */
+        ESP_LOGE(TAG, "reading cfg/ap_id failed (%s): running without an AP id", esp_err_to_name(rd));
+        return;
+    }
+    if (rd == ESP_ERR_NVS_NOT_FOUND || !id || id == 0xFFFFFFFFul) {
+        /* esp_random() is only pseudo-random before the radio or WiFi runs, so the factory MAC is
+           mixed in: two boards do not get the same id even if their generators start alike */
+        uint8_t mac[6] = {0};
+        esp_read_mac(mac, ESP_MAC_WIFI_STA);
+        uint32_t salt = esl_crc32(mac, sizeof(mac));
+        do
+            id = esp_random() ^ salt;
+        while (!id || id == 0xFFFFFFFFul);
+        esp_err_t err = nvs_open("cfg", NVS_READWRITE, &h);
+        if (err == ESP_OK) {
+            err = nvs_set_u32(h, "ap_id", id);
+            if (err == ESP_OK)
+                err = nvs_commit(h);
+            nvs_close(h);
+        }
+        if (err != ESP_OK) {
+            /* not kept: a new one at every start would turn the AP's own tags away */
+            ESP_LOGE(TAG, "saving cfg/ap_id failed (%s): running without an AP id", esp_err_to_name(err));
+            return;
+        }
+        ESP_LOGI(TAG, "new AP id %08lX", (unsigned long)id);
+        if (!esl_store_count(st)) {
+            ESP_LOGI(TAG, "empty table: adopting lost tags of any AP for %u days", (unsigned)ESL_API_ADOPT_DAYS);
+            adopt_save(1, 0);
+            end = 1;
+            adopt_id = 0;
+        }
+    }
+    esl_store_set_ap_id(st, id);
+    apid_cfg.adopt_until = end;
+    adopt_from_us = prev_from_us = 0; /* no clock: counted from this start */
+    if (end)
+        esl_store_set_adopt(st, !adopt_id, adopt_id);
+    if (prev && pend && prev != id) {
+        prev_end = pend;
+        esl_store_set_prev_id(st, prev);
+    }
+}
+
 static void seen_task(void *arg)
 {
     (void)arg;
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(SEEN_SAVE_S * 1000));
+        adopt_tick();
         unsigned n = esl_store_save_seen(store_ref);
         if (n)
             ESP_LOGI(TAG, "saved %u tags' last poll", n);
@@ -475,7 +717,8 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
 {
     static const esl_store_ops_t ops = {NULL, lock, unlock, persist_save, persist_erase, persist_cfg,
                                         persist_next_poll, persist_seen, unix_now, load_content, table_alloc,
-                                        save_lock, save_unlock, persist_image, load_image, persist_channel};
+                                        save_lock, save_unlock, persist_image, load_image, persist_channel,
+                                        persist_hours};
     mutex = xSemaphoreCreateMutex();
     save_mutex = xSemaphoreCreateMutex();
     if (!mutex || !save_mutex)
@@ -494,6 +737,14 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
             esl_store_restore_next_poll(st, v);
             ESP_LOGI(TAG, "default poll interval %u s (from NVS)", (unsigned)v);
         }
+        uint8_t hb[ESL_HOURS_LEN];
+        size_t hl = sizeof(hb);
+        esl_hours_t hours;
+        if (nvs_get_blob(h, "hours", hb, &hl) == ESP_OK && esl_hours_decode(hb, hl, &hours)) {
+            esl_store_restore_hours(st, &hours);
+            ESP_LOGI(TAG, "night mode %s, update window %s (from NVS)", hours.night_poll_s ? "on" : "off",
+                     hours.window ? "on" : "off");
+        }
         if (nvs_get_u8(h, "channel", &ch) != ESP_OK || ch < ESL_CHANNEL_MIN || ch > ESL_CHANNEL_MAX)
             ch = 0;
         if (nvs_get_u8(h, "ch_next", &ch_next) != ESP_OK || (ch_next & ~ESL_CHANNEL_FORCED) < ESL_CHANNEL_MIN ||
@@ -504,6 +755,7 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
     if (nvs_open(NS_TAGS, NVS_READONLY, &h) != ESP_OK) {
         ESP_LOGI(TAG, "no stored tags yet");
         restore_channel(st, ch, ch_next);
+        ap_id_init(st);
         return ESP_OK;
     }
     /* Only the keys that are there (the table can be large): content, then
@@ -518,6 +770,7 @@ esp_err_t store_nvs_init(esl_store_t *st, unsigned max, uint16_t next_poll_s)
     ESP_LOGI(TAG, "loaded %u tags with content, %u tag settings and %u tags' last poll from NVS", loaded.ok,
              configs.ok, heard.ok);
     restore_channel(st, ch, ch_next);   /* after the tags: a move waits for all of them */
+    ap_id_init(st);                     /* after the tags: an empty table adopts */
     return ESP_OK;
 }
 

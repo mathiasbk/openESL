@@ -7,7 +7,7 @@
  * image the AP sends to a tag of that model, and a layout file the page accepts is one the
  * AP accepts.
  *
- *   web_load_layouts(json, len)  compiles a layout file (docs/protokoll.md part 3) for this
+ *   web_load_layouts(json, len)  compiles a layout file (docs/protocol.md part 3) for this
  *                                model. 1 = ok, 0 = rejected, web_error() says why (the
  *                                AP's 422 message)
  *   web_clear_layouts()          back to only the built-in layouts
@@ -24,6 +24,10 @@
  *                                2 = drawn, but the AP would refuse the content (web_error)
  *   web_set_today(days)          today for date fields in layouts ({date}, {week}; esl_clock.h):
  *                                local days since 1970-01-01, -1 = unknown (drawn empty)
+ *   web_set_lang(lang)           the language of {weekday} and {date}: 0 = English, 1 = Norwegian
+ *                                (ESL_LANG_* in esl_clock.h; "lang" in the AP's /api/config)
+ *   web_set_number_point(point)  1: formatted numbers with a decimal point (the AP's "lang" is
+ *                                "en"), 0: a decimal comma (not set, or "nb")
  *   web_fb()                     web_height() rows of web_width() bytes, 0 = white,
  *                                1 = black, 2 = red
  */
@@ -63,9 +67,10 @@ EMSCRIPTEN_KEEPALIVE int web_max_text(void) { return field_space; }
  * 9 barcodes per screen, 10 lowest barcode, 11 widest barcode module, 12 bytes per fixed text,
  * 13 fields per layout, 14 bytes of JSON in the file, 15 height of text20, 16 height of price44,
  * 17 lines per screen, 18 icons per screen, 19 widest line, 20 QR codes per screen, 21 largest
- * QR module, 22 bytes the fields of one update share. 0, 1, 2, 14, 17 and 18 are the AP board's
- * (esl_limits), 13 and 22 the AP firmware's: this renderer's until web_set_limit() sets those of
- * the AP the page talks to. */
+ * QR module, 22 bytes the fields of one update share, 23 ellipses and polygons per screen
+ * (0: the AP is too old for them), 24 corners of a polygon, 25 charts per screen. 0, 1, 2, 14, 17, 18 and 23 are the
+ * AP board's (esl_limits), 13 and 22 the AP firmware's: this renderer's until web_set_limit()
+ * sets those of the AP the page talks to. */
 EMSCRIPTEN_KEEPALIVE int web_limit(int what)
 {
     const int v[] = { esl_limits.runs, esl_limits.rects, esl_limits.file_bytes, ESL_INVERT_PAD,
@@ -73,18 +78,22 @@ EMSCRIPTEN_KEEPALIVE int web_limit(int what)
                       ESL_FONT_LARGE_H, ESL_DRAW_MAX_BARCODES, ESL_BC_MIN_H, ESL_BC_MODULE_MAX,
                       ESL_LBIN_TEXT_LEN_MAX, max_fields, esl_limits.json_bytes,
                       ESL_FONT_TEXT20_H, ESL_FONT_PRICE44_H, esl_limits.lines, esl_limits.icons,
-                      ESL_LINE_W_MAX, ESL_DRAW_MAX_QR, ESL_QR_MODULE_MAX, field_space };
+                      ESL_LINE_W_MAX, ESL_DRAW_MAX_QR, ESL_QR_MODULE_MAX, field_space, esl_limits.shapes,
+                      ESL_POLY_MAX, ESL_DRAW_MAX_CHARTS };
     return what >= 0 && what < (int)(sizeof(v) / sizeof(v[0])) ? v[what] : 0;
 }
 
-/* Sets one of the AP's limits (what as in web_limit: 0, 1, 2, 13, 14, 17, 18 or 22) to an AP's,
- * as GET /api/layouts reports them. A value larger than this renderer has room for (built for
- * the boards in ap/boards/) is cut to that room, so the page is then stricter than the AP.
- * Returns the limit now set, 0 for a what it cannot set. */
+/* Sets one of the AP's limits (what as in web_limit: 0, 1, 2, 13, 14, 17, 18, 22 or 23) to an
+ * AP's, as GET /api/layouts reports them. A value larger than this renderer has room for (built
+ * for the boards in ap/boards/) is cut to that room, so the page is then stricter than the AP.
+ * Shapes (23) may be 0: an AP from before ellipses and polygons, which refuses them.
+ * Returns the limit now set, 0 for a what it cannot set (or shapes set to 0). */
 EMSCRIPTEN_KEEPALIVE int web_set_limit(int what, int value)
 {
-    static const esl_limits_t room = { ESL_DRAW_CAP_RUNS, ESL_DRAW_CAP_RECTS, ESL_DRAW_CAP_LINES,
-                                       ESL_DRAW_CAP_ICONS, ESL_LBIN_CAP, 65535 };
+    static const esl_limits_t room = { .runs = ESL_DRAW_CAP_RUNS, .rects = ESL_DRAW_CAP_RECTS,
+                                       .lines = ESL_DRAW_CAP_LINES, .icons = ESL_DRAW_CAP_ICONS,
+                                       .file_bytes = ESL_LBIN_CAP, .json_bytes = 65535,
+                                       .shapes = ESL_DRAW_CAP_SHAPES };
     uint16_t *l;
     int max;
     if (what == 13 || what == 22) {
@@ -102,9 +111,10 @@ EMSCRIPTEN_KEEPALIVE int web_set_limit(int what, int value)
     case 14: l = &esl_limits.json_bytes; max = room.json_bytes; break;
     case 17: l = &esl_limits.lines; max = room.lines; break;
     case 18: l = &esl_limits.icons; max = room.icons; break;
+    case 23: l = &esl_limits.shapes; max = room.shapes; break;
     default: return 0;
     }
-    if (value < 1)
+    if (value < (what == 23 ? 0 : 1))
         return 0;
     *l = (uint16_t)(value < max ? value : max);
     bin_ver = 0;    /* compile again against the new limits */
@@ -112,6 +122,8 @@ EMSCRIPTEN_KEEPALIVE int web_set_limit(int what, int value)
 }
 
 EMSCRIPTEN_KEEPALIVE void web_set_today(int days) { esl_clock_set_today(days); }
+EMSCRIPTEN_KEEPALIVE void web_set_lang(int lang) { esl_clock_set_lang((uint8_t)lang); }
+EMSCRIPTEN_KEEPALIVE void web_set_number_point(int point) { esl_number_set_point(point != 0); }
 
 /* The compiled file, as the AP stores it. Valid after web_load_layouts() returned 1. */
 EMSCRIPTEN_KEEPALIVE const uint8_t *web_layout_bin(void) { return bin.bin; }

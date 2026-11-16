@@ -1,5 +1,6 @@
 #include "tinytest.h"
 #include "esl_clock.h"
+#include "esl_text.h"
 #include "esl_layout.h"
 #include <stdio.h>
 #include <string.h>
@@ -29,6 +30,21 @@ static void test_fill(void)
     CHECK_STR(fill("{date_short} uke {week}", 20087), "30.12.2024 uke 1");  /* week 1 of 2025 */
     CHECK_STR(fill("{date_short} uke {week}", 20819), "01.01.2027 uke 53"); /* week 53 of 2026 */
     CHECK_STR(fill("{weekday}", 20758), "Sunday");
+    /* Norwegian (Latin-1): the weekday as a title, the date as written in Norway */
+    esl_clock_set_lang(ESL_LANG_NB);
+    CHECK_INT(esl_clock_lang(), ESL_LANG_NB);
+    CHECK_STR(fill("{weekday} {date}", 20755), "Torsdag 29. oktober 2026");
+    CHECK_STR(fill("{weekday} {date_short} uke {week}", 20757), "L\xf8rdag 31.10.2026 uke 44");
+    CHECK_STR(fill("{weekday}", 20758), "S\xf8ndag");
+    esl_clock_set_lang(7); /* anything else: English */
+    CHECK_INT(esl_clock_lang(), ESL_LANG_EN);
+    CHECK_STR(fill("{date}", 20755), "29 October 2026");
+    CHECK_INT(esl_lang_parse("nb", 2), ESL_LANG_NB);
+    CHECK_INT(esl_lang_parse("en", 2), ESL_LANG_EN);
+    CHECK_INT(esl_lang_parse("no", 2), -1);
+    CHECK_INT(esl_lang_parse("en-GB", 5), -1);
+    CHECK_STR(esl_lang_name(ESL_LANG_NB), "nb");
+    CHECK_STR(esl_lang_name(ESL_LANG_EN), "en");
     /* other words in braces, and broken ones, stay as they are */
     CHECK_STR(fill("{price} {date {week}}", 20755), "{price} {date 44}");
     CHECK_STR(fill("{", 20755), "{");
@@ -67,6 +83,15 @@ static void test_res_and_stamp(void)
     CHECK(esl_clock_stamp(ESL_CLOCK_WEEK) != thu_w);
     esl_clock_set_today(0);
     CHECK(esl_clock_stamp(ESL_CLOCK_DAY) != 0);
+    /* English keeps the stamps from before the language setting, and another language
+       changes them, so the tags are drawn again in it */
+    esl_clock_set_today(20755);
+    CHECK_INT((int)esl_clock_stamp(ESL_CLOCK_DAY), (int)((2u << 28) ^ 20755u));
+    esl_clock_set_lang(ESL_LANG_NB);
+    CHECK(esl_clock_stamp(ESL_CLOCK_DAY) != thu && esl_clock_stamp(ESL_CLOCK_DAY) != 0);
+    CHECK(esl_clock_stamp(ESL_CLOCK_WEEK) != thu_w);
+    esl_clock_set_lang(ESL_LANG_EN);
+    CHECK(esl_clock_stamp(ESL_CLOCK_DAY) == thu);
     esl_clock_set_today(-1);
 }
 
@@ -118,6 +143,28 @@ static void test_compile(void)
     CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("a")) == a);
     CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("b")) != b);
     esl_clock_set_today(-1);
+    esl_layouts_free(&ls);
+
+    /* a decimal point (#402) draws again the layouts that format numbers, and only them; the
+       comma (no "lang", or "nb") keeps the version from before */
+    const char *nums = "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":["
+                       "{\"name\":\"p\",\"fields\":[\"x\"],\"elements\":[{\"type\":\"text\",\"field\":\"x\",\"x\":0,\"y\":0,\"w\":90,\"h\":24,\"fonts\":[\"medium\"],\"decimals\":2}]},"
+                       "{\"name\":\"q\",\"fields\":[\"x\"],\"elements\":[{\"type\":\"text\",\"field\":\"x\",\"x\":0,\"y\":0,\"w\":90,\"h\":24,\"fonts\":[\"medium\"]}]}]}";
+    CHECK(esl_layout_compile(nums, strlen(nums), ESL_MODEL_29, &bin, err, sizeof(err)));
+    CHECK_INT(bin.nums[0], 1);
+    CHECK_INT(bin.nums[1], 0);
+    esl_layouts_init(&ls, NULL);
+    ver = esl_layouts_set(&ls, ESL_MODEL_29, nums, strlen(nums), &bin, &changed);
+    CHECK(ver != 0);
+    uint32_t p = esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("p"));
+    CHECK(p == ver);
+    CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("q")) == ver);
+    esl_number_set_point(true);
+    CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("p")) != p);
+    CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("q")) == ver);
+    CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_154, esl_layout_name_hash("p")) == 0); /* no file */
+    esl_number_set_point(false);
+    CHECK(esl_layouts_image_ver(&ls, ESL_MODEL_29, esl_layout_name_hash("p")) == p);
     esl_layouts_free(&ls);
 }
 

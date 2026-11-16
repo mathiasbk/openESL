@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Example client for the OpenESL AP HTTP API (docs/protokoll.md part 2).
+"""Example client for the OpenESL AP HTTP API (docs/protocol.md part 2).
 
 Standard library only. URL and token come from --url/--token or the environment
 variables OPENESL_URL (default http://openesl.local; a new AP is http://openesl-xxxx.local, with the
@@ -18,10 +18,12 @@ instead (Linux/macOS); no token is needed there.
   esl_client.py layouts
   esl_client.py layout-put 2.9 layout.json
   esl_client.py ota build/esl_ap.bin    # new AP firmware; "ota" alone shows the slots
-  esl_client.py tag-ota openesl-tag-1.54-v0.3.0-ota.bin   # new tag firmware, sent over the radio
+  esl_client.py tag-ota openesl-tag-1.54-v0.3.0-ota.bin --to 00000123456789A8   # new tag firmware to one tag first
   esl_client.py tag-ota                 # the tag firmware on the AP and how far the tags are
+  esl_client.py tag-ota --model 1.54 --all   # then to every 1.54 tag
   esl_client.py log week.csv --every 60 # long-term test: one row per tag per minute
   esl_client.py report week.csv         # gaps, battery, problems and AP restarts from that log
+  esl_client.py battery week.csv --html batt.html   # battery per tag from that log: steps, days until low, charge; a page with charts
   esl_client.py --serial /dev/ttyACM0 status
   esl_client.py --serial /dev/ttyACM0 serve   # for "Test request" in the API tab of the web page
 
@@ -34,8 +36,10 @@ import argparse
 import base64
 import csv
 import datetime
+import html
 import io
 import json
+import locale
 import os
 import re
 import select
@@ -45,13 +49,15 @@ import time
 import urllib.error
 import urllib.request
 
-BATCH_MAX = 50          # max tags per PUT /api/tags (protokoll.md part 2)
+BATCH_MAX = 50          # max tags per PUT /api/tags (protocol.md part 2)
 # The AP's other limits on one request body (openapi.yaml; ESL_API_MAX_TOKENS, ESL_API_MAX_BODY in
 # esl_api.h). 50 tags with 14 or more fields each pass 1,024 JSON tokens, so batches are cut by these too.
 BODY_MAX_TOKENS = 1024
 BODY_MAX_BYTES = 24576
 OTA_PART = 16384        # bytes per POST /api/ota part on the serial port (ap/main/serial_api.c)
 TAGFW_PART = 8192       # bytes per PUT /api/tag-firmware part: older AP firmware holds a part in RAM in one block
+TAGFW_TO_MAX = 16       # tags a tag firmware image can be offered to one by one (ESL_TAGFW_CHOSEN in esl_tagfw.h)
+TAGFW_TO_FROM = (0, 4, 4)  # the first AP firmware that offers tag firmware to chosen tags (to=, #88)
 TAGFW_MAGIC = b"OSFW"   # first bytes of a tag firmware file (tag/tools/build.py, shared/proto.h ESL_FWF_*)
 MAC_RE = re.compile(r"^[0-9A-F]{16}$")
 PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -178,6 +184,19 @@ class Client:
             raise ApiError(status, payload.decode("utf-8", "replace"))
         return json.loads(payload)
 
+    def draw(self, mac, body):
+        """A one-off design as the tag's content (PUT /api/tags/{mac}/draw, AP 0.11.0 and later):
+        body is {"layout": {...}, "icons": {...}, "fields": [...] or {...}}, see draw_body()"""
+        # compact: the AP takes about as much as a layout file
+        data = json.dumps(body, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        try:
+            return self._request("PUT", f"/api/tags/{mac}/draw", data)
+        except ApiError as e:
+            # an AP before 0.11.0 reads ".../draw" as part of the tag's MAC
+            if e.status == 400 and "mac must be 16 hex digits" in str(e):
+                raise ApiError(400, "this AP is older than 0.11.0 and cannot draw a design: upgrade it") from e
+            raise
+
     def tag_config(self, mac):
         return self._request("GET", f"/api/tags/{mac}/config")
 
@@ -252,14 +271,23 @@ class Client:
     def tag_firmware(self):
         return self._request("GET", "/api/tag-firmware")
 
-    def put_tag_firmware(self, data, progress=None):
-        """Uploads a tag firmware file (openesl-tag-<model>-<version>-ota.bin) in parts of TAGFW_PART bytes.
+    def tag_firmware_model(self, model):
+        return self._request("GET", f"/api/tag-firmware/{model}")
+
+    def choose_tag_firmware(self, model, to):
+        """Offers the model's image to one more tag (its MAC), or to all of them ("all")."""
+        return self._request("POST", f"/api/tag-firmware/{model}?to={to}")
+
+    def put_tag_firmware(self, data, progress=None, to=None):
+        """Uploads a tag firmware file (openesl-tag-<model>-<version>-ota.bin) in parts of TAGFW_PART bytes,
+        for one tag when to is its MAC, otherwise for every tag of the model.
         Returns the AP's reply to the last part: the image it now offers."""
         total = len(data)
         reply = None
         for off in range(0, total, TAGFW_PART):
             part = data[off:off + TAGFW_PART]
-            status, payload = self.send("PUT", f"/api/tag-firmware?offset={off}&total={total}", part,
+            status, payload = self.send("PUT", f"/api/tag-firmware?offset={off}&total={total}"
+                                        + (f"&to={to}" if to else ""), part,
                                         content_type="application/octet-stream")
             if status >= 400:
                 raise ApiError(status, payload.decode("utf-8", "replace"))
@@ -285,6 +313,12 @@ class Client:
 
     def set_time(self, unix_s):
         return self._request("PUT", "/api/time", {"time": int(unix_s)})
+
+    def remote(self):
+        return self._request("GET", "/api/remote")
+
+    def set_remote(self, **kw):
+        return self._request("PUT", "/api/remote", kw)
 
     def schedule(self):
         return self._request("GET", "/api/schedule")
@@ -542,28 +576,53 @@ def content(layout, fields, highlight=False, frame=False):
     return c
 
 
-WEEKDAYS = ("mandag", "tirsdag", "onsdag", "torsdag", "fredag", "lørdag", "søndag")
-MONTHS = ("januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september",
-          "oktober", "november", "desember")
+WEEKDAYS = {"nb": ("Mandag", "Tirsdag", "Onsdag", "Torsdag", "Fredag", "Lørdag", "Søndag"),
+            "en": ("Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday")}
+MONTHS = {"nb": ("januar", "februar", "mars", "april", "mai", "juni", "juli", "august", "september",
+                 "oktober", "november", "desember"),
+          "en": ("January", "February", "March", "April", "May", "June", "July", "August", "September",
+                 "October", "November", "December")}
 
 
-def date_fields(d, extra=()):
-    """Layout text for the date command: "Lørdag", "17. oktober 2026", then the caller's lines."""
-    return [WEEKDAYS[d.weekday()].capitalize(), f"{d.day}. {MONTHS[d.month - 1]} {d.year}", *extra]
+def date_lang(cfg, env=None):
+    """The language of the date command, as the dashboard: the AP's "lang" (0.11.0 and later,
+    the language of its own date fields), else this computer's (LANG), Norwegian for nb, nn, no."""
+    if (cfg or {}).get("lang") in ("en", "nb"):
+        return cfg["lang"]
+    env = os.environ if env is None else env
+    loc = env.get("LC_ALL") or env.get("LC_TIME") or env.get("LANG") or ""
+    if not loc and env is os.environ:  # Windows sets none of them: its locale, "Norwegian_Norway"
+        try:
+            loc = locale.getlocale()[0] or ""
+        except ValueError:
+            loc = ""
+    return "nb" if re.match(r"(nb|nn|no)([_.@-]|$)|norw", loc, re.I) else "en"
+
+
+def date_fields(d, extra=(), lang="nb"):
+    """Layout text for the date command: "Lørdag", "17. oktober 2026" (nb) or "Saturday",
+    "17 October 2026" (en), then the caller's lines."""
+    lang = "en" if lang == "en" else "nb"
+    sep = "." if lang == "nb" else ""
+    return [WEEKDAYS[lang][d.weekday()], f"{d.day}{sep} {MONTHS[lang][d.month - 1]} {d.year}", *extra]
 
 
 def send_date(cli, args, today=None):
     """Today's date now; with --days N also the next N-1 days, scheduled on the AP for
     local midnight, so the tag changes by itself without this computer."""
     today = today or datetime.date.today()
+    try:
+        lang = date_lang(cli.config())
+    except ApiError:
+        lang = date_lang(None)
     if args.days == 1:
         args.at = None
-        return set_one(cli, args, content("text", date_fields(today, args.lines), False, args.frame))
+        return set_one(cli, args, content("text", date_fields(today, args.lines, lang), False, args.frame))
     ensure_time(cli)
     rows = []
     for i in range(args.days):
         d = today + datetime.timedelta(days=i)
-        r = {"mac": args.mac, **content("text", date_fields(d, args.lines), False, args.frame)}
+        r = {"mac": args.mac, **content("text", date_fields(d, args.lines, lang), False, args.frame)}
         if i:
             r["at"] = int(datetime.datetime.combine(d, datetime.time()).timestamp())
         rows.append(r)
@@ -737,6 +796,36 @@ def print_status(st):
               f"{t.get('rssi') if t.get('rssi') is not None else '-':>4}  {state}")
 
 
+def print_remote(r):
+    hook = r.get("webhook") or "none"
+    if r.get("webhook") and r.get("webhook_status") is not None:
+        hook += f" (last post: {r['webhook_status']})"
+    how = "the AP is on channel 11" if r.get("hearing") and not r.get("listen") else \
+        "listening on channel 11" if r.get("hearing") else \
+        "not hearing it: move the AP to channel 11 or use --listen on" if r.get("can_listen") else \
+        "not hearing it: move the AP to channel 11"
+    print(f"remote: {how}; webhook {hook}; {r.get('frames', 0)} frames heard")
+    for p in r.get("presses", []):
+        print(f"  #{p['id']:<4} {p['button']:<6} {p['s_ago']:>6} s ago  {p['rssi']} dBm")
+
+
+def watch_remote(cli, r):
+    """Prints each press GET /api/remote shows that was not there before (Ctrl-C ends)."""
+    boot, last = r.get("boot"), max((p["id"] for p in r.get("presses", [])), default=0)
+    try:
+        while True:
+            time.sleep(1)
+            r = cli.remote()
+            if r.get("boot") != boot:
+                boot, last = r.get("boot"), 0
+            for p in sorted(r.get("presses", []), key=lambda p: p["id"]):
+                if p["id"] > last:
+                    print(f"{time.strftime('%H:%M:%S')}  #{p['id']} {p['button']} ({p['rssi']} dBm)", flush=True)
+                    last = p["id"]
+    except KeyboardInterrupt:
+        pass
+
+
 def print_health(h):
     """One line per tag with a problem, and the counts. Returns 0 when everything is fine."""
     counts = ", ".join(f"{k} {h.get(k)}" for k in ("silent", "unseen", "draw_failed", "low_battery",
@@ -751,6 +840,16 @@ def print_health(h):
     for t in h.get("problems", []):
         print(f"  {t.get('mac')}  {', '.join(t.get('problems', [])):28}  seen {fmt_ago(t.get('seen_s_ago')):>7}"
               + (f"  {t['battery_mv']} mV" if t.get("battery_mv") else ""))
+    for a in h.get("other_aps", []):  # #390: tags of another AP poll here and get no answer
+        n = a.get("tags") or 0  # the AP counts at most 16, shared by every other AP
+        n = "16 or more" if n >= 16 else str(n) if n else "some" if a.get("polls") else "0"
+        print(f"  tags of AP {a.get('ap_id')} poll here: {n} lately, last {fmt_ago(a.get('seen_s_ago'))} ago"
+              + (", lost for over an hour" if a.get("lost_long") else "") + " (config --adopt takes them over)")
+    for r in h.get("old_radios", []):  # #390: a C6 over WiFi from before 0.11.0 answers other APs' tags
+        v = r.get("fw") or 0
+        fw = f" has firmware {v // 10000}.{v // 100 % 100}.{v % 100}," if v else ""
+        print(f"  radio {r.get('radio')} (C6 over WiFi, {r.get('id')}){fw} too old for the AP id: this AP's own tags"
+              " show settings pending and it answers other APs' tags; update it to the AP's version")
     return 0 if h.get("ok") else 1
 
 
@@ -773,7 +872,35 @@ def print_config(c):
             line += f", the last channel change was called off ({c['channel_stopped']} tags with old firmware showed up)"
     if "tz" in c:  # an AP with clock settings
         line += f", time zone {c.get('tz') or 'UTC'}, NTP {c.get('ntp') or 'none'}"
+    if c.get("ap_id"):  # 0.11.0 and later (#390)
+        line += f", AP id {c['ap_id']}"
+        if c.get("adopt"):
+            who = "any AP" if c["adopt"] == "all" else f"AP {c['adopt']}"
+            until = (datetime.datetime.fromtimestamp(c["adopt_until"]).strftime(" until %Y-%m-%d")
+                     if c.get("adopt_until") else " (14 days from when the clock is set)")
+            line += f", adopting the lost tags of {who}{until}"
+    if "lang" in c:  # 0.11.0 and later: the language of the date fields, None until chosen
+        line += {"nb": ", dates in Norwegian", "en": ", dates in English"}.get(c["lang"], ", date language not chosen (English)")
+    if "night" in c:  # 0.11.0 and later (#415)
+        n, w = c.get("night"), c.get("update_window")
+        line += (f", night mode {n['from']}-{n['to']} every {n['poll_s']} s" + (" (now)" if c.get("night_now") else "")
+                 if n else ", no night mode")
+        line += (f", update window {w['from']}-{w['to']}" + ("" if c.get("update_window_open") else " (closed now)")
+                 if w else ", no update window")
     print(line)
+
+
+def parse_span(s, what, with_poll=False):
+    """"22:00-06:00" (and "/1800" for the night interval) to {"from", "to"[, "poll_s"]}; "" or "off" = None."""
+    if s in ("", "off", "null"):
+        return None
+    m = re.fullmatch(r"(\d\d:\d\d)-(\d\d:\d\d)" + (r"/(\d+)" if with_poll else ""), s)
+    if not m:
+        raise ValueError(f"{what} must be HH:MM-HH:MM" + ("/seconds" if with_poll else "") + ' or "off"')
+    out = {"from": m.group(1), "to": m.group(2)}
+    if with_poll:
+        out["poll_s"] = int(m.group(3))
+    return out
 
 
 def print_ota(o):
@@ -790,14 +917,157 @@ def print_ota(o):
                   + ("" if r.get("ota") else "; it takes new firmware only over USB"))
 
 
+def tag_firmware_line(i):
+    """One image from GET /api/tag-firmware: who it is for and how far its tags are, then, for an image
+    that went to chosen tags first, what to do next."""
+    if not i.get("version"):
+        return f"{i['model']:>5}: no firmware"
+    t = i.get("tags", {})
+    to = i.get("to", "all")
+    who = "all tags" if to == "all" else \
+        f"{len(to)} chosen tag{'s' if len(to) != 1 else ''} ({', '.join(to)})"
+    line = (f"{i['model']:>5}: {i['version']} ({i['size']} bytes, CRC {i['crc']}) for {who}: {t.get('updated', 0)} updated, "
+            f"{t.get('pending', 0)} pending, {t.get('failed', 0)} failed, {t.get('no_ota', 0)} without OTA")
+    if to != "all":
+        line += f", {t.get('not_chosen', 0)} not chosen"
+        if t.get("updated", 0) and not t.get("pending", 0) and not t.get("failed", 0):
+            line += (f"\n       once it has polled about 10 times without problems: "
+                     f"tag-ota --model {i['model']} --all")
+    return line
+
+
 def print_tag_firmware(f):
     for i in f.get("images", []):
-        if not i.get("version"):
-            print(f"{i['model']:>5}: no firmware")
-            continue
-        t = i.get("tags", {})
-        print(f"{i['model']:>5}: {i['version']} ({i['size']} bytes, CRC {i['crc']}), tags: {t.get('updated', 0)} updated, "
-              f"{t.get('pending', 0)} pending, {t.get('failed', 0)} failed, {t.get('no_ota', 0)} without OTA")
+        print(tag_firmware_line(i))
+
+
+def parse_macs(s):
+    """--to: one MAC or several with commas, at most TAGFW_TO_MAX, each once."""
+    macs = list(dict.fromkeys(norm_mac(m.strip()) for m in s.split(",") if m.strip()))
+    if not macs:
+        raise argparse.ArgumentTypeError("give a tag's MAC (16 hex digits), or several with commas")
+    if len(macs) > TAGFW_TO_MAX:
+        raise argparse.ArgumentTypeError(f"at most {TAGFW_TO_MAX} tags one by one; for more, --all")
+    return macs
+
+
+def tag_models(cli, macs):
+    """{mac: model} for tags the AP knows, and an error line for each it does not."""
+    models, errors = {}, []
+    for mac in macs:
+        try:
+            models[mac] = cli.tag(mac).get("model")
+        except ApiError as e:
+            if e.status != 404:
+                raise
+            errors.append(f"error: the AP does not know {mac} (it has not heard from it)")
+    return models, errors
+
+
+def fw_tuple(v):
+    """(major, minor, patch) from a version such as "0.9.2" or "0.9.95-dev", None when it is not one."""
+    m = re.match(r"^(\d+)\.(\d+)\.(\d+)", str(v or ""))
+    return tuple(int(x) for x in m.groups()) if m else None
+
+
+def tag_ota(cli, args):
+    """tag-ota with a file, --to or --all. Firmware goes to the tags named with --to, or to the whole
+    model only with --all: a tag that does not start again must go back in the jig, so a new version
+    goes to one tag of a model first (docs/release.md). Returns the exit code."""
+    err = lambda line: print(line, file=sys.stderr)  # noqa: E731
+    data = model = None
+    if args.file is not None:
+        with open(args.file, "rb") as f:
+            data = f.read()
+        hdr = tag_firmware_header(data)
+        if not hdr:
+            err(f"error: {args.file} is not a tag firmware file (use openesl-ota.bin or openesl-tag-<model>-<version>-ota.bin, "
+                f"not openesl.bin, which is for the flasher)")
+            return 2
+        model = hdr[0]
+        if args.model and args.model != model:
+            err(f"error: {args.file} is {model} firmware, not {args.model}")
+            return 2
+        if not args.to and not args.all:
+            err(f"error: say which {model} tags get it: --to MAC (one tag first; once it has polled about 10 times "
+                f"without problems, tag-ota --model {model} --all), or --all for every {model} tag at once")
+            return 2
+    else:
+        model = args.model
+    if args.to:
+        models, errors = tag_models(cli, args.to)
+        for mac, m in models.items():
+            if model is None:
+                model = m
+            if m and m != model:
+                errors.append(f"error: {mac} is a {m} tag, not {model}")
+        for mac, m in models.items():
+            if not m:
+                err(f"warning: the AP does not know the model of {mac} yet: it gets the firmware only if it is a "
+                    f"{model} tag")
+        # an AP from before "to" would offer the image to every tag of the model: refuse before sending anything
+        ap_fw = (cli.tags().get("ap") or {}).get("fw")
+        if (v := fw_tuple(ap_fw)) is not None and v < TAGFW_TO_FROM:
+            errors.append(f"error: the AP runs {ap_fw}, which cannot offer tag firmware to chosen tags (from "
+                          f"{'.'.join(map(str, TAGFW_TO_FROM))}): update the AP first")
+        for line in errors:
+            err(line)
+        if errors:
+            return 2
+    if model is None:
+        err("error: say which model: --model MODEL")
+        return 2
+
+    if data is not None:
+        first = args.to[0] if args.to else None
+        print(f"sending {model} firmware {hdr[1]} ({len(data)} bytes) to "
+            f"{'every ' + model + ' tag' if args.all else first} ...", flush=True)
+        r = cli.put_tag_firmware(data, lambda sent, total: print(f"  {sent * 100 // total} %", end="\r", flush=True),
+                                 to=first)
+        print(f"the AP offers {r.get('model')} firmware {r.get('version')}; "
+            f"each tag takes it at its next poll (\"tag-ota\" shows how far they are)")
+        rest = args.to[1:] if args.to else []
+    else:
+        try:
+            img = cli.tag_firmware_model(model)
+        except ApiError as e:
+            if e.status != 404:
+                raise
+            err(f"error: the AP has no {model} firmware: send the file first (tag-ota FILE --to MAC)")
+            return 2
+        if args.all and img.get("to") != "all" and not img.get("tags", {}).get("updated", 0) and not args.force:
+            err(f"error: no {model} tag runs {img.get('version')} yet: wait until a chosen tag has it and has polled "
+                f"about 10 times, or give --force")
+            return 2
+        if img.get("to", "all") == "all":
+            print(f"{model} firmware {img.get('version')} is offered to every {model} tag already")
+            print(tag_firmware_line(img))
+            return 0
+        rest = ["all"] if args.all else args.to
+    try:
+        for to in rest:
+            cli.choose_tag_firmware(model, to)
+        img = cli.tag_firmware_model(model)
+        # an AP that does not know "to" offers it to all (and older ones leave "to" out)
+        to_all = args.to and img.get("to", "all") == "all"
+    except (ApiError, ConnectionError) as e:
+        if not (args.to and data is not None):
+            raise
+        to_all, why = True, e
+    else:
+        why = None
+    if to_all:
+        # the upload went to more tags than chosen: take it back at once
+        try:
+            cli.delete_tag_firmware(model)
+            stopped = "so the update is stopped again"
+        except (ApiError, ConnectionError) as e:
+            stopped = f"and stopping it failed too ({e}): run tag-ota --delete {model} now"
+        err(f"error: the AP may offer it to every {model} tag, not the ones chosen{f' ({why})' if why else ''}, "
+            f"{stopped}; update the AP first")
+        return 1
+    print(tag_firmware_line(img))
+    return 0
 
 
 def tag_firmware_header(data):
@@ -892,7 +1162,7 @@ def ensure_time(cli):
 
 def print_result(r):
     if r.get("scheduled"):
-        print(f"{r['mac']}: scheduled for {fmt_when(r['at'])}")
+        print(f"{r['mac']}: scheduled for {fmt_when(r['at'])}" + (f", then {r['repeat']}" if r.get("repeat") else ""))
     else:
         print(f"{r['mac']}: content_id {r['content_id']}, "
               f"{'changed' if r.get('changed') else 'unchanged'}, {'pending' if r.get('pending') else 'shown'}")
@@ -901,7 +1171,8 @@ def print_result(r):
 def print_schedule(sc):
     rows = sorted(sc.get("scheduled", []), key=lambda e: (e["at"], e["mac"]))
     for e in rows:
-        print(f"{fmt_when(e['at'])}  {e['mac']}  {e.get('layout', ''):10}  {' | '.join(e.get('fields', []))}")
+        print(f"{fmt_when(e['at'])}  {e.get('repeat', 'once'):6}  {e['mac']}  {e.get('layout', ''):10}  "
+              f"{' | '.join(e.get('fields', []))}")
     print(f"{len(rows)} of {sc.get('max_scheduled')} scheduled"
           + ("" if sc.get("time") else "; the AP does not know the time, so nothing is applied"))
 
@@ -960,6 +1231,15 @@ def log_loop(cli, path, every_s, rounds=None, sleep=time.sleep):
         except KeyboardInterrupt:
             print(f"stopped after {n} rounds; report with: esl_client.py report {path}")
     return 0
+
+
+def iter_log(path):
+    """The rows of a log from "log", one at a time, so a long log is not held in memory."""
+    with open(path, newline="", encoding="utf-8") as f:
+        rd = csv.DictReader(f)
+        if rd.fieldnames is not None and "mac" not in rd.fieldnames:
+            raise CsvError(f"{path}: not a log from esl_client.py log (no mac column)")
+        yield from rd
 
 
 def read_log(path):
@@ -1025,13 +1305,268 @@ def report(rows):
     return lines, ok
 
 
-def set_one(cli, args, c, image=None):
+# ---- battery analysis from the log ---------------------------------------------------------
+
+# The same figures as tools/power-budget/power_budget.py (docs/power-budget.md): estimates,
+# nothing is measured with a current meter yet.
+BATT_POLL_MC = 0.08                          # one answered POLL, 5 ms core + 5 ms radio
+BATT_DRAW_MC = 22.0                          # one screen update, 3.2 s with the core awake
+BATT_SLEEP_UA = 3.0                          # assumed sleep current
+BATT_CELLS = {"2.9": 2, "1.54": 1}           # CR2450 in parallel
+BATT_CELL_MAH = 620                          # nominal, 70 % counted usable
+BATT_SELF_UA_PER_CELL = BATT_CELL_MAH * 0.01 / 8760 * 1000   # 1 % a year
+BATT_CEILING_MV = 2600                       # the panel only says "above every threshold"
+
+
+def battery_analysis(rows, poll_s=60, low_mv=2500):
+    """Per tag, from a log written by "log": the battery readings over time (the 2.9"
+    panel reports 100 mV steps 2150..2550 and "2600 or more"; the 1.54" reports 0), when
+    each lower step was first reached, the rate in mV per day worked out from those
+    steps, the time left until low_mv at that rate, and a rough charge count from the
+    power budget (polls at poll_s, and one update per change of shown_content_id). A log
+    that starts below 2600 only says the tag was there "since the log started": that
+    step has no known time and is left out of the rate.
+    Returns (lines, table, series): table has one dict per tag for --csv, series the
+    readings, steps and update times per tag for --html."""
+    def num(v):
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    def when(stamp):
+        try:
+            return datetime.datetime.strptime(stamp, "%Y-%m-%d %H:%M:%S").timestamp()
+        except ValueError:
+            raise ValueError(f"not a time from esl_client.py log: {stamp!r}") from None
+
+    per = {}
+    for r in rows:
+        if not r.get("mac") or r.get("ap_reset") == "no answer":
+            continue
+        t = per.setdefault(r["mac"], {"model": "", "first": None, "last": None, "mv": [],
+                                       "draws": 0, "shown": None, "rounds": 0, "draws_at": [], "mv_last": None})
+        t["model"] = t["model"] or r.get("model")
+        ts = when(r.get("time") or "")
+        t["first"] = ts if t["first"] is None else min(t["first"], ts)
+        t["last"] = ts if t["last"] is None else max(t["last"], ts)
+        t["rounds"] += 1
+        mv = num(r.get("battery_mv"))
+        if mv and mv != t["mv_last"]:
+            # only the change points: a week at 60 s is ~10k rows per tag, nearly all the same
+            # value, and steps, minimum, rate and chart need only where the value changed
+            t["mv"].append((ts, mv))
+            t["mv_last"] = mv
+        shown = r.get("shown_content_id")
+        if shown and shown != "0" and shown != t["shown"]:
+            if t["shown"] is not None:
+                t["draws"] += 1
+                t["draws_at"].append(ts)
+            t["shown"] = shown
+
+    lines, table, series = [], [], {}
+    for mac, t in sorted(per.items()):
+        model = t["model"] or "-"
+        span_s = max(0.0, t["last"] - t["first"]) if t["first"] is not None else 0.0
+        days = span_s / 86400
+        polls = span_s / poll_s
+        charge_mc = polls * BATT_POLL_MC + t["draws"] * BATT_DRAW_MC + BATT_SLEEP_UA / 1000 * span_s
+        charge_mah = charge_mc / 3600
+        cells = BATT_CELLS.get(model)
+        cap = cells * BATT_CELL_MAH * 0.7 if cells else None
+        avg_ua = (charge_mc / span_s * 1000) if span_s else 0.0
+        row = {"mac": mac, "model": model, "days": round(days, 2), "first_mv": None, "last_mv": None,
+               "min_mv": None, "steps": 0, "mv_per_day": None, "days_to_low": None,
+               "polls": int(polls), "draws": t["draws"], "charge_mah": round(charge_mah, 3),
+               "avg_ua": round(avg_ua, 2), "years_at_this_rate": None}
+        if cap and avg_ua:   # with the cells' self-discharge; their shelf life (about 10 years) caps it anyway
+            row["years_at_this_rate"] = round(cap / ((avg_ua + cells * BATT_SELF_UA_PER_CELL) / 1000) / 8760, 1)
+        lines.append(f"{mac}  {model}  {days:.1f} days in the log, {t['rounds']} rounds")
+        mvs = sorted(t["mv"])
+        series[mac] = {"mv": mvs, "steps": [], "draws_at": sorted(t["draws_at"]), "first": t["first"], "last": t["last"]}
+        if not mvs:
+            lines.append("    no battery reading (0 = the tag cannot measure it)")
+        else:
+            row["first_mv"], row["last_mv"] = mvs[0][1], mvs[-1][1]
+            row["min_mv"] = min(v for _, v in mvs)
+            # the first time each new low was reached (the reading can bounce back up under a lighter load)
+            steps, low = [], None
+            for ts, v in mvs:
+                if low is None or v < low:
+                    low = v
+                    steps.append((ts, v))
+            row["steps"] = len(steps) - 1
+            series[mac]["steps"] = steps
+            desc = ", ".join(f"{v} mV {'since the log started' if i == 0 else 'from ' + time.strftime('%Y-%m-%d %H:%M', time.localtime(ts))}"
+                             for i, (ts, v) in enumerate(steps))
+            lines.append(f"    readings: {desc}"
+                         + (" (2600 = 2.6 V or more; the panel cannot see higher)" if steps[0][1] >= BATT_CEILING_MV else ""))
+            # the rate needs two steps that were seen happening: the first reading in the log
+            # has no known time (the tag may have been there for weeks already)
+            below = [s for s in steps[1:] if s[1] < BATT_CEILING_MV]
+            if len(below) >= 2:
+                (t0, v0), (t1, v1) = below[0], below[-1]
+                rate = (v0 - v1) / ((t1 - t0) / 86400)     # mV per day
+                row["mv_per_day"] = round(rate, 1)
+                if rate > 0:
+                    left = (v1 - low_mv) / rate
+                    row["days_to_low"] = round(left, 1) if left > 0 else 0
+                    lines.append(f"    falling {rate:.1f} mV/day over the steps below 2.6 V: "
+                                 + (f"about {left:.0f} days until {low_mv} mV" if left > 0 else f"already below {low_mv} mV"))
+            elif len(below) == 1 or steps[0][1] < BATT_CEILING_MV:
+                lines.append(f"    the rate needs two steps seen in the log; the first reading has no known time")
+            else:
+                lines.append(f"    2.6 V or more for the whole log; the panel shows nothing until the cell is near its end")
+        lines.append(f"    charge estimate: {int(polls)} polls at {poll_s} s, {t['draws']} screen updates, "
+                     f"sleep {BATT_SLEEP_UA:g} uA assumed: {charge_mah:.2f} mAh"
+                     + (f" of {cap:.0f} mAh ({charge_mah / cap * 100:.2f} %), {avg_ua:.1f} uA average, "
+                        f"{row['years_at_this_rate']} years at this rate" if cap and avg_ua else ""))
+        table.append(row)
+    if not lines:
+        lines.append("no tags in the log")
+    return lines, table, series
+
+
+def battery_html(table, series, low_mv=2500):
+    """A self-contained page: a summary table and, per tag with readings, a step chart of
+    the voltage over time (inline SVG, no scripts) with the low line and the screen
+    updates marked. Open it in a browser."""
+    def esc(v):
+        return html.escape(str(v))
+
+    def day(ts):
+        return time.strftime("%Y-%m-%d", time.localtime(ts))
+
+    W, H, L, R, T, B = 720, 220, 56, 16, 12, 28
+    cols = [("mac", "MAC"), ("model", "model"), ("days", "days"), ("first_mv", "first mV"), ("last_mv", "last mV"),
+            ("min_mv", "min mV"), ("steps", "steps"), ("mv_per_day", "mV/day"), ("days_to_low", "days to low"),
+            ("polls", "polls"), ("draws", "updates"), ("charge_mah", "mAh used"), ("avg_ua", "avg uA"),
+            ("years_at_this_rate", "years at this rate")]
+    out = ["<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\"><title>OpenESL battery</title>",
+           "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><style>",
+           "body{font:14px/1.4 system-ui,sans-serif;margin:24px;max-width:1000px;color:#222;background:#fff}",
+           "table{border-collapse:collapse;margin:12px 0 24px}th,td{border:1px solid #ccc;padding:4px 8px;text-align:right}",
+           "th:first-child,td:first-child{text-align:left;font-family:monospace}th{background:#f3f3f3}",
+           "h2{margin:24px 0 4px;font-size:16px}p.note{color:#555;margin:0 0 8px}svg{display:block;max-width:100%;height:auto}",
+           "</style></head><body><h1>OpenESL battery</h1>",
+           "<p class=\"note\">From <code>esl_client.py log</code>. The 2.9\" panel reports 100 mV steps and \"2600\" for 2.6 V or more; "
+           "the tag reads it every BATT_EVERY polls (hal_zbs243.c), so a step shows up to that much later. The 1.54\" cannot measure "
+           "its battery. The charge columns are estimates from docs/power-budget.md (polls, screen updates and an assumed "
+           "sleep current), not measurements.</p>",
+           "<table><tr>" + "".join(f"<th>{esc(h)}</th>" for _, h in cols) + "</tr>"]
+    for row in table:
+        out.append("<tr>" + "".join(f"<td>{esc('' if row[k] is None else row[k])}</td>" for k, _ in cols) + "</tr>")
+    out.append("</table>")
+    for row in table:
+        mac = row["mac"]
+        sr = series.get(mac)
+        if not sr or not sr["mv"]:
+            continue
+        t0, t1 = sr["first"], max(sr["last"], sr["mv"][-1][0])
+        span = max(1.0, t1 - t0)
+        values = [v for _, v in sr["mv"]]
+        lo = min(min(values), low_mv) - 100
+        hi = max(values) + 100
+        lo, hi = (lo // 100) * 100, -(-hi // 100) * 100
+
+        def x(ts):
+            return L + (ts - t0) / span * (W - L - R)
+
+        def y(mv):
+            return T + (hi - mv) / (hi - lo) * (H - T - B)
+
+        out.append(f"<h2>{esc(mac)} ({esc(row['model'])})</h2>")
+        out.append(f"<p class=\"note\">{day(t0)} to {day(t1)}, {esc(row['days'])} days; {esc(row['draws'])} screen updates (triangles); "
+                   f"low line at {low_mv} mV"
+                   + (f"; falling {esc(row['mv_per_day'])} mV/day, "
+                      + (f"about {esc(row['days_to_low'])} days to low" if row["days_to_low"] else "already below the low line")
+                      if row["days_to_low"] is not None else "") + "</p>")
+        svg = [f"<svg viewBox=\"0 0 {W} {H}\" width=\"{W}\" height=\"{H}\" role=\"img\" aria-label=\"battery of {esc(mac)}\">"]
+        # 2600 and up: the panel cannot see higher
+        if hi > 2600:
+            svg.append(f"<rect x=\"{L}\" y=\"{T}\" width=\"{W - L - R}\" height=\"{y(2600) - T:.1f}\" fill=\"#eee\"/>")
+        mv = lo
+        while mv <= hi:
+            svg.append(f"<line x1=\"{L}\" x2=\"{W - R}\" y1=\"{y(mv):.1f}\" y2=\"{y(mv):.1f}\" stroke=\"#ddd\"/>"
+                       f"<text x=\"{L - 6}\" y=\"{y(mv) + 4:.1f}\" font-size=\"11\" text-anchor=\"end\" fill=\"#555\">{mv}</text>")
+            mv += 100
+        svg.append(f"<line x1=\"{L}\" x2=\"{W - R}\" y1=\"{y(low_mv):.1f}\" y2=\"{y(low_mv):.1f}\" stroke=\"#c33\" stroke-dasharray=\"4 3\"/>")
+        n_ticks = min(8, max(2, int(span // 86400) + 1))
+        for i in range(n_ticks):
+            ts = t0 + span * i / (n_ticks - 1)
+            anchor = "start" if i == 0 else "end" if i == n_ticks - 1 else "middle"
+            svg.append(f"<text x=\"{x(ts):.1f}\" y=\"{H - 8}\" font-size=\"11\" text-anchor=\"{anchor}\" fill=\"#555\">{day(ts)}</text>")
+        pts = []
+        last = None
+        for ts, v in sr["mv"]:
+            if last is not None and v != last:
+                pts.append(f"{x(ts):.1f},{y(last):.1f}")     # a step: hold the old value until the new reading
+            pts.append(f"{x(ts):.1f},{y(v):.1f}")
+            last = v
+        pts.append(f"{x(t1):.1f},{y(last):.1f}")
+        svg.append(f"<polyline points=\"{' '.join(pts)}\" fill=\"none\" stroke=\"#1a66c0\" stroke-width=\"2\"/>")
+        for ts, v in sr["steps"]:
+            svg.append(f"<circle cx=\"{x(ts):.1f}\" cy=\"{y(v):.1f}\" r=\"3.5\" fill=\"#1a66c0\"/>")
+        for ts in sr["draws_at"]:
+            svg.append(f"<polygon points=\"{x(ts) - 4:.1f},{H - B} {x(ts) + 4:.1f},{H - B} {x(ts):.1f},{H - B - 7}\" fill=\"#e08a00\"/>")
+        svg.append("</svg>")
+        out.append("".join(svg))
+    out.append("</body></html>")
+    return "\n".join(out)
+
+
+BATTERY_COLUMNS = ["mac", "model", "days", "first_mv", "last_mv", "min_mv", "steps", "mv_per_day",
+                   "days_to_low", "polls", "draws", "charge_mah", "avg_ua", "years_at_this_rate"]
+
+
+def draw_body(doc, layout=None, fields=None):
+    """The body of PUT /api/tags/{mac}/draw from a JSON document: a draw body as it is, one
+    layout ({"fields", "elements"}), or a layout file from the designer, of which the layout
+    called layout (or its only one) is taken, with the file's icons. fields ({name: text})
+    is laid over the body's fields by name."""
+    if not isinstance(doc, dict):
+        raise ValueError("the file must hold a JSON object")
+    if "layouts" in doc:
+        ls = doc["layouts"]
+        if not isinstance(ls, list) or not all(isinstance(l, dict) for l in ls):
+            raise ValueError("layouts must be a list of layouts (objects)")
+        pick = [l for l in ls if l.get("name") == layout] if layout else ls
+        if len(pick) != 1:
+            names = ", ".join(l.get("name", "?") for l in ls)
+            raise ValueError(f"name the layout with --layout (the file has {names})" if not layout
+                             else f"no layout {layout} in the file (it has {names})")
+        body = {"layout": pick[0]}
+        if doc.get("icons"):
+            body["icons"] = doc["icons"]
+    elif "elements" in doc:
+        body = {"layout": doc}
+    else:
+        body = dict(doc)
+    if fields:
+        old = body.get("fields")
+        if isinstance(old, list):
+            names = body.get("layout", {}).get("fields", [])
+            old = {n: v for n, v in zip(names, old)}
+        body["fields"] = dict(old or {}, **fields)
+    return body
+
+
+def set_one(cli, args, c, image=None, draw=None):
     if image:
         r = cli.set_image(args.mac, *image)
+    elif draw is not None:
+        r = cli.draw(args.mac, draw)
     else:
+        if getattr(args, "repeat", None) and not args.at:
+            raise SystemExit("--repeat needs --at: the first time it takes effect")
         if args.at:
             ensure_time(cli)
             c["at"] = args.at
+            if getattr(args, "repeat", None):
+                c["repeat"] = args.repeat
+                if not cli.config().get("tz"):
+                    print("note: the AP has no time zone set (config --tz, or Settings, General): the repeat "
+                          "follows UTC and moves an hour with daylight saving time", file=sys.stderr)
         r = cli.set_tag(args.mac, c)
     print_result(r)
     if args.wait and r.get("pending"):
@@ -1134,6 +1669,12 @@ def backup(cli, now=None, warn=None):
     ap = {"fw": st.get("ap", {}).get("fw"), "channel": st.get("ap", {}).get("channel")}
     if st.get("ap", {}).get("board"):
         ap["board"] = st["ap"]["board"]
+    try:  # the AP id (#390): the tags of this AP answer only an AP with it
+        if (apid := cli.config().get("ap_id")):
+            ap["ap_id"] = apid
+    except ApiError as e:
+        if e.status != 404:
+            raise
     try:
         if (name := cli.wifi().get("hostname")):
             ap["hostname"] = name
@@ -1150,13 +1691,18 @@ def backup(cli, now=None, warn=None):
 
 
 def backup_config(cfg):
-    """The AP's settings for a backup: the poll interval and the webhook, and the time zone and
-    NTP server from an AP that has them (the NTP server set in menuconfig as None, so another
+    """The AP's settings for a backup: the poll interval and the webhook, and the time zone,
+    NTP server and date language from an AP that has them (the NTP server set in menuconfig as None, so another
     AP keeps its own)."""
     out = {"poll_s": cfg.get("poll_s", 0), "webhook": cfg.get("webhook")}
     if "tz" in cfg:
         out["tz"] = cfg.get("tz")
         out["ntp"] = None if cfg.get("ntp") == cfg.get("builtin_ntp") else cfg.get("ntp")
+    if "lang" in cfg:  # 0.11.0 and later
+        out["lang"] = cfg["lang"]
+    for k in ("night", "update_window"):  # 0.11.0 and later (#415)
+        if k in cfg:
+            out[k] = cfg[k]
     return out
 
 
@@ -1191,14 +1737,14 @@ def tag_firmware_note(old, new):
     model, ver, to = old.get("model"), old.get("version"), old.get("to", "all")
     waiting = old.get("waiting")
     left = f" ({waiting} not updated yet)" if waiting else ""
-    send = (f"send it again with tag-ota and the release's openesl-tag-{model}-v<release>-ota.bin "
-            f"whose firmware is {ver} (tag-ota shows the version before sending)")
+    file = f"openesl-tag-{model}-v<release>-ota.bin"
+    which = f"from the release whose {model} firmware is {ver} (tag-ota shows the version before sending)"
     if isinstance(to, list):
         n = len(to)
         return (f"note: the old AP offered {model} tag firmware {ver} to {n} chosen tag{'s' if n != 1 else ''}{left}; "
-                f"upload it on the dashboard and tick the same tags, or PUT /api/tag-firmware?to=<MAC>: "
-                f"tag-ota sends it to every {model} tag")
-    return f"note: the old AP offered {model} tag firmware {ver} to all its tags{left}; {send}"
+                f"send it again to the same tags with tag-ota {file} --to {','.join(to)}, {which}")
+    return f"note: the old AP offered {model} tag firmware {ver} to all its tags{left}; " \
+           f"send it again with tag-ota {file} --all, {which}"
 
 
 def restore_notes(cli, b):
@@ -1258,11 +1804,13 @@ def read_backup(path):
     return b
 
 
-def restore(cli, b, dry_run=False, now=None):
+def restore(cli, b, dry_run=False, now=None, copy=False, force=False):
     """Puts a backup onto an AP, in the order the AP needs: config, layout files, tag
     settings, content, then the scheduled content (entries whose time has passed are
     skipped, since the AP would set them now). Tags the backup does not have are left
-    as they are. Returns (lines, ok)."""
+    as they are. The AP id of the backup (#390) is put on the AP too, so the old AP's tags
+    take it at once, unless copy (a second AP with the same setup keeps its own id, and the
+    tags stay with the old AP). Returns (lines, ok)."""
     now = int(now or time.time())
     lines = []
     ok = True
@@ -1276,12 +1824,15 @@ def restore(cli, b, dry_run=False, now=None):
     settings = [(t["mac"], t["config"]) for t in b["tags"] if t.get("config")]
     content = [{"mac": t["mac"], **{k: t[k] for k in CONTENT_KEYS if k in t}} for t in b["tags"] if "layout" in t]
     pictures = [(t["mac"], base64.b64decode(t["image"])) for t in b["tags"] if "image" in t]
-    due = [e for e in b["scheduled"] if e["at"] > now]
+    due = [e for e in b["scheduled"] if e["at"] > now or e.get("repeat")]  # a recurring one: its next time
     passed = len(b["scheduled"]) - len(due)
     clock = {k: cfg[k] for k in ("tz", "ntp") if k in cfg}
     if want:
         lines.append(f"config: poll_s {want['poll_s']}, webhook {want.get('webhook') or 'off'}"
                      + (f", time zone {clock.get('tz') or 'UTC'}, NTP {clock.get('ntp') or 'as built'}" if clock else ""))
+    ap_id = (b.get("ap") or {}).get("ap_id")
+    if ap_id:
+        lines.append(f"AP id: {ap_id}" + (" (not put on this AP: --copy)" if copy else ""))
     if fonts:
         lines.append(f"font files: {', '.join(fonts)}")
     lines.append(f"layout files: {', '.join(layouts) or 'none'}")
@@ -1310,6 +1861,43 @@ def restore(cli, b, dry_run=False, now=None):
             if e.status != 422:
                 raise
             lines.append("note: the time zone and NTP server were not restored; this AP's firmware has no clock settings")
+    if cfg.get("lang") in ("en", "nb"):
+        try:
+            cli.set_config(lang=cfg["lang"])
+        except ApiError as e:
+            if e.status != 422:
+                raise
+            lines.append("note: the date language was not restored; this AP's firmware has no language setting (0.11.0 and later)")
+    hours = {k: cfg[k] for k in ("night", "update_window") if k in cfg}
+    if any(hours.values()) or hours and "night" in cli.config():
+        try:
+            cli.set_config(**hours)
+        except ApiError as e:
+            if e.status != 422:
+                raise
+            lines.append("note: night mode and the update window were not restored; this AP's firmware has neither "
+                         "(0.11.0 and later)")
+    if ap_id:
+        cur = cli.config()
+        if "ap_id" not in cur:
+            lines.append(f"note: the backup has AP id {ap_id}, but this AP's firmware has no AP id (0.11.0 and later)")
+        elif copy:
+            lines.append(f"note: this AP keeps its own id {cur['ap_id']}; the tags of AP {ap_id} stay with that AP "
+                         "(config --adopt takes them over)")
+        elif cur["ap_id"] != ap_id:  # the same id: the same AP, and an adopt that runs stays
+            # a label of an AP that is off polls with lost 0 only once (an interval at most): 3 min tells them apart
+            alive = [a for a in (cli.health().get("other_aps") or []) if a.get("ap_id") == ap_id
+                     and not a.get("lost_long") and a.get("answered_s_ago") is not None and a["answered_s_ago"] < 180]
+            if alive and not force:
+                ok = False
+                lines.append(f"error: AP id not changed: the AP the backup came from ({ap_id}) still answers its tags "
+                             "here. Turn it off and restore again, use --copy for a second AP, or --force")
+            else:
+                try:
+                    cli.set_config(ap_id=ap_id, adopt=None)  # its tags are back: no adopt
+                except ApiError as e:
+                    ok = False
+                    lines.append(f"error: AP id {ap_id} not set: {e}")
     for name, f in fonts.items():  # first: a layout file may draw with them
         try:
             cli.put_font(name, json.dumps(f).encode("utf-8"))
@@ -1355,7 +1943,8 @@ def restore(cli, b, dry_run=False, now=None):
                      f"again then: {', '.join(later)}")
         ok = False
     if due:
-        rows = [{"mac": e["mac"], "at": e["at"], **{k: e[k] for k in CONTENT_KEYS if k in e}} for e in due]
+        rows = [{"mac": e["mac"], "at": e["at"], **({"repeat": e["repeat"]} if e.get("repeat") else {}),
+                 **{k: e[k] for k in CONTENT_KEYS if k in e}} for e in due]
         try:
             ensure_time(cli)
             cli.set_many(rows)
@@ -1392,6 +1981,8 @@ def main(argv=None):
         s.add_argument("--frame", action="store_true", help="black frame")
         s.add_argument("--at", type=parse_when, metavar="WHEN",
                        help='schedule it: "2026-10-19 07:00" (local time), ISO with offset, or Unix seconds')
+        s.add_argument("--repeat", choices=("daily", "weekly"),
+                       help="with --at: again every day or week at that local time (AP 0.11.0 or newer)")
         s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
         s.add_argument("--wait-s", type=int, default=120)
 
@@ -1402,7 +1993,15 @@ def main(argv=None):
     s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
     s.add_argument("--wait-s", type=int, default=120)
 
-    s = sub.add_parser("date", help="layout text: today's date (\"Lørdag\", \"17. oktober 2026\") and up to two lines")
+    s = sub.add_parser("draw", help="a one-off design as the tag's content, drawn once by the AP (AP 0.11.0 and later)")
+    s.add_argument("mac", type=norm_mac)
+    s.add_argument("file", help="JSON: a layout file from the designer, one layout, or {\"layout\", \"icons\", \"fields\"}")
+    s.add_argument("--layout", help="which layout of a layout file")
+    s.add_argument("--field", action="append", default=[], metavar="NAME=TEXT", help="a field's text (repeat)")
+    s.add_argument("--wait", action="store_true", help="wait until the tag shows it")
+    s.add_argument("--wait-s", type=int, default=120)
+
+    s = sub.add_parser("date", help="layout text: today's date (\"Saturday\", \"17 October 2026\", in the AP's date language) and up to two lines")
     s.add_argument("mac", type=norm_mac)
     s.add_argument("lines", nargs="*", help="up to two more lines under the date")
     s.add_argument("--days", type=int, default=1, metavar="N",
@@ -1437,7 +2036,8 @@ def main(argv=None):
     s = sub.add_parser("health", help="tags that need attention (exit code 1 when there are any)")
     s.add_argument("--silent-s", type=int, help="seconds without a poll before a tag is silent (default 3 x its interval)")
     s.add_argument("--battery-mv", type=int, help="battery below this is low (default 2500)")
-    s = sub.add_parser("config", help="show or set the AP's default poll interval, webhook, transmit power, time zone and NTP server")
+    s = sub.add_parser("config", help="show or set the AP's default poll interval, webhook, transmit power, time zone, "
+                                     "NTP server, night mode and update window")
     s.add_argument("--poll-s", help="default interval in s, 0 = tags keep their own, \"null\" = menuconfig value")
     s.add_argument("--webhook", help="URL the AP posts the health report to when it changes; \"\" turns it off")
     s.add_argument("--tx-power", help="the radio's transmit power in dBm (-24 to 20; with an antenna of G dBi at most "
@@ -1449,6 +2049,21 @@ def main(argv=None):
                                                        "cannot follow and are left behind")
     s.add_argument("--tz", help="time zone as a POSIX TZ string (CET-1CEST,M3.5.0,M10.5.0/3 for Norway); \"\" = UTC")
     s.add_argument("--ntp", help="NTP server the AP sets its clock from; \"\" = the one set in menuconfig")
+    s.add_argument("--adopt", help="take over the tags of another AP once they have been without it for an hour, "
+                                   "for 14 days: its AP id (8 hex digits), \"all\" for any AP, \"null\" = off")
+    s.add_argument("--ap-id", help="set this AP's id (8 hex digits); its own tags carry the old one, which is then adopted")
+    s.add_argument("--lang", choices=["en", "nb", ""],
+                   help="language of the date fields {weekday} and {date}: en or nb; \"\" = English (AP 0.11.0 and later)")
+    s.add_argument("--night", help="night mode: tags poll at most this often in the night, in the AP's time zone, "
+                                   "e.g. 22:00-06:00/1800 (60 to 3600 s); \"off\" ends it (AP 0.11.0 and later)")
+    s.add_argument("--update-window", help="new content reaches tags that show a picture only in this daily window, "
+                                           "e.g. 06:00-08:00; \"off\" ends it (AP 0.11.0 and later)")
+
+    s = sub.add_parser("remote", help="the SoluM remote as a button: its last presses, and listen and its webhook "
+                                      "(docs/solum-remote.md); --watch prints each press as it comes")
+    s.add_argument("--listen", choices=["on", "off"], help="visit channel 11 for the remote while the AP runs on another channel")
+    s.add_argument("--webhook", help="URL the AP posts each press to; \"\" turns it off")
+    s.add_argument("--watch", action="store_true", help="print each new press (reads the AP once a second)")
 
     s = sub.add_parser("ota", help="send new AP firmware (the AP restarts into it), or the C6 radio's (the AP passes "
                                    "it on over the cable), or show the app slots and the radio")
@@ -1461,7 +2076,14 @@ def main(argv=None):
     s = sub.add_parser("tag-ota", help="send new tag firmware to the AP, which updates the tags over the radio; "
                                        "alone, show what the AP has and how far the tags are")
     s.add_argument("file", nargs="?", help="openesl-tag-<model>-<version>-ota.bin from a release, or tag/build/fw/openesl-ota.bin")
-    s.add_argument("--delete", metavar="MODEL", help="stop updating tags of this model (%s)" % " or ".join(MODELS))
+    who = s.add_mutually_exclusive_group()
+    who.add_argument("--to", type=parse_macs, metavar="MAC[,MAC]",
+                     help="only these tags (at most %d); without a file: offer the AP's image to them too" % TAGFW_TO_MAX)
+    who.add_argument("--all", action="store_true", help="every tag of the model; without a file, with --model: "
+                                                        "the image the AP has, once a chosen tag runs it")
+    who.add_argument("--delete", metavar="MODEL", help="stop updating tags of this model (%s)" % " or ".join(MODELS))
+    s.add_argument("--model", choices=MODELS, help="the model, for --all without a file")
+    s.add_argument("--force", action="store_true", help="with --all without a file: although no tag runs the image yet")
 
     s = sub.add_parser("log", help="long-term test: append a row per tag to a CSV file every --every seconds, until Ctrl-C")
     s.add_argument("file", help="the CSV log (created with a header if new, otherwise appended to)")
@@ -1469,12 +2091,23 @@ def main(argv=None):
     s.add_argument("--rounds", type=int, help="stop after this many rounds (default: run until Ctrl-C)")
     s = sub.add_parser("report", help="summarise a log from \"log\": gaps, battery, problems, AP restarts (exit 1 on any)")
     s.add_argument("file")
+    s = sub.add_parser("battery", help="battery use per tag from a log from \"log\": voltage steps over time, "
+                                       "days until low, and a charge estimate from the power budget")
+    s.add_argument("file")
+    s.add_argument("--poll-s", type=int, default=60, help="the tags' poll interval, for the charge estimate (default 60)")
+    s.add_argument("--low-mv", type=int, default=2500, help="the voltage counted as low (default 2500, as /api/health)")
+    s.add_argument("--csv", metavar="FILE", help="also write one row per tag to this CSV file")
+    s.add_argument("--html", metavar="FILE", help="also write a page with a chart per tag, to open in a browser")
 
     s = sub.add_parser("backup", help="save the AP's tags, settings, layout files and schedule to a JSON file")
     s.add_argument("file", help="where to write it (- for stdout)")
     s = sub.add_parser("restore", help="put a backup from \"backup\" onto an AP (a new one, or after erase-flash)")
     s.add_argument("file")
     s.add_argument("--dry-run", action="store_true", help="show what would be restored")
+    s.add_argument("--copy", action="store_true", help="a second AP with the same setup: keep this AP's own id, "
+                                                      "so the old AP's tags stay with it (#390)")
+    s.add_argument("--force", action="store_true", help="take the backup's AP id even while that AP still answers "
+                                                       "its tags here")
 
     s = sub.add_parser("mac", help="the MAC of a tag from the number under the barcode on its label (no AP needed)")
     s.add_argument("barcode", help="the 12 digits on the label, e.g. 020663461013")
@@ -1505,6 +2138,25 @@ def main(argv=None):
             return 2
         print("\n".join(lines))
         return 0 if ok else 1
+    if args.cmd == "battery":
+        if args.poll_s < 1:
+            print("error: --poll-s must be 1 or more", file=sys.stderr)
+            return 2
+        try:
+            lines, table, series = battery_analysis(iter_log(args.file), args.poll_s, args.low_mv)
+            if args.csv:
+                with open(args.csv, "w", newline="", encoding="utf-8") as f:
+                    w = csv.DictWriter(f, fieldnames=BATTERY_COLUMNS)
+                    w.writeheader()
+                    w.writerows(table)
+            if args.html:
+                with open(args.html, "w", encoding="utf-8") as f:
+                    f.write(battery_html(table, series, args.low_mv))
+        except (OSError, CsvError, ValueError) as e:
+            print(f"error: {e}", file=sys.stderr)
+            return 2
+        print("\n".join(lines))
+        return 0
     if args.serial:
         cli = SerialClient(args.serial)
     elif not args.token and args.cmd != "serve":
@@ -1527,6 +2179,18 @@ def main(argv=None):
             with open(args.file, "rb") as f:
                 data = f.read()
             return set_one(cli, args, None, image=(data, args.dither))
+        elif args.cmd == "draw":
+            try:
+                with open(args.file, encoding="utf-8") as f:
+                    doc = json.load(f)
+                bad = [x for x in args.field if "=" not in x]
+                if bad:
+                    raise ValueError(f"--field takes NAME=TEXT, not {bad[0]}")
+                body = draw_body(doc, args.layout, dict(x.split("=", 1) for x in args.field))
+            except (OSError, ValueError) as e:
+                print(f"error: {e}", file=sys.stderr)
+                return 2
+            return set_one(cli, args, None, draw=body)
         elif args.cmd == "date":
             return send_date(cli, args)
         elif args.cmd == "sync":
@@ -1568,10 +2232,31 @@ def main(argv=None):
                     kw["force"] = True
             elif args.channel_now or args.force:
                 p.error("--channel-now and --force need --channel")
-            for k in ("tz", "ntp"):
+            for k in ("tz", "ntp", "lang"):
                 if getattr(args, k) is not None:
                     kw[k] = getattr(args, k) or None
+            if args.adopt is not None:
+                kw["adopt"] = None if args.adopt in ("null", "") else args.adopt
+            if args.ap_id is not None:
+                kw["ap_id"] = args.ap_id
+            try:
+                if args.night is not None:
+                    kw["night"] = parse_span(args.night, "--night", with_poll=True)
+                if args.update_window is not None:
+                    kw["update_window"] = parse_span(args.update_window, "--update-window")
+            except ValueError as e:
+                p.error(str(e))
             print_config(cli.set_config(**kw) if kw else cli.config())
+        elif args.cmd == "remote":
+            kw = {}
+            if args.listen is not None:
+                kw["listen"] = args.listen == "on"
+            if args.webhook is not None:
+                kw["webhook"] = args.webhook or None
+            r = cli.set_remote(**kw) if kw else cli.remote()
+            print_remote(r)
+            if args.watch:
+                watch_remote(cli, r)
         elif args.cmd == "log":
             return log_loop(cli, args.file, args.every, args.rounds)
         elif args.cmd == "ota":
@@ -1602,21 +2287,10 @@ def main(argv=None):
             if args.delete:
                 cli.delete_tag_firmware(args.delete)
                 print(f"no more firmware updates for {args.delete} tags")
-            elif args.file is None:
+            elif args.file is None and not args.to and not args.all:
                 print_tag_firmware(cli.tag_firmware())
             else:
-                with open(args.file, "rb") as f:
-                    data = f.read()
-                hdr = tag_firmware_header(data)
-                if not hdr:
-                    print(f"error: {args.file} is not a tag firmware file (use openesl-ota.bin or openesl-tag-<model>-<version>-ota.bin, "
-                          f"not openesl.bin, which is for the flasher)", file=sys.stderr)
-                    return 2
-                print(f"sending {hdr[0]} firmware {hdr[1]} ({len(data)} bytes) ...", flush=True)
-                r = cli.put_tag_firmware(data, lambda sent, total: print(f"  {sent * 100 // total} %", end="\r",
-                                                                        flush=True))
-                print(f"the AP offers {r.get('model')} firmware {r.get('version')} to the tags; "
-                      f"each takes it at its next poll (\"tag-ota\" shows how far they are)")
+                return tag_ota(cli, args)
         elif args.cmd == "backup":
             b = backup(cli, warn=lambda line: print(line, file=sys.stderr))
             text = json.dumps(b, indent=1, ensure_ascii=False)
@@ -1633,7 +2307,7 @@ def main(argv=None):
             except (OSError, BackupError) as e:
                 print(f"error: {e}", file=sys.stderr)
                 return 1
-            lines, ok = restore(cli, b, args.dry_run)
+            lines, ok = restore(cli, b, args.dry_run, copy=args.copy, force=args.force)
             print("\n".join(lines))
             return 0 if ok else 1
         elif args.cmd == "wifi":

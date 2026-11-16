@@ -12,6 +12,7 @@
 - [ ] The notes read: a short summary, the changes, then short upgrade instructions (docs/release.md, "Summary of X.Y.Z" and the first paragraph of "Upgrading from A to X.Y.Z": the order and what to watch out for)
 - [ ] One-way changes in this release are listed, and each was tested on hardware
 - [ ] The wiki (wiki/) describes this release: new features, changed steps, upgrade notes
+- [ ] The wiki's Roadmap (wiki/getting-started/Roadmap.md): what this release finished is moved to "Done recently"
 AP (if the AP firmware changed):
 - [ ] OTA to a real AP (esl-client ota ... --wait); GET /api/ota says confirmed
 - [ ] The dashboard loads, tags check in, sending text to a tag works

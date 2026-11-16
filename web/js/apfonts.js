@@ -13,7 +13,7 @@
 // What a font file the user picked must look like before it goes to the AP; null, or why not
 export function checkFontFile(file) {
   if (!file || typeof file !== "object" || file.format !== "esl-font")
-    return 'not a font file (format "esl-font"); make one with Make a font… in the Layouts card';
+    return 'not a font file (format "esl-font"); make one with Make a font… on the Layouts page';
   if (typeof file.name !== "string" || !/^[a-z0-9_-]{1,15}$/.test(file.name))
     return "its name must be 1 to 15 of a-z, 0-9, _ and -";
   return null;

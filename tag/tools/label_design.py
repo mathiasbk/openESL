@@ -2,11 +2,11 @@
 """
 Label design in JSON (PC side). A design file says which layout a label uses,
 which fields it fills, and which styles apply. It is run against data from the client and
-gives the fields in the same form as the body of PUT /api/tags/{mac} (docs/protokoll.md).
+gives the fields in the same form as the body of PUT /api/tags/{mac} (docs/protocol.md).
 
 The layout is either one of the built-in layouts, "price" and "text" (esl_render.c on the AP),
 or the name of a layout in a layout file (designs/layouts/<model>.json, uploaded with
-PUT /api/layouts/<model>, docs/protokoll.md part 3). The design does not change the
+PUT /api/layouts/<model>, docs/protocol.md part 3). The design does not change the
 firmware; it is a PC tool that produces the content.
 
 Design file (JSON; the // comments below are only explanations, not part of the file):
@@ -26,7 +26,7 @@ Design file (JSON; the // comments below are only explanations, not part of the 
                                            // layout); frame: black frame. The tags are
                                            // black/white, there is no red.
 
-Layout file (format "esl-layouts"): see docs/protokoll.md part 3. check_layout_file() only
+Layout file (format "esl-layouts"): see docs/protocol.md part 3. check_layout_file() only
 checks the outline here (names and fields); the AP checks positions, fonts and sizes against
 the model when the file is uploaded, and tools/render_host.py runs the AP's own check.
 
@@ -76,6 +76,9 @@ AP_REPLACE.update({c: "'" for c in "\u2018\u2019\u201a\u2032"})
 AP_REPLACE.update({c: '"' for c in "\u201c\u201d\u201e\u2033"})
 AP_REPLACE["\u2022"] = "\u00b7"
 AP_REPLACE["\u2026"] = "..."
+AP_REPLACE.update({"\u20ac": "EUR", "\u2122": "TM", "\u0152": "OE", "\u0153": "oe", "\u2021": "++"})
+AP_REPLACE.update({"\u0160": "S", "\u0161": "s", "\u017d": "Z", "\u017e": "z", "\u0178": "Y", "\u0192": "f",
+                   "\u2039": "<", "\u203a": ">", "\u02c6": "^", "\u02dc": "~", "\u2020": "+", "\u2030": "%"})
 
 
 class DesignError(ValueError):
@@ -211,7 +214,7 @@ def render(d, data, layout_file=None):
         sent -= 1                       # the AP drops empty fields at the end
     total = sum(len(to_latin1(f)) for f in fields)
     if total + sent > FIELD_SPACE:
-        raise DesignError("the text is %d bytes, maximum %d with %d fields (requirement in protokoll.md)"
+        raise DesignError("the text is %d bytes, maximum %d with %d fields (requirement in protocol.md)"
                           % (total, FIELD_SPACE - sent, sent))
     style = d.get("style", {})
     out = {"layout": layout, "fields": fields}

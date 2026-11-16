@@ -120,9 +120,10 @@ menu "OpenESL AP"
         default 1000
         help
             Most tags the AP keeps. The table grows 32 tags at a time as tags
-            turn up, about 88 bytes of RAM per tag (PSRAM when the board has
-            it), and stops growing while it would leave too little internal
-            RAM free (main/store_nvs.c), whatever this says. A tag's content is in NVS
+            turn up, 112 bytes of RAM per tag (160 in PSRAM when the board
+            has it), and stops growing while it would leave too little internal
+            RAM free (main/store_nvs.c), whatever this says: on the C6
+            that is about 400 tags next to WiFi. A tag's content is in NVS
             only: up to about 400 bytes per tag with content, settings and
             its last poll, so the 468 KB NVS partition holds about 1000. The
             API replies that list every tag are streamed, so they do not

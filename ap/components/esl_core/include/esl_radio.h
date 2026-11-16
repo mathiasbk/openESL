@@ -98,6 +98,9 @@ typedef struct {
 
     bool legacy;          /* firmware without CONFIG: 12-byte POLL */
     bool no_link;         /* firmware before 0.9.0: 14-byte POLL, no link block (no channel moves) */
+    bool apid;            /* firmware with the AP id (#390): 22-byte POLL with ap_id */
+    uint32_t ap_id;       /* the AP it belongs to, from CONFIG (kept when CONFIG has none) */
+    uint8_t link_flags;   /* ESL_POLL_LF_* sent in its POLL (LOST_LONG, ANY_AP for the tests) */
     uint16_t cfg_ver;     /* from the last CONFIG, sent in POLL */
     esl_tag_cfg_t cfg;    /* settings from the last CONFIG */
     uint16_t interval_s;  /* the interval the tag would sleep now */

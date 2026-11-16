@@ -297,8 +297,196 @@ static void test_red(void)
     CHECK(ink(blk, PLANE) > 50);
 }
 
+/* Ellipses and polygons, pixel by pixel */
+static void test_ellipse_polygon(void)
+{
+    static const char file[] =
+        "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"s\","
+        "\"fields\":[\"a\"],\"elements\":["
+        "{\"type\":\"ellipse\",\"x\":10,\"y\":10,\"w\":21,\"h\":21},"
+        "{\"type\":\"ellipse\",\"x\":40,\"y\":10,\"w\":21,\"h\":21,\"border\":2},"
+        "{\"type\":\"ellipse\",\"x\":70,\"y\":10,\"w\":61,\"h\":21},"
+        "{\"type\":\"rect\",\"x\":150,\"y\":0,\"w\":40,\"h\":40},"
+        "{\"type\":\"ellipse\",\"x\":160,\"y\":10,\"w\":20,\"h\":20,\"color\":\"white\"},"
+        "{\"type\":\"polygon\",\"x\":10,\"y\":50,\"w\":41,\"h\":21,\"points\":[[20,0],[40,20],[0,20]]},"
+        "{\"type\":\"polygon\",\"x\":60,\"y\":50,\"w\":41,\"h\":21,\"border\":1,"
+        "\"points\":[[20,0],[40,20],[0,20]]},"
+        "{\"type\":\"polygon\",\"x\":110,\"y\":50,\"w\":21,\"h\":21,\"points\":[[0,0],[20,0],[20,20],[0,20]]}"
+        "]},{\"name\":\"t\",\"fields\":[\"a\"],\"elements\":["
+        "{\"type\":\"ellipse\",\"x\":140,\"y\":10,\"w\":1,\"h\":1},"
+        "{\"type\":\"polygon\",\"x\":140,\"y\":50,\"w\":21,\"h\":21,\"points\":[[0,0],[20,20],[20,0],[0,20]]}"
+        "]}]}";
+    static uint8_t img[296 * 16];
+    static esl_layout_bin_t bin;
+    char err[ESL_LAYOUT_ERR_MAX];
+    esl_content_t c;
+    unsigned x, y, n;
+
+    CHECK(esl_layout_compile(file, sizeof(file) - 1, ESL_MODEL_29, &bin, err, sizeof(err)));
+    esl_content_init_named(&c, "s", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"x", 1);
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+
+    /* a filled circle: the middle of each side touches the box, the corners do not; it is
+       the same turned by 90 degrees and mirrored */
+    CHECK(px(img, 20, 10) && px(img, 20, 30) && px(img, 10, 20) && px(img, 30, 20) && px(img, 20, 20));
+    CHECK(!px(img, 10, 10) && !px(img, 30, 30) && !px(img, 20, 9) && !px(img, 9, 20) && !px(img, 31, 20));
+    for (x = 10; x <= 30; x++)
+        for (y = 10; y <= 30; y++) {
+            CHECK(px(img, x, y) == px(img, y, x));
+            CHECK(px(img, x, y) == px(img, 40 - x, y) && px(img, x, y) == px(img, x, 40 - y));
+        }
+    /* a ring 2 px wide: across the middle row, 2 on each side, empty inside */
+    for (n = 0, x = 39; x <= 61; x++)
+        n += px(img, x, 20);
+    CHECK(n == 4 && px(img, 40, 20) && px(img, 41, 20) && !px(img, 42, 20) && px(img, 59, 20) && px(img, 60, 20));
+    CHECK(px(img, 50, 10) && px(img, 50, 11) && !px(img, 50, 12) && !px(img, 50, 20));
+    /* a wide ellipse: the whole middle row, only the middle of the top row */
+    for (x = 70; x <= 130; x++)
+        CHECK(px(img, x, 20));
+    CHECK(px(img, 100, 10) && !px(img, 72, 10) && !px(img, 69, 20) && !px(img, 131, 20));
+    /* white on a black rect */
+    CHECK(px(img, 155, 20) && !px(img, 170, 20) && px(img, 160, 10) && px(img, 179, 29));
+
+    /* a filled triangle: its corners and edges are drawn, one span per column */
+    CHECK(px(img, 30, 50) && px(img, 50, 70) && px(img, 10, 70) && px(img, 30, 60));
+    CHECK(!px(img, 29, 50) && !px(img, 31, 50) && !px(img, 30, 49) && !px(img, 10, 69) && !px(img, 30, 71));
+    for (x = 10; x <= 50; x++) {
+        unsigned top = 50 + (x <= 30 ? 30 - x : x - 30);
+        for (y = 45; y <= 75; y++)
+            CHECK(px(img, x, y) == (y >= top && y <= 70));
+    }
+    /* its outline, 1 px: the corners and edge pixels, none inside */
+    CHECK(px(img, 80, 50) && px(img, 100, 70) && px(img, 60, 70) && px(img, 70, 60) && px(img, 80, 70));
+    CHECK(!px(img, 80, 60) && !px(img, 80, 69) && !px(img, 80, 52));
+    /* a square polygon is the same as a rect */
+    for (x = 105; x <= 135; x++)
+        for (y = 45; y <= 75; y++)
+            CHECK(px(img, x, y) == (x >= 110 && x <= 130 && y >= 50 && y <= 70));
+    esl_content_init_named(&c, "t", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"x", 1);
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+    CHECK(px(img, 140, 10) && !px(img, 141, 10) && !px(img, 140, 11) && !px(img, 139, 10)); /* 1 x 1 */
+    /* a damaged file: a corner below the box is not drawn (the compiler never makes one) */
+    {
+        static esl_layout_bin_t bad;
+        static uint8_t img2[296 * 16];
+        int found = 0;
+        bad = bin;
+        for (unsigned i = ESL_LBIN_HDR_LEN; i + ESL_POLY_PT_LEN * 4 <= bad.size; i++)
+            if (bad.bin[i] == 12 && memcmp(&bad.bin[i + 1], "\0\0\0\x14\0\x14\x14\0\0\0\0\x14", 12) == 0)
+                bad.bin[i + 3] = 250, found = 1; /* corner 0's y of the bow tie */
+        CHECK(found);
+        CHECK(esl_render(ESL_MODEL_29, &bad, &c, img2, sizeof(img2)) == sizeof(img2));
+        CHECK(!px(img2, 150, 60) && px(img2, 140, 10));
+    }
+    /* a bow tie (edges that cross, even-odd): the two triangles, nothing above and below the crossing */
+    CHECK(px(img, 141, 60) && px(img, 159, 60) && px(img, 150, 60) && !px(img, 150, 52) && !px(img, 150, 68));
+    CHECK(px(img, 140, 50) && px(img, 160, 70) && px(img, 140, 70) && px(img, 160, 50));
+}
+
+/* Charts: the line through the numbers, its fill, and text that is not numbers */
+static void test_chart(void)
+{
+    static const char file[] =
+        "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"c\","
+        "\"fields\":[\"a\",\"b\"],\"elements\":["
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":10,\"y\":10,\"w\":101,\"h\":41},"
+        "{\"type\":\"chart\",\"field\":\"b\",\"x\":150,\"y\":10,\"w\":11,\"h\":21,\"width\":3,"
+        "\"fill\":\"solid\"}]},"
+        "{\"name\":\"l\",\"fields\":[\"a\"],\"elements\":["
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"fill\":\"light\"}]}]}";
+    static uint8_t img[296 * 16];
+    static esl_layout_bin_t bin;
+    char err[ESL_LAYOUT_ERR_MAX];
+    esl_content_t c;
+    unsigned x, y;
+
+    CHECK(esl_layout_compile(file, sizeof(file) - 1, ESL_MODEL_29, &bin, err, sizeof(err)));
+    /* 0 at the bottom, 10 at the top, 5 in the middle: a rising line, then a falling one */
+    esl_content_init_named(&c, "c", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"0 10;5", 6);
+    esl_content_add_field(&c, (const uint8_t *)"2,5 2.5", 7);
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+    CHECK(px(img, 10, 50) && px(img, 60, 10) && px(img, 110, 30) && px(img, 35, 30));
+    /* one span per column, without gaps, and nothing outside the box */
+    for (x = 10; x <= 110; x++) {
+        unsigned n = 0, first = 0, last = 0;
+        for (y = 0; y < 128; y++)
+            if (px(img, x, y)) {
+                if (!n)
+                    first = y;
+                last = y;
+                n++;
+            }
+        CHECK(n >= 1 && n == last - first + 1 && first >= 10 && last <= 50);
+    }
+    CHECK(!px(img, 9, 50) && !px(img, 111, 30) && !px(img, 60, 9));
+    /* the same numbers: a line across the middle, 3 px wide, the box under it filled */
+    for (x = 150; x <= 160; x++)
+        for (y = 5; y <= 35; y++)
+            CHECK(px(img, x, y) == (y >= 19 && y <= 30));
+
+    /* light fill: every other pixel under the line */
+    esl_content_init_named(&c, "l", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"1 1 0", 5);
+    CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+    CHECK(px(img, 0, 0) && !px(img, 0, 1) && px(img, 0, 2) && !px(img, 1, 2) && px(img, 1, 3) && px(img, 19, 19));
+
+    /* text that is not a list of numbers, or only one number, draws nothing */
+    static const char *const bad[] = {"1 2 x", "1", "", "1,2,3", "1 2.", "1 2.34567", "12345678901 1"};
+    for (unsigned i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+        esl_content_init_named(&c, "l", 1, 0);
+        esl_content_add_field(&c, (const uint8_t *)bad[i], (uint8_t)strlen(bad[i]));
+        CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+        CHECK(ink(img, sizeof(img)) == 0);
+    }
+    /* more than ESL_CHART_MAX numbers: the first ones are drawn */
+    {
+        char many[3 * (ESL_CHART_MAX + 10)];
+        size_t n = 0;
+        for (unsigned i = 0; i < ESL_CHART_MAX + 10; i++)
+            n += (size_t)sprintf(many + n, "%u ", i % 2 ? 9 : 0);
+        esl_content_init_named(&c, "l", 1, 0);
+        CHECK(esl_content_add_field(&c, (const uint8_t *)many, (uint8_t)(n > 200 ? 200 : n)) == ESL_CONTENT_OK);
+        CHECK(esl_render(ESL_MODEL_29, &bin, &c, img, sizeof(img)) == sizeof(img));
+        CHECK(ink(img, sizeof(img)) > 0);
+    }
+
+    /* what the compiler refuses */
+    static const char *const refused[] = {
+        "{\"type\":\"chart\",\"x\":0,\"y\":0,\"w\":20,\"h\":20}",
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"width\":5}",
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"fill\":\"dots\"}",
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"color\":\"white\"}",
+        "{\"type\":\"chart\",\"field\":\"a\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"fonts\":[\"small\"]}",
+        "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":20,\"h\":20,\"fill\":\"solid\"}",
+    };
+    for (unsigned i = 0; i < sizeof(refused) / sizeof(refused[0]); i++) {
+        char js[512];
+        snprintf(js, sizeof(js),
+                 "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\",\"layouts\":[{\"name\":\"x\","
+                 "\"fields\":[\"a\"],\"elements\":[%s]}]}", refused[i]);
+        CHECK(!esl_layout_compile(js, strlen(js), ESL_MODEL_29, &bin, err, sizeof(err)));
+    }
+    /* at most ESL_DRAW_MAX_CHARTS */
+    {
+        char js[1024];
+        size_t n = (size_t)snprintf(js, sizeof(js), "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9\","
+                                    "\"layouts\":[{\"name\":\"x\",\"fields\":[\"a\"],\"elements\":[");
+        for (unsigned i = 0; i <= ESL_DRAW_MAX_CHARTS; i++)
+            n += (size_t)snprintf(js + n, sizeof(js) - n, "%s{\"type\":\"chart\",\"field\":\"a\",\"x\":0,"
+                                  "\"y\":0,\"w\":20,\"h\":20}", i ? "," : "");
+        snprintf(js + n, sizeof(js) - n, "]}]}");
+        CHECK(!esl_layout_compile(js, strlen(js), ESL_MODEL_29, &bin, err, sizeof(err)));
+        CHECK(strstr(err, "charts") != NULL);
+    }
+}
+
 void test_render(void)
 {
+    test_chart();
+    test_ellipse_polygon();
     test_icon_field();
     test_rotate();
     static uint8_t img[8192], img2[8192];

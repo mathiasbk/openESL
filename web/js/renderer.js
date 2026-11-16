@@ -30,9 +30,11 @@ const cache = {};
 
 // The limits an AP board sets (esl_limits in esl_layout.h), and the AP firmware's content limits
 // (fields per layout, bytes the fields of one update share), by their web_limit number
-const SETTABLE = { runs: 0, rects: 1, fileBytes: 2, fields: 13, jsonBytes: 14, lines: 17, icons: 18, textBytes: 22 };
-// An AP with 0.9.2 or older reports no textBytes: its fields share 96 bytes (and it reports 6 fields)
-const OLD_AP_TEXT_BYTES = 96;
+const SETTABLE = { runs: 0, rects: 1, fileBytes: 2, fields: 13, jsonBytes: 14, lines: 17, icons: 18, textBytes: 22, shapes: 23 };
+// What an AP reports none of draws: an AP with 0.9.2 or older reports no textBytes, its fields
+// share 96 bytes (and it reports 6 fields); one with 0.10.x or older reports no shapes and
+// refuses ellipses and polygons
+const OLD_AP = { textBytes: 96, shapes: 0 };
 
 // Days since 1970-01-01 of d's local date (web_set_today)
 export function localDays(d) {
@@ -41,8 +43,19 @@ export function localDays(d) {
 
 export function loadRenderer(model, base = new URL("../wasm/", import.meta.url)) {
   if (!MODELS[model]) throw new Error("unknown model " + model);
-  if (!cache[model]) cache[model] = create(model, base);
+  // one that failed to load (a fetch that failed once) is tried again next time
+  if (!cache[model]) cache[model] = create(model, base).catch((e) => {
+    delete cache[model];
+    throw e;
+  });
   return cache[model];
+}
+
+// A renderer of its own instead of the shared one: js/demoap.js keeps the pretend AP's layout
+// files loaded in it while the designer loads its own file into the shared one
+export function newRenderer(model, base = new URL("../wasm/", import.meta.url)) {
+  if (!MODELS[model]) throw new Error("unknown model " + model);
+  return create(model, base);
 }
 
 async function create(model, base) {
@@ -79,6 +92,12 @@ async function create(model, base) {
     qrs: limit(20),
     qrModuleMax: limit(21),
     textBytes: limit(22),
+    // ellipses and polygons per screen, 0 for an AP too old for them; a renderer from before
+    // them has no limit 23 and says 0 too
+    shapes: limit(23),
+    polygonPoints: limit(24),
+    // charts per screen (they count as shapes too); a renderer from before them says 0
+    charts: limit(25),
   });
   // the default board's, for setLimits(null)
   const defaults = Object.fromEntries(Object.entries(SETTABLE).map(([key, what]) => [key, limit(what)]));
@@ -94,12 +113,14 @@ async function create(model, base) {
     limits: readLimits({}),
     // An older renderer (the published one on an AP's own page) cannot take an AP's limits
     canSetLimits: typeof M._web_set_limit === "function",
+    lang: "en", // "en" or "nb": the date fields' language (render)
+    numPoint: false, // a decimal point in formatted numbers (the AP's "lang" is "en"), else a comma
 
     setLimits(apLimits) {
       if (!this.canSetLimits) return;
       for (const [key, what] of Object.entries(SETTABLE))
         call("web_set_limit", "number", ["number", "number"],
-          [what, apLimits?.[key] ?? (apLimits && key === "textBytes" ? OLD_AP_TEXT_BYTES : defaults[key])]);
+          [what, apLimits?.[key] ?? (apLimits && key in OLD_AP ? OLD_AP[key] : defaults[key])]);
       readLimits(this.limits);
     },
 
@@ -161,6 +182,12 @@ async function create(model, base) {
       // a renderer from before them has no web_set_today and draws them as written
       if (typeof M._web_set_today === "function")
         call("web_set_today", null, ["number"], [localDays(today)]);
+      // the language of {weekday} and {date}: the AP's "lang" (GET /api/config), English as on
+      // an AP until set
+      if (typeof M._web_set_lang === "function") call("web_set_lang", null, ["number"], [this.lang === "nb" ? 1 : 0]);
+      // the decimal sign of formatted numbers (#402): a point only when the AP's "lang" is "en"
+      if (typeof M._web_set_number_point === "function")
+        call("web_set_number_point", null, ["number"], [this.numPoint ? 1 : 0]);
       // the fields back to back, each NUL-terminated (web_render in web_api.c)
       const f = fields.map((x) => String(x ?? ""));
       const bytes = f.reduce((n, x) => n + M.lengthBytesUTF8(x) + 1, 0);

@@ -2,7 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, missingModels, placeOf } from "../js/apsources.js";
+import { relTime, sourceSummary, parseCoords, placeUrls, parseNorway, parseWorld, mergePlaces, placeId, weatherPlan, picturePlanUrl, missingModels, placeOf, showsOf, shortUrl, hostOf, feedSource, feedPlan, FEEDS } from "../js/apsources.js";
 import { addTemplate } from "../js/catalog.js";
 
 const A = "00000123456789A8", B = "00000123456789B2", C = "0000020663463415";
@@ -51,6 +51,79 @@ test("ticked tags move to a place, and a place left without tags goes", () => {
   assert.match(weatherPlan([], many, { place: "X", lat: 1, lon: 1 }).error, /at most 32 tags/);
   const eight = Array.from({ length: 8 }, (_, i) => ({ ...oslo, id: "p" + i, tags: [String(i).padStart(16, "1")] }));
   assert.match(weatherPlan(eight, [C], { place: "X", lat: 1, lon: 1 }).error, /at most 8 places/);
+});
+
+test("a picture from a URL keeps its settings, and loses tags that get the weather", () => {
+  const chart = { id: "chart", type: "image", url: "http://ha.local/chart.png", dither: false, place: "", lang: "nb", every_min: 5, tags: [C], status: { ok: true } };
+  let p = weatherPlan([oslo, chart], [A], "oslo");
+  assert.deepEqual(p.sources[1], { id: "chart", type: "image", url: "http://ha.local/chart.png", dither: false, place: "", lang: "nb", every_min: 5, tags: [C] });
+  p = weatherPlan([oslo, chart], [C], "oslo");
+  assert.deepEqual(p.sources.map((s) => s.id), ["oslo"]);
+  // a picture source saved without tags yet stays; its tags are not weather places
+  p = weatherPlan([oslo, { ...chart, tags: [] }], [C], "oslo");
+  assert.deepEqual(p.sources.map((s) => s.id), ["oslo", "chart"]);
+  assert.deepEqual([...placeOf([oslo, chart])], [[A, "Oslo"], [B, "Oslo"]]);
+});
+
+test("tags to a picture from a URL: a new source, or the one with that URL", () => {
+  let p = picturePlanUrl([oslo], [A], { url: " http://ha.local/c.png ", every_min: 10, dither: true });
+  assert.equal(p.id, "picture");
+  assert.deepEqual(p.sources[1], { id: "picture", type: "image", url: "http://ha.local/c.png", every_min: 10, dither: true, tags: [A] });
+  assert.deepEqual(p.sources[0].tags, [B]);
+  // the same URL again: the same source takes them; a weather place left without tags goes
+  p = picturePlanUrl(p.sources, [B], { url: "http://ha.local/c.png" });
+  assert.deepEqual(p.sources.map((s) => [s.id, s.tags]), [["picture", [A, B]]]);
+  assert.equal(p.sources[0].every_min, 5);
+  // another URL: a second source with a free id
+  p = picturePlanUrl(p.sources, [C], { url: "https://x.example/b.png" });
+  assert.equal(p.id, "picture-2");
+  assert.match(picturePlanUrl([], [A], { url: "ftp://x/a.png" }).error, /http/);
+  assert.match(picturePlanUrl([], [A], { url: "http://x/a b.png" }).error, /http/);
+  assert.match(picturePlanUrl([], [A], { url: "http://x/a.png", every_min: 4 }).error, /5 to 1440/);
+  assert.deepEqual([...placeOf(p.sources)], []); // pictures are not weather places
+  assert.deepEqual([...showsOf(p.sources)], [[A, "the picture from ha.local/c.png"], [B, "the picture from ha.local/c.png"], [C, "the picture from x.example/b.png"]]);
+  // no login in the address (the AP refuses it); an @ later in the path is fine
+  assert.match(picturePlanUrl([], [A], { url: "http://u:p@ha.local/c.png" }).error, /user name or password/);
+  assert.match(picturePlanUrl([], [A], { url: "http://u@ha.local" }).error, /user name or password/);
+  assert.equal(picturePlanUrl([], [A], { url: "http://ha.local/a@b.png" }).id, "picture");
+  // 159 characters of printable ASCII, as on the AP
+  assert.equal(picturePlanUrl([], [A], { url: "http://h/" + "a".repeat(150) }).id, "picture");
+  assert.match(picturePlanUrl([], [A], { url: "http://h/" + "a".repeat(151) }).error, /159 characters/);
+});
+
+test("the electricity price: its own line, not a weather place", () => {
+  const power = { id: "power", type: "power", area: "NO1", tags: [C], status: { fetched_at: 1, values: { now: "2,88" } } };
+  assert.match(sourceSummary(power, 61).text, /^2,88 kr\/kWh · fetched/);
+  assert.deepEqual([...placeOf([oslo, power])], [[A, "Oslo"], [B, "Oslo"]]);
+  // a weather move leaves a price source without tags in place
+  const p = weatherPlan([oslo, { ...power, tags: [] }], [C], "oslo");
+  assert.deepEqual(p.sources.map((s) => s.id), ["oslo", "power"]);
+  // and a picture added in the Dashboard keeps it too
+  assert.deepEqual(picturePlanUrl([oslo, { ...power, tags: [] }], [C], { url: "http://h/a.png" }).sources.map((s) => s.id), ["oslo", "power", "picture"]);
+});
+
+test("a countdown: the time left as its state", () => {
+  const cd = { id: "jul", type: "countdown", place: "Jul", date: "2026-12-24", tags: [C], status: { fetched_at: 1, values: { left: "om 58 dager" } } };
+  assert.equal(sourceSummary(cd, 61).text, "om 58 dager");
+  assert.deepEqual([...placeOf([cd])], []);
+});
+
+test("headlines: the newest as its state, not a weather place", () => {
+  const rss = { id: "news", type: "rss", url: "https://news.example/top.rss", tags: [C], status: { fetched_at: 1, values: { h1: "Regn i Bergen" } } };
+  assert.match(sourceSummary(rss, 61).text, /^Regn i Bergen · fetched/);
+  assert.deepEqual([...placeOf([rss])], []);
+  const cal = { id: "family", type: "ical", url: "https://calendar.example/private-abc/basic.ics", tags: [C],
+    status: { fetched_at: 1, values: { day1: "i morgen", time1: "09:00", what1: "Tannlege" } } };
+  assert.match(sourceSummary(cal, 61).text, /^i morgen 09:00 Tannlege · fetched/);
+  assert.match(sourceSummary({ ...cal, status: { fetched_at: 1, values: { day1: "" } } }, 61).text, /^No events ahead/);
+  assert.equal(hostOf(cal.url), "calendar.example");
+  assert.equal(hostOf("not a url"), "");
+});
+
+test("a picture's address, short", () => {
+  assert.equal(shortUrl("http://ha.local:8123/local/charts/power.png?v=2"), "ha.local:8123/…/power.png");
+  assert.equal(shortUrl("https://x.example/b.png"), "x.example/b.png");
+  assert.equal(shortUrl("http://cam.lan"), "cam.lan");
 });
 
 test("the models whose layout file lacks the weather layout", () => {
@@ -127,4 +200,107 @@ test("places suggested as you type", () => {
   m = mergePlaces("Berg", [bergen, bergsoya], [belgium]);
   assert.deepEqual(m.map((h) => h.name), ["Bergen", "Berg", "Bergsøya"]);
   assert.equal(mergePlaces("berg", [bergen, bergsoya], [belgium], 1).length, 1);
+});
+
+test("feedSource checks a price, a countdown, a feed and a calendar as the AP does", () => {
+  assert.deepEqual(feedSource({ type: "power", area: "NO5" }), { type: "power", area: "NO5", vat: true, lang: "nb" });
+  assert.equal(feedSource({ type: "power", area: "NO4" }).vat, false);
+  assert.equal(feedSource({ type: "power", area: "NO4", vat: true }).vat, true);
+  assert.match(feedSource({ type: "power", area: "SE3" }).error, /price area/);
+  assert.deepEqual(feedSource({ type: "countdown", place: " Jul ", date: "2026-12-24", time: "", yearly: true }),
+    { type: "countdown", place: "Jul", date: "2026-12-24", yearly: true, lang: "nb" });
+  assert.equal(feedSource({ type: "countdown", place: "x", date: "2026-12-24", time: "18:00" }).time, "18:00");
+  assert.match(feedSource({ type: "countdown", place: "x", date: "2026-02-30" }).error, /date/);
+  assert.match(feedSource({ type: "countdown", place: "", date: "2026-12-24" }).error, /name/);
+  assert.match(feedSource({ type: "countdown", place: "x", date: "2026-12-24", time: "25:00" }).error, /time/);
+  assert.match(feedSource({ type: "countdown", place: "æ".repeat(17), date: "2026-12-24" }).error, /32 bytes/);
+  assert.deepEqual(feedSource({ type: "rss", url: " https://news.example/top.rss ", lang: "en" }), { type: "rss", url: "https://news.example/top.rss" });
+  assert.deepEqual(feedSource({ type: "ical", url: "webcal://cal.example/a.ics", lang: "en" }), { type: "ical", url: "https://cal.example/a.ics", lang: "en" });
+  assert.match(feedSource({ type: "rss", url: "ftp://x/a" }).error, /http:\/\//);
+  assert.match(feedSource({ type: "ical", url: "https://u:p@x/a.ics" }).error, /user name/);
+  assert.match(feedSource({ type: "weather" }).error, /Choose/);
+  // the AP takes printable ASCII only (esl_source_url_ok)
+  assert.match(feedSource({ type: "rss", url: "https://nyheter.example/blåbær.rss" }).error, /ASCII/);
+  assert.match(feedSource({ type: "ical", url: "https://cal.example/a\u0007.ics" }).error, /ASCII/);
+  assert.match(picturePlanUrl([], ["m"], { url: "https://x.example/bilde-ø.png" }).error, /ASCII/);
+  assert.equal(feedSource({ type: "rss", url: "https://x.example/" + "a".repeat(141) }).url.length, 159);
+});
+
+test("feedPlan moves the tags to one source on the text layout", () => {
+  const A = "00000123456789B2", B = "00000123456789B9";
+  const have = [
+    { id: "bergen", type: "met", lat: 60.39, lon: 5.32, place: "Bergen", layout: "weather", tags: [A], status: {} },
+    { id: "news", type: "rss", url: "https://other.example/x.rss", layout: "text", tags: [B] },
+  ];
+  // a new feed: named, the weather place it emptied goes, the other feed keeps its tag
+  let p = feedPlan(have, [A], { type: "rss", url: "https://news.example/top.rss" });
+  assert.deepEqual(p.sources.map((s) => s.id), ["news", "news-2"]);
+  assert.equal(p.id, "news-2");
+  assert.deepEqual(p.sources[1], { id: "news-2", type: "rss", url: "https://news.example/top.rss", layout: "text", tags: [A] });
+  assert.ok(!("status" in p.sources[0]));
+  // the same feed takes the tag; the source it left goes
+  p = feedPlan(have, [A], { type: "rss", url: "https://other.example/x.rss" });
+  assert.deepEqual(p.sources.map((s) => [s.id, s.tags]), [["news", [B, A]]]);
+  // a feed has no language, so one made through the API with "lang" still matches
+  p = feedPlan([{ ...have[1], lang: "en" }], [A], { type: "rss", url: "https://other.example/x.rss" });
+  assert.deepEqual(p.sources.map((s) => [s.id, s.tags]), [["news", [B, A]]]);
+  // a countdown is named after what it counts to
+  p = feedPlan([], [A], { type: "countdown", place: "Sommerferie", date: "2027-06-20" });
+  assert.equal(p.id, "sommerferie");
+  p = feedPlan([], [A, B], { type: "ical", url: "webcal://cal.example/a.ics" });
+  assert.equal(p.id, "calendar");
+  assert.equal(p.sources[0].url, "https://cal.example/a.ics");
+  assert.match(feedPlan([], [A], { type: "power", area: "NO9" }).error, /price area/);
+  const full = Array.from({ length: 8 }, (_, i) => ({ id: "s" + i, type: "rss", url: `https://x.example/${i}`, layout: "text", tags: [String(i)] }));
+  assert.match(feedPlan(full, [A], { type: "power", area: "NO1" }).error, /at most 8/);
+  assert.equal(Object.keys(FEEDS).length, 6);
+});
+
+test("an exchange rate and the bitcoin price: checked as the AP does, on their template's layout", () => {
+  const A = "00000123456789B2", B = "00000123456789B9";
+  assert.deepEqual(feedSource({ type: "fx", currency: " usd ", lang: "en" }), { type: "fx", currency: "USD", in: "NOK", lang: "en" });
+  assert.deepEqual(feedSource({ type: "fx", currency: "usd", in: "eur" }), { type: "fx", currency: "USD", in: "EUR", lang: "nb" });
+  assert.match(feedSource({ type: "fx", currency: "US" }).error, /3 letters/);
+  assert.match(feedSource({ type: "fx", currency: "USD", in: "E1R" }).error, /Priced in/);
+  assert.match(feedSource({ type: "fx", currency: "NOK", in: "nok" }).error, /another currency/);
+  assert.deepEqual(feedSource({ type: "btc", currency: "USD" }), { type: "btc", currency: "usd", lang: "nb" });
+  assert.equal(feedSource({ type: "btc", currency: "" }).currency, "nok");
+  assert.match(feedSource({ type: "btc", currency: "n0k" }).error, /currency code/);
+
+  let p = feedPlan([], [A], { type: "fx", currency: "USD" });
+  assert.deepEqual(p.sources[0], { id: "fx-usd", type: "fx", currency: "USD", in: "NOK", lang: "nb", layout: "exchange-rate",
+    fields: FEEDS.fx.fields, tags: [A] });
+  assert.equal(FEEDS.fx.fields.length, 6);
+  // the same rate takes more tags; another language is another source
+  p = feedPlan(p.sources, [B], { type: "fx", currency: "usd" });
+  assert.deepEqual(p.sources.map((s) => [s.id, s.tags]), [["fx-usd", [A, B]]]);
+  p = feedPlan(p.sources, [B], { type: "fx", currency: "usd", in: "EUR", lang: "en" });
+  assert.deepEqual(p.sources.map((s) => [s.id, s.tags]), [["fx-usd", [A]], ["fx-usd-eur", [B]]]);
+  p = feedPlan([], [A], { type: "btc", currency: "EUR" });
+  assert.equal(p.id, "btc-eur");
+  assert.equal(p.sources[0].layout, "bitcoin");
+  assert.deepEqual(Object.fromEntries(showsOf([{ id: "fx-usd", type: "fx", currency: "USD", in: "NOK", tags: ["a"] },
+    { id: "btc-nok", type: "btc", currency: "nok", tags: ["b"] }])), { a: "the USD/NOK exchange rate", b: "the bitcoin price in NOK" });
+  // a template's layout missing from a tag's file
+  const lays = { layouts: [{ model: "2.9", layouts: ["exchange-rate"] }, { model: "1.54", layouts: [] }] };
+  assert.deepEqual(missingModels([{ model: "2.9" }, { model: "1.54" }], lays, "exchange-rate"), ["1.54"]);
+  assert.equal(sourceSummary({ type: "fx", status: { fetched_at: 100, values: { pair: "USD/NOK", rate: "9,5325" } } }, 100).text,
+    "USD/NOK 9,5325 · fetched now");
+});
+
+test("showsOf: what each tag shows now, for the Send list", () => {
+  const src = [
+    { id: "oslo", type: "met", place: "Oslo", tags: ["a"] },
+    { id: "picture", type: "image", url: "http://ha.local/c.png", tags: ["b"] },
+    { id: "power", type: "power", area: "NO1", tags: ["c"] },
+    { id: "jul", type: "countdown", place: "Jul", tags: ["d"] },
+    { id: "news", type: "rss", url: "https://news.example/top.rss", tags: ["e"] },
+    { id: "calendar", type: "ical", url: "https://cal.example/a.ics", tags: ["f"] },
+    { id: "odd", type: "caldav", tags: ["g"] },
+  ];
+  assert.deepEqual(Object.fromEntries(showsOf(src)), {
+    a: "the weather for Oslo", b: "the picture from ha.local/c.png", c: "the electricity price in NO1",
+    d: "the countdown to Jul", e: "the headlines from news.example", f: "the calendar from cal.example", g: "the source odd",
+  });
+  assert.equal(showsOf(undefined).size, 0);
 });

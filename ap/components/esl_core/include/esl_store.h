@@ -12,10 +12,12 @@
  * Content, per-tag settings (esl_tag_cfg_t) and the AP-wide default interval
  * are persisted through the persist hooks (NVS on the device) when they
  * change; status lives in RAM only. Answering a POLL builds one short
- * message from the table (krav A3: microseconds, well inside the 5 ms).
+ * message from the table (requirement A3 in docs/requirements.md: microseconds, well inside the 5 ms).
  *
  * HTTP and radio run in different tasks, so every public function takes the
  * lock. The persist hooks are called after the lock is released. */
+
+struct esl_hours; /* esl_hours_t, below */
 
 typedef struct {
     void *ctx;
@@ -57,6 +59,9 @@ typedef struct {
     /* The radio channel set at run time and a planned move (esl_store_move_channel):
      * channel 0 = the built-in one, next 0 = none; erase what is 0. May be NULL. */
     void (*persist_channel)(void *ctx, uint8_t channel, uint8_t next);
+    /* The night mode and update window (esl_store_set_hours); h NULL = both off, erase
+     * what is stored. May be NULL. */
+    void (*persist_hours)(void *ctx, const struct esl_hours *h);
 } esl_store_ops_t;
 
 /* Signal history per tag (#261): the last ESL_LINK_HIST POLLs, in RAM only. 2 bytes
@@ -82,6 +87,8 @@ typedef struct {
     bool has_content : 1;
     bool seen : 1;            /* has polled since boot */
     bool cfg_capable : 1;     /* the last POLL carried cfg_ver (tag understands CONFIG) */
+    bool other_ap_id : 1;     /* the last POLL carried an AP id that is not this AP's (#390): CONFIG
+                                 is sent whatever cfg_ver says */
     bool channel_capable : 1; /* ... and the link block (0.9.0 and later): it follows a channel move */
     bool fw_taken : 1;        /* the tag started on fw_offered (esl_store_fw_taken), so
                                  ESL_POLL_F_FWFAIL is about it (RAM only) */
@@ -91,6 +98,7 @@ typedef struct {
     bool image_taken : 1;     /* it asked for a block of image_offered */
     bool seen_dirty : 1;      /* polled since its record was last saved (esl_store_save_seen) */
     bool has_image : 1;       /* its content is a picture (ESL_LAYOUT_IMAGE), kept with ops.persist_image */
+    bool night_told : 1;      /* its last reply had the night interval (#415): it may sleep that long (RAM only) */
     bool content_unfit : 1;   /* its content does not fit its model's layout file (esl_store_check_layout,
                                  RAM only): ESL_CERR_UNFIT */
     bool content_check : 1;   /* its content or model changed since that was last checked (esl_store_check_tag) */
@@ -99,7 +107,10 @@ typedef struct {
     uint8_t model;            /* ESL_MODEL_*, from the last POLL */
     int8_t rssi;
     uint8_t poll_flags;
-    uint8_t content_err;      /* ESL_CERR_*: why the content is not shown (from the last POLL) */
+    uint8_t content_err : 7;  /* ESL_CERR_*: why the content is not shown (from the last POLL) */
+    uint8_t layout_price : 1; /* its content has the built-in layout "price" (ESL_LAYOUT_PRICE): with
+                                 layout_hash, what GET /api/tags shows as its layout. A bit here, as
+                                 the bools above fill their two bytes: one more grows every slot by 8 */
     uint16_t battery_mv;
     uint64_t last_seen_ms;
     uint32_t content_id;      /* 0 when no content is set */
@@ -148,6 +159,50 @@ static inline uint64_t esl_tag_seen_ms_ago(const esl_tag_t *t, uint64_t now_ms)
  * this long after it is due, so the schedule has set it by then. */
 #define ESL_DUE_MARGIN_S 2
 
+/* ---- Night mode and update window (#415) ----
+ * Two daily spans in the AP's local time (esl_clock_utc_offset), each from a minute after
+ * midnight to another; one that ends before it starts runs over midnight (22:00-06:00).
+ *
+ * Night mode: a tag that polls during the night is told night_poll_s as its next_poll_s
+ * instead of its own interval, when that is longer and the tag then wakes before the night
+ * ends; otherwise it gets its own interval. So every tag is back on its own interval by the
+ * end of the night, and the tags stay spread over it as they were. Scheduled content due in
+ * the night still gets its early poll (ESL_DUE_MARGIN_S). Nothing changes in the tags: they
+ * have always slept for the next_poll_s of the last reply. While night mode is set, a tag
+ * without an interval of its own is told ESL_TAG_BUILTIN_POLL_S rather than 0 (which would
+ * leave it on the night interval in the morning).
+ *
+ * Update window: outside it, a tag that shows a picture from the AP is not offered a new
+ * one; it gets it at its first poll inside the window. A tag that shows nothing from the AP
+ * yet (new, or after a reset) gets its first picture at once. CONFIG and tag firmware are
+ * not held.
+ *
+ * Both need the time: while the AP does not know it (after a restart, before NTP), neither
+ * applies. */
+#define ESL_NIGHT_POLL_MIN_S 60
+#define ESL_NIGHT_POLL_MAX_S 3600 /* = ESL_CFG_POLL_MAX_S: the channel move's wait covers it */
+#define ESL_HOURS_LEN 12 /* esl_hours_encode */
+
+typedef struct esl_hours {
+    uint16_t night_from, night_to; /* minutes after local midnight, 0..1439 */
+    uint16_t night_poll_s;         /* 0 = no night mode */
+    uint16_t window_from, window_to;
+    bool window;                   /* the update window is on */
+} esl_hours_t;
+
+/* The minute of the local day m (0..1439) is in the span from..to (to not included) */
+bool esl_hours_in(uint16_t from, uint16_t to, uint32_t m);
+/* Night mode is on and unix_s (0 = unknown) is in the night */
+bool esl_hours_night_now(const esl_hours_t *h, uint32_t unix_s);
+/* The update window is on and unix_s (known) is outside it */
+bool esl_hours_window_closed(const esl_hours_t *h, uint32_t unix_s);
+/* For storage: ESL_HOURS_LEN bytes; decode is false for a bad or unknown blob */
+size_t esl_hours_encode(const esl_hours_t *h, uint8_t *out);
+bool esl_hours_decode(const uint8_t *in, size_t len, esl_hours_t *h);
+/* The values the API takes: spans that do not start where they end, minutes and the
+   night interval in range */
+bool esl_hours_valid(const esl_hours_t *h);
+
 /* Why a tag's content is not shown */
 #define ESL_CERR_NONE         0
 #define ESL_CERR_NO_IMAGE     1 /* the tag does not take images (old firmware, or no SPI flash) */
@@ -164,6 +219,19 @@ const char *esl_content_err_text(uint8_t err);
 #define ESL_STORE_MAX_CHUNKS 128
 #define ESL_STORE_MAX_TAGS (ESL_STORE_CHUNK * ESL_STORE_MAX_CHUNKS)
 
+#define ESL_STORE_FOREIGN 16 /* tags of other APs remembered as refused (#390) */
+#define ESL_STORE_OTHER_APS 8 /* other APs whose tags were heard here, for GET /api/health */
+
+/* An AP whose tags poll here and are turned away (or taken, when adopted), by its id */
+typedef struct {
+    uint32_t ap_id;
+    uint32_t polls;          /* POLLs heard from its tags since the AP started */
+    uint64_t last_ms;        /* the last one */
+    bool lost_long;          /* the last one was from a tag lost for an hour (it would be taken on adopt) */
+    uint64_t answered_ms;    /* the last one from a tag its own AP had answered (lost 0): that AP runs; 0 = none */
+    unsigned tags;           /* filled in by esl_store_other_aps: its tags among the last refused */
+} esl_other_ap_t;
+
 typedef struct {
     esl_tag_t *chunk[ESL_STORE_MAX_CHUNKS];
     esl_content_t *content[ESL_STORE_MAX_CHUNKS]; /* RAM copies, only without ops.load_content */
@@ -172,6 +240,7 @@ typedef struct {
     bool full;                /* a new tag found no slot (none free, and the table could not grow) */
     uint16_t next_poll_s;     /* default interval for tags without their own poll_s (0 = tag keeps its own) */
     uint16_t next_poll_builtin; /* next_poll_s from esl_store_init (menuconfig on the device) */
+    esl_hours_t hours;        /* night mode and update window */
     /* The radio channel (esl_store_move_channel below) */
     uint8_t channel;          /* the one the radio is on */
     uint8_t channel_builtin;  /* menuconfig's (ESL_DEFAULT_CHANNEL until esl_store_set_builtin_channel) */
@@ -182,8 +251,39 @@ typedef struct {
     bool channel_force;       /* the planned move goes even with tags that cannot follow */
     uint16_t channel_stopped; /* tags with old firmware that stopped the last move (1 for an old radio), 0 = none */
     uint8_t radio_channel[ESL_STORE_RADIOS]; /* the channel of each extra radio, [0] unused (esl_store_set_radio_channel) */
+    /* The AP id (#390, esl_store_set_ap_id below) */
+    uint32_t ap_id;           /* this AP's, sent in CONFIG; 0 = none (every tag is answered, as before #390) */
+    uint32_t adopt_id;        /* tags of this other AP are taken once they are lost (LOST_LONG), 0 = none */
+    bool adopt_all;           /* ... and so are those of any other AP */
+    uint32_t prev_id;         /* this AP's id before the last change: its tags are answered at once, 0 = none */
+    struct { uint64_t mac; uint32_t ap_id; } foreign[ESL_STORE_FOREIGN]; /* recently refused, newest at foreign_at */
+    unsigned foreign_at;
+    esl_other_ap_t other_aps[ESL_STORE_OTHER_APS]; /* ap_id 0 = free; the oldest goes when full */
     esl_store_ops_t ops;
 } esl_store_t;
+
+/* ---- The AP id (#390, docs/protocol.md "The AP id") ----
+ * A tag sends the id of the AP it belongs to in its POLL and learns it from CONFIG. The AP
+ * answers a tag that reports another AP's id only when that tag takes any AP (ESL_POLL_LF_ANY_AP),
+ * or it has been lost for a while (ESL_POLL_LF_LOST_LONG) and the AP adopts that id or all
+ * ids. Otherwise the AP stays silent, and keeps the tag's MAC for a while so its IMG_REQ and
+ * FW_REQ get no answer either. A store without an id (0) answers every tag. */
+void esl_store_set_ap_id(esl_store_t *st, uint32_t ap_id);
+void esl_store_set_adopt(esl_store_t *st, bool all, uint32_t id);
+/* The AP's own id before a change (a restore, PUT /api/config "ap_id"): tags that still carry it
+   are this AP's, answered at once (no LOST_LONG), and move to the new id with the CONFIG. 0 = none */
+void esl_store_set_prev_id(esl_store_t *st, uint32_t prev_id);
+/* Whether the AP answers this tag's IMG_REQ and FW_REQ: not one it turned away lately, and,
+   when the AP has an id, one in its table (a tag adds itself with a POLL). So the tags of a
+   neighbour on the same channel get no IDLE that would cut their download off, however many
+   there are, nor this AP's firmware (#398) */
+bool esl_store_req_welcome(esl_store_t *st, uint64_t mac);
+/* True when the AP answers this POLL; false notes the MAC as refused */
+bool esl_store_poll_welcome(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint64_t now_ms);
+/* The other APs heard of (refused tags), newest first; returns how many went into out */
+unsigned esl_store_other_aps(esl_store_t *st, esl_other_ap_t *out, unsigned max);
+/* True when the MAC was refused lately (its IMG_REQ and FW_REQ get no answer) */
+bool esl_store_refused(esl_store_t *st, uint64_t mac);
 
 typedef enum {
     ESL_STORE_OK = 0,
@@ -309,7 +409,15 @@ void esl_store_reset_next_poll(esl_store_t *st);
 /* Loads a persisted default interval at boot. Does not call persist_next_poll. */
 void esl_store_restore_next_poll(esl_store_t *st, uint16_t next_poll_s);
 uint16_t esl_store_get_next_poll(esl_store_t *st);
-/* ---- The radio channel (#256, docs/protokoll.md "Channel") ----
+/* Night mode and update window (above): sets and persists them (persist_hours); h NULL
+ * turns both off. Restore loads them at boot without persisting. */
+void esl_store_set_hours(esl_store_t *st, const esl_hours_t *h);
+void esl_store_restore_hours(esl_store_t *st, const esl_hours_t *h);
+void esl_store_get_hours(esl_store_t *st, esl_hours_t *out);
+/* Outside the update window now, for a tag that shows content_id (0: nothing from the AP):
+ * its new picture waits (esl_radio, esl_rhost). */
+bool esl_store_image_held(esl_store_t *st, uint32_t content_id);
+/* ---- The radio channel (#256, docs/protocol.md "Channel") ----
  * The AP announces the channel it is on, or the one it is moving to, in every tag's
  * CONFIG (esl_tag_cfg_t.channel, part of cfg_ver). A tag keeps polling where it hears
  * the AP and tries the announced channel first when the AP stops answering there. So a
@@ -375,9 +483,13 @@ esl_tag_cfg_t esl_store_tag_ap(esl_store_t *st, const esl_tag_t *t, const esl_ta
  * interval and the announced channel. */
 void esl_store_tag_defaults(esl_store_t *st, esl_tag_cfg_t *out);
 
-/* The interval a tag is told (next_poll_s): its own poll_s, else the default.
- * The default for a MAC not in the table. Used for FW and IMG blocks. */
+/* The interval a tag is told (next_poll_s): its own poll_s, else the default, longer in
+ * the night (night mode above). The default for a MAC not in the table. Used for FW and
+ * IMG blocks, by esl_rhost and for the health check. */
 uint16_t esl_store_tag_poll_s(esl_store_t *st, uint64_t mac);
+/* The longest the tag may sleep after its last poll (for the health check): the interval
+ * it is told now, or the night interval when its last reply had it (0 as above). */
+uint16_t esl_store_tag_expect_s(esl_store_t *st, uint64_t mac);
 
 /* Tag firmware (esl_tagfw): called after esl_store_on_poll answered IDLE.
  * True when the tag should get the first FW block of image version ver (0 =

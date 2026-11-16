@@ -2,7 +2,7 @@
 
 ## From the web page (recommended)
 
-The [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab is a guide in three steps. It needs Chrome or Edge on a computer.
+The [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab is a guide in three steps. It needs Chrome, Edge or Firefox 151+ on a computer.
 
 1. **Choose AP.** Pick the card for your setup ([Choosing a board](Access-point-boards)).
 2. **Flash.** Plug in each board when the page asks and press **Connect and flash**. With a C6 radio, the C6 comes first, then the S3 on its port marked **USB**. If a board is not found, hold **BOOT** while you plug it in. The page checks that the chip is the one the step is for, and reads what is on the board: an AP that runs OpenESL keeps its data, a new board is erased first.
@@ -29,6 +29,10 @@ The page first reads the partition table on the board. The same table as the new
 ## ESP32-S3 + ESP32-C6
 
 Both boards are flashed from the web page: the C6 radio first (plain or with screen), then the S3. See [ESP32-S3 + C6](ESP32-S3-and-C6) and [ESP32-S3 with a wireless C6 radio](ESP32-S3-with-wireless-C6).
+
+## Linux AP
+
+The AP itself is a program on the computer, not flashed: see [Linux AP](Linux-AP). The web page flashes its C6 radio: pick **Linux + C6 radio**, then **C6 on USB** for the radio plugged into the computer, or **Extra C6 over WiFi** for each radio in another room. The C6 on USB is erased first; the page then shows how to start the program.
 
 ## Building it yourself
 

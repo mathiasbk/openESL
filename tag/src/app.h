@@ -25,6 +25,7 @@ typedef struct {
     uint16_t long_poll_s;     /* interval once the AP has been gone for long_after_min (CFG_LONG_POLL_S) */
     uint16_t long_after_min;  /* (CFG_LONG_AFTER_MIN), ESL_CFG_LONG_NEVER = never */
     uint8_t channel;          /* the AP's channel, now or after a planned move; 0 = CFG_CHANNEL */
+    uint32_t ap_id;           /* the AP the tag belongs to (#390), sent in every POLL; 0 = none yet */
 } app_cfg_t;
 
 typedef struct {

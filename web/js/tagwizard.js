@@ -90,7 +90,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
   function choosePage() {
     return `
       <h2>Which tag do you have?</h2>
-      ${hasSerial() ? "" : `<p class="warn">Flashing needs Chrome or Edge on a computer (Web Serial).</p>`}
+      ${hasSerial() ? "" : `<p class="warn">Flashing needs Chrome, Edge or Firefox 151+ on a computer (Web Serial).</p>`}
       <div class="wz-cards">${names.map((n) => {
         const m = MODELS[n];
         const pic = m.photo
@@ -190,7 +190,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
       </p>
       <p><button type="button" class="ghost" id="tw-more">Flash more tags</button></p>
     </div>
-    <p class="wz-hint">ⓘ These tags do not need the jig again: later firmware reaches them over the radio, from the Firmware card on the <a href="#dashboard">Dashboard</a>. <a href="${TAG_OTA}" target="_blank" rel="noopener">How it works</a></p>`;
+    <p class="wz-hint">ⓘ These tags do not need the jig again: later firmware reaches them over the radio, from the <a href="#dashboard/firmware">Firmware page of the Dashboard</a>. <a href="${TAG_OTA}" target="_blank" rel="noopener">How it works</a></p>`;
   }
 
   // ---------- actions ----------
@@ -217,7 +217,7 @@ export function initTagWizard(info, store, { onBackup = () => {}, exportBackups 
     g.textAlign = "right";
     g.font = `bold ${Math.round(h * 0.36)}px system-ui, sans-serif`;
     g.fillStyle = ink;
-    g.fillText("49,90", w - Math.round(w * 0.04), h - h * 0.24);
+    g.fillText("49.90", w - Math.round(w * 0.04), h - h * 0.24);
   }
 
   function wire() {

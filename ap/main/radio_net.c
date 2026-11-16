@@ -215,8 +215,14 @@ static int place_for(uint64_t id, bool *is_new)
     for (unsigned i = 0; i < RADIOS; i++)
         known += places[i].id != 0;
     for (unsigned i = 0; i < RADIOS; i++) {
-        if (places[i].id != id)
+        if (!esl_nlink_same_radio(places[i].id, id))
             continue;
+        if (places[i].id != id) {
+            /* known by the id older firmware sent: it keeps its place and channel */
+            ESP_LOGI(TAG, "radio %016" PRIX64 " was %016" PRIX64 " (older firmware)", id, places[i].id);
+            places[i].id = id;
+            save_places();
+        }
         if (i && known == 1 && places[i].conn < 0) {
             /* the only radio left, and place 0 is free (the radio there was forgotten, say a
                broken C6 this one replaced): it moves to the AP's channel, where tags from
@@ -310,7 +316,8 @@ static bool hello_locked(conn_t *c, esl_nlink_host_t *n, bool *is_new_out)
     n->channel = i ? p->channel : channel;
     links[i] = (esl_radio_link_t){.up = true, .ip = c->ip, .seen_ms = now_ms(), .ver = n->radio.radio_ver,
                                   .id = p->id, .channel = p->channel,
-                                  .tags = esl_rowners_count(&owners, (uint8_t)i)};
+                                  .tags = esl_rowners_count(&owners, (uint8_t)i),
+                                  .no_ap_id = !(n->radio.features & ESL_NLINK_F_APID)};
     owners.radios = (uint8_t)connected();
     if (i == 0)  /* a C6 from before 0.9.0 retunes but does not tell the tags */
         esl_store_set_radio_follows(store, n->radio.features & ESL_NLINK_F_CHANNEL);
