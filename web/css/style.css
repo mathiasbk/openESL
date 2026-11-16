@@ -441,6 +441,8 @@ button.small { padding: 2px 8px; font-size: var(--fs-sm); }
 .fw-trial.ok { color: var(--ok); }
 .fw-trial.error { color: var(--error); }
 .fw-prog progress { width: 80px; height: 10px; vertical-align: middle; margin: 0 6px 0 2px; }
+.lx-box { border: 1px solid var(--line); border-radius: var(--radius); padding: var(--space-2) var(--space-3); margin: 0 0 var(--space-3); }
+.lx-box h3 { margin: 0 0 var(--space-2); }
 button.fw-up { padding: 0 6px; font-weight: 700; line-height: 1.4; margin-left: var(--space-1); }
 .mac-ask[hidden] { display: none; }
 #tag-mac { width: 18em; max-width: 100%; }

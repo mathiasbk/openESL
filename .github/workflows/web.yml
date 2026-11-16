@@ -133,17 +133,20 @@ jobs:
         run: |
           if [ -n "$rel" ]; then
             echo "Firmware from release $rel"
-            gh release download "$rel" --repo "$GITHUB_REPOSITORY" --dir rel --pattern 'openesl-*.bin'
+            gh release download "$rel" --repo "$GITHUB_REPOSITORY" --dir rel --pattern 'openesl-*.bin' --pattern 'openesl-ap-linux-*'
             # one tag image per model in shared/models.json (build.py tells them apart by their headers)
-            # and one AP image per board in ap/boards/ (a board added after the release is skipped)
+            # and one AP image per board in ap/boards/ (a board added after the release is skipped),
+            # and the Linux AP's program per machine, which its dashboard offers (linux_ap)
             FIRMWARE_RELEASE="$rel" python3 web/build.py --firmware \
               $(python3 shared/models.py names | while read -r build name; do printf 'rel/openesl-tag-%s-%s.bin ' "$name" "$rel"; done) \
-              $(python3 ap/build.py --release | while read -r artifact release; do printf 'rel/%s-%s.bin ' "$release" "$rel"; done)
+              $(python3 ap/build.py --release | while read -r artifact release; do printf 'rel/%s-%s.bin ' "$release" "$rel"; done) \
+              $(for a in armv7 aarch64 x86_64; do printf 'rel/openesl-ap-linux-%s-%s ' "$a" "$rel"; done)
           else
             echo "No release yet: firmware from this build"
             python3 web/build.py --firmware \
               $(python3 shared/models.py builds | tr ' ' '\n' | sed 's|.*|fw/tag-firmware/tag-&.bin|') \
-              $(python3 ap/build.py --release | while read -r artifact release; do printf 'fw/ap-firmware/%s.bin ' "$artifact"; done)
+              $(python3 ap/build.py --release | while read -r artifact release; do printf 'fw/ap-firmware/%s.bin ' "$artifact"; done) \
+              $(ls fw/linux-ap/openesl-ap-* 2>/dev/null)
           fi
       - uses: actions/upload-pages-artifact@v5
         if: github.event_name != 'pull_request'

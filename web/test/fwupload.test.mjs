@@ -2,7 +2,7 @@
 // parts as esl_tagfw_part() and the AP's POST /api/ota do (docs/openapi.yaml).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PART, TAGFW_PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion, tagFirmwarePlan, radioImageFor, radioSendQuestion, waitRadioBack } from "../js/fwupload.js";
+import { PART, TAGFW_PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion, tagFirmwarePlan, radioImageFor, radioSendQuestion, waitRadioBack, isLinuxAp, linuxImageFor, linuxBlocked, linuxSendQuestion, sendLinuxAp, waitLinuxBack } from "../js/fwupload.js";
 
 const enc = new TextEncoder();
 
@@ -318,4 +318,102 @@ test("what is asked before AP firmware goes out", () => {
   assert.equal(firmwareKind(apImage(4096, "0.4.4", 23)).chip, "esp32c5");
   assert.match(apSendQuestion(firmwareKind(apImage(4096, "0.4.4", 23)), { ...ota, chip: "esp32c6" }), /for the ESP32-C5, and this AP is an ESP32-C6/);
   assert.doesNotMatch(apSendQuestion(firmwareKind(apImage(4096, "0.4.4")), { ...ota, chip: "esp32c6" }), /refuse/);
+});
+
+// ---- The AP as a Linux program (ap/linux, docs/linux-ap.md "Updating") ----
+
+// The start of an ELF: class (1 32-bit, 2 64-bit), little-endian, e_machine at 18
+function elf(cls, machine, size = 64) {
+  const d = new Uint8Array(size);
+  d.set([0x7f, 0x45, 0x4c, 0x46, cls, 1, 1]);
+  d[18] = machine & 0xff;
+  d[19] = machine >> 8;
+  return d;
+}
+const linuxOta = (extra) => ({ slot: "binary", version: "0.11.0", other_slot: null, other_version: null, confirmed: true, self_update: true, self_update_blocked: null, uploading: false, ...extra });
+const linuxInfo = { version: "v0.12.0", release: true, linux_ap: [{ arch: "aarch64", file: "ap-linux-aarch64", version: "0.12.0", size: 4864392 }, { arch: "armv7", file: "ap-linux-armv7", version: "0.12.0" }, { arch: "x86_64", file: "ap-linux-x86_64", version: "0.12.0" }], ap_boards: [{ file: "ap-openesl", target: "esp32c6", display: false }], ota: { "ap-openesl": true }, ap_version: "0.12.0" };
+
+test("a Linux AP program is told apart by its machine", () => {
+  assert.deepEqual(firmwareKind(elf(2, 62)), { kind: "linux", size: 64, version: null, arch: "x86_64" });
+  assert.equal(firmwareKind(elf(2, 183)).arch, "aarch64");
+  assert.equal(firmwareKind(elf(1, 40)).arch, "armv7");
+  assert.equal(firmwareKind(elf(2, 243)).kind, null); // RISC-V: not built
+  assert.equal(firmwareKind(elf(1, 62)).kind, null); // 32-bit class with x86-64: nonsense
+});
+
+test("a Linux AP gets the program for its machine, never an ESP32 image", () => {
+  const ota = linuxOta({ arch: "armv7", other_slot: "prev", other_version: "0.10.0" });
+  assert.equal(isLinuxAp(ota), true);
+  assert.equal(isLinuxAp({ slot: "ota_0" }), false);
+  assert.equal(apImageFor(ota, linuxInfo), null);
+  assert.deepEqual(linuxImageFor(ota, linuxInfo), { file: "ap-linux-armv7", version: "0.12.0", size: null, arch: "armv7", newer: true });
+  // 0.11.0 does not say its machine: the one picked on the page
+  assert.equal(linuxImageFor(linuxOta(), linuxInfo), null);
+  assert.equal(linuxImageFor(linuxOta(), linuxInfo, "aarch64").size, 4864392);
+  assert.equal(linuxImageFor(linuxOta({ version: "0.12.0", arch: "x86_64" }), linuxInfo).newer, false);
+  assert.equal(linuxImageFor(linuxOta({ arch: "x86_64" }), { ...linuxInfo, release: false }).newer, false); // a test page offers no update
+  assert.equal(linuxImageFor(linuxOta({ arch: "x86_64" }), { version: "v0.11.0", release: true }), null); // a page from before linux_ap
+  assert.equal(linuxImageFor({ slot: "ota_0", version: "0.11.0", arch: "x86_64" }, linuxInfo), null);
+});
+
+test("why a Linux AP cannot update from here", () => {
+  assert.equal(linuxBlocked(linuxOta()), null);
+  assert.equal(linuxBlocked({ slot: "ota_0" }), null);
+  assert.match(linuxBlocked(linuxOta({ self_update: false, self_update_blocked: "container" })), /docker pull/);
+  assert.match(linuxBlocked(linuxOta({ self_update: false, self_update_blocked: "unguarded" })), /openesl-ap-run/);
+  assert.match(linuxBlocked(linuxOta({ self_update: false, self_update_blocked: "unknown" })), /by hand/);
+});
+
+test("what to ask before a Linux AP update", () => {
+  const k = firmwareKind(elf(2, 62));
+  let q = linuxSendQuestion(k, linuxOta({ arch: "x86_64" }), "0.12.0");
+  assert.match(q, /Update the AP program to 0\.12\.0\? It runs 0\.11\.0 now/);
+  assert.match(q, /goes back to the old one by itself/);
+  assert.doesNotMatch(q, /refuse/);
+  assert.match(linuxSendQuestion(k, linuxOta({ arch: "armv7" })), /for x86_64, and this AP runs on armv7: it will refuse it/);
+  assert.match(linuxSendQuestion(k, linuxOta({ arch: "x86_64" }), "0.10.0"), /older than what it runs/);
+});
+
+test("a Linux AP program goes in one request, force only when asked", async () => {
+  const reqs = [];
+  const ap = { send: async (method, path, body) => {
+    reqs.push({ method, path, len: body.length });
+    return path.includes("force=1")
+      ? { status: 200, body: enc.encode(JSON.stringify({ version: "0.11.0", previous: "0.11.0", restarting: true })) }
+      : { status: 409, body: enc.encode(JSON.stringify({ error: "0.11.0 is not newer than the running 0.11.0 (add ?force=1 to install it anyway)" })) };
+  } };
+  const data = elf(2, 62, 100000);
+  await assert.rejects(sendLinuxAp(ap, data), (e) => e.status === 409 && /not newer/.test(e.message));
+  assert.equal((await sendLinuxAp(ap, data, true)).restarting, true);
+  assert.deepEqual(reqs, [{ method: "POST", path: "/api/ota", len: 100000 }, { method: "POST", path: "/api/ota?force=1", len: 100000 }]);
+});
+
+test("after a Linux AP update: confirmed, rolled back, or gone", async () => {
+  let now = 0;
+  const realNow = Date.now;
+  Date.now = () => now;
+  const sleep = async (ms) => { now += ms; };
+  const answers = (list) => {
+    let i = 0;
+    return { call: async () => { const a = list[Math.min(i++, list.length - 1)]; if (a instanceof Error) throw a; return a; } };
+  };
+  try {
+    const trial = [];
+    // the old one answers once before the restart, then the new one on trial, then confirmed
+    let r = await waitLinuxBack(answers([linuxOta(), new Error("restarting"), linuxOta({ version: "0.12.0", confirmed: false }), linuxOta({ version: "0.12.0", other_slot: "prev", other_version: "0.11.0" })]),
+      "0.12.0", "0.11.0", { sleep, onTrial: (o) => trial.push(o.version) });
+    assert.equal(r.ok, true);
+    assert.match(r.text, /runs 0\.12\.0 and has confirmed it\. 0\.11\.0 is kept/);
+    assert.deepEqual(trial, ["0.12.0"]);
+    // on trial, then openesl-ap-run puts the old one back
+    now = 0;
+    r = await waitLinuxBack(answers([linuxOta({ version: "0.12.0", confirmed: false }), linuxOta({ version: "0.12.0", confirmed: false }), linuxOta({ version: "0.12.0", confirmed: false }), linuxOta({ version: "0.12.0", confirmed: false }), linuxOta()]), "0.12.0", "0.11.0", { sleep });
+    assert.equal(r.ok, false);
+    assert.match(r.text, /back on 0\.11\.0/);
+    now = 0;
+    r = await waitLinuxBack(answers([new Error("gone")]), "0.12.0", "0.11.0", { sleep, timeoutMs: 10000 });
+    assert.match(r.text, /has not answered/);
+  } finally {
+    Date.now = realNow;
+  }
 });
