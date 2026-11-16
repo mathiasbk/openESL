@@ -23,6 +23,9 @@
 ap_t ap;
 int ap_verbose;
 static volatile sig_atomic_t stop;
+static volatile sig_atomic_t restart; /* an update is in place: exit 75 */
+
+#define EXIT_RESTART 75 /* EX_TEMPFAIL: openesl-ap-run and the service unit start it again */
 
 static const radio_backend_t *const backends[] = {&radio_sim, &radio_coproc, &radio_spimodem, &radio_none, NULL};
 
@@ -325,6 +328,12 @@ static void local_clock(void)
     esl_clock_set_today(t ? (int32_t)(((int64_t)t + l.tm_gmtoff) / 86400) : -1);
 }
 
+void ap_request_restart(void)
+{
+    restart = 1;
+    stop = 1;
+}
+
 static void on_signal(int sig)
 {
     (void)sig;
@@ -373,6 +382,8 @@ static int radio_loop(const radio_backend_t *b)
         }
         if (now - last_tick >= 1000) {
             last_tick = now;
+            if (now >= (uint64_t)ota_confirm_delay_s() * 1000)
+                ota_confirm();
             local_clock();
             esl_sched_tick(&ap.sched, &ap.store, now);
             uint8_t ch = esl_store_channel_step(&ap.store, now);
@@ -420,6 +431,7 @@ int main(int argc, char **argv)
     }
     if (!load_token(&o) || !store_files_open(o.data, o.max_tags, (uint16_t)o.next_poll_s, (uint8_t)o.channel))
         return 1;
+    ota_init();
     sync_clock();
     ap.pan = (uint16_t)o.pan;
 
@@ -433,7 +445,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    /* the API: as app_main, without WiFi, OTA or data sources */
+    /* the API: as app_main, without WiFi or data sources */
     uint8_t rnd[4] = {0};
     FILE *r = fopen("/dev/urandom", "rb");
     if (r) {
@@ -484,5 +496,5 @@ int main(int argc, char **argv)
     if (b->close)
         b->close(&ap.link);
     ap_log("stopped");
-    return rc;
+    return restart ? EXIT_RESTART : rc;
 }

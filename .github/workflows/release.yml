@@ -126,7 +126,9 @@ jobs:
           for f in fw/linux-ap/openesl-ap-*; do
             cp "$f" "out/openesl-ap-linux-${f##*/openesl-ap-}-$TAG"
           done
-          (cd out && sha256sum *.bin openesl-ap-linux-* > SHA256SUMS.txt && cat SHA256SUMS.txt)
+          # what starts it, and brings the old version back after a bad update (docs/linux-ap.md, "Updating")
+          cp ap/linux/openesl-ap-run ap/linux/openesl-ap.service out/
+          (cd out && sha256sum *.bin openesl-ap-linux-* openesl-ap-run openesl-ap.service > SHA256SUMS.txt && cat SHA256SUMS.txt)
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}

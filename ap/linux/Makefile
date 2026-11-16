@@ -9,7 +9,7 @@
 ROOT    := $(abspath ../..)
 CORE    := $(ROOT)/ap/components/esl_core
 COPROC  := $(ROOT)/ap/components/esl_coproc
-VERSION := $(shell cat $(ROOT)/VERSION)
+VERSION ?= $(shell cat $(ROOT)/VERSION)
 
 ZIG_armv7   := arm-linux-musleabihf -mcpu=cortex_a9   # Cortex-A9 and newer
 ZIG_aarch64 := aarch64-linux-musl
@@ -39,7 +39,7 @@ LDLIBS  := -lpthread -lm
 CORE_SRCS := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c))
 # the tag's fonts and barcodes, which esl_render draws with (as esl_core/CMakeLists.txt)
 TAG_SRCS  := $(ROOT)/tag/src/font.c $(ROOT)/tag/src/barcode.c $(wildcard $(ROOT)/tag/fonts/font_*.c)
-SRCS      := main.c store_files.c http.c netradio.c radio_sim.c radio_coproc.c radio_spimodem.c radio_none.c
+SRCS      := main.c store_files.c http.c netradio.c radio_sim.c radio_coproc.c radio_spimodem.c radio_none.c ota.c
 OBJS      := $(SRCS:%.c=$(OUT)/%.o) $(CORE_SRCS:$(CORE)/%.c=$(OUT)/core/%.o) $(OUT)/esl_coproc.o \
              $(TAG_SRCS:$(ROOT)/tag/%.c=$(OUT)/tag/%.o) $(OUT)/webui_files.o
 DEPS      := ap.h Makefile $(wildcard $(CORE)/include/*.h $(ROOT)/shared/*.h) $(ROOT)/VERSION

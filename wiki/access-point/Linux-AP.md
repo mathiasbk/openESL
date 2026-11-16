@@ -19,7 +19,7 @@ The usual setup has one radio on the computer (the C6 on USB, or a gateway's mod
 ## Compared with the ESP32 boards
 
 - **More room:** how many labels depends on the computer, not on a small chip; the label designer on the AP's own page (Design tab), and data in files: back it up from the dashboard as on any AP, or copy its data folder while it is stopped.
-- **No WiFi setup and no OTA:** the computer has its own network, and you update the AP by replacing the program. The API token is made at the first start and kept in a file.
+- **No WiFi setup:** the computer has its own network. The API token is made at the first start and kept in a file.
 - **Not there yet:** the webhook, data sources such as [weather](Weather) or [electricity price](Electricity-price), and updating the AP from the dashboard. Labels get firmware updates as usual.
 
 ## Setting it up
@@ -35,7 +35,9 @@ The usual setup has one radio on the computer (the C6 on USB, or a gateway's mod
 
    The log says `radio 1.1 up on channel 25` when the C6 is ready. Your user needs to be in the `dialout` group to open the port.
 4. **Open the dashboard** at `http://<computer>:8080/dashboard` and paste the token from `~/openesl/token`.
-5. **Run it as a service** so it starts with the computer: the [systemd unit and its install commands](https://github.com/mathiasbk/openESL/blob/master/ap/linux/openesl-ap.service).
+5. **Run it as a service** so it starts with the computer: the [systemd unit and its install commands](https://github.com/mathiasbk/openESL/blob/master/ap/linux/openesl-ap.service). It starts the program through `openesl-ap-run` (also in the release), which is what makes updating through the API safe: a new version that does not start or does not answer within a minute is replaced by the old one.
+
+**Updating:** send the new `openesl-ap-linux-<arch>-<version>` file to the AP with `POST /api/ota` (`curl --data-binary @file`, with the token); it restarts into it by itself. You can also stop the service and replace the file by hand. In Docker, pull the new image instead.
 
 Start a new Linux AP on another radio channel than any AP you already use (`--channel`): a new AP takes over any lost label on its channel for its first 14 days.
 

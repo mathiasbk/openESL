@@ -21,6 +21,7 @@
 
 #define HEAD_MAX 8192
 #define URI_MAX 512
+#define OTA_BODY_MAX (32L * 1024 * 1024) /* a new openesl-ap, streamed to a file (ota.c) */
 #define BODY_MAX (1024 * 1024)        /* a picture (ESL_API_MAX_IMAGE_BODY) or tag firmware in one body */
 #define REPLY_BUF (64 * 1024)         /* a larger reply (GET /api/tags) is collected chunk by chunk */
 #define MAX_CONN 32
@@ -204,6 +205,78 @@ static ssize_t recv_until(int fd, void *buf, size_t n, int64_t deadline)
     return recv(fd, buf, n, 0);
 }
 
+/* ---- /api/ota: the body is a program, so it goes to a file as it arrives (ota.c) ---- */
+
+typedef struct {
+    int fd;
+    const char *have; /* what arrived with the head */
+    size_t have_len;
+    int64_t deadline;
+    size_t got;
+} ota_body_t;
+
+static ssize_t ota_body_read(void *ctx, void *buf, size_t n)
+{
+    ota_body_t *b = ctx;
+    if (b->have_len) {
+        size_t k = n < b->have_len ? n : b->have_len;
+        memcpy(buf, b->have, k);
+        b->have += k;
+        b->have_len -= k;
+        b->got += k;
+        return (ssize_t)k;
+    }
+    ssize_t r = recv_until(b->fd, buf, n, b->deadline);
+    if (r > 0)
+        b->got += (size_t)r;
+    return r;
+}
+
+static void ota_request(int fd, const char *method, const char *uri, const char *auth, const char *have,
+                        size_t have_len, long len, int64_t deadline)
+{
+    unsigned wait_s = 0;
+    char msg[512];
+    int status;
+    pthread_mutex_lock(&api_mutex);
+    status = esl_api_auth_check(&ap.api, auth, ap_now_ms(), &wait_s);
+    pthread_mutex_unlock(&api_mutex);
+    if (status == 401 || status == 429) {
+        char m[80];
+        snprintf(m, sizeof(m), status == 429 ? "too many wrong tokens: locked for %u s" : "unauthorized", wait_s);
+        send_text(fd, status, m);
+        return;
+    }
+    if (strcmp(method, "GET") == 0) {
+        ota_info(msg, sizeof(msg));
+        if (send_head(fd, 200, "application/json", (long)strlen(msg), NULL))
+            send_all(fd, msg, strlen(msg));
+        return;
+    }
+    if (strcmp(method, "POST") != 0) {
+        send_text(fd, 405, "method not allowed");
+        return;
+    }
+    if (have_len > (size_t)len)
+        have_len = (size_t)len;
+    ota_body_t b = {fd, have, have_len, deadline + (int64_t)len * 1000000 / BODY_BYTES_PER_S, 0};
+    const char *q = strchr(uri, '?');
+    status = ota_update(q ? q + 1 : "", len, ota_body_read, &b, msg, sizeof(msg));
+    if (!status)
+        return; /* the upload stopped: the connection is closed without an answer */
+    ap_log("POST /api/ota -> %d", status);
+    /* refused before the body was read: take the rest, or the client gets a reset instead of the answer */
+    char junk[4096];
+    while (status != 200 && b.got < (size_t)len && ota_body_read(&b, junk, sizeof(junk)) > 0)
+        ;
+    if (send_head(fd, status, "application/json", (long)strlen(msg), NULL))
+        send_all(fd, msg, strlen(msg));
+    if (status == 200 && ota_restart_pending()) {
+        shutdown(fd, SHUT_WR); /* the client has its answer before the program stops */
+        ap_request_restart();
+    }
+}
+
 static void request(int fd)
 {
     char *head = malloc(HEAD_MAX + 1);
@@ -259,6 +332,18 @@ static void request(int fd)
         }
         len = strtol(clen, NULL, 10);
     }
+    char path[URI_MAX];
+    snprintf(path, sizeof(path), "%s", uri);
+    char *q = strchr(path, '?');
+    if (q)
+        *q = 0;
+    if (strcmp(path, "/api/ota") == 0 && (!strcmp(method, "POST") || !strcmp(method, "GET") || !strcmp(method, "PUT"))) {
+        if (len > OTA_BODY_MAX)
+            send_text(fd, 413, "body too large");
+        else
+            ota_request(fd, method, uri, auth, head + head_len, got - head_len, len, deadline);
+        goto done;
+    }
     if (len > BODY_MAX) {
         send_text(fd, 413, "body too large");
         goto done;
@@ -283,11 +368,6 @@ static void request(int fd)
         body[len] = 0;
     }
 
-    char path[URI_MAX];
-    snprintf(path, sizeof(path), "%s", uri);
-    char *q = strchr(path, '?');
-    if (q)
-        *q = 0;
     if (strncmp(path, "/api/", 5) == 0) {
         api_request(fd, method, uri, auth, body, (size_t)len);
     } else if (strcmp(method, "GET") != 0) {
