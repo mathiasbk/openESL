@@ -74,6 +74,8 @@ idf.py -B build-c5-wroom-1u-n16r8 -p /dev/ttyACM0 flash monitor
 
 The chip comes from the board (`-DBOARD=...`, default `c6-supermini`), so `idf.py set-target` is not needed.
 
+`build.py` makes each `build-<board>/` folder's `sdkconfig` again from the defaults whenever a `sdkconfig.defaults` that board reads has changed (and once for a folder made before it kept track); it says so, and keeps the old file as `build-<board>/sdkconfig.before-reset`, so changes made there with menuconfig can be copied back. A plain `idf.py build` in `ap/` (with `ap/sdkconfig`) is not checked: after a change in `sdkconfig.defaults`, delete `ap/sdkconfig` before building, or the image is built with the old settings (for example without `-Os`, about 190 KB bigger on the C6).
+
 A board with `ESL_WEB_DESIGNER` packs the renderer from `web/dist/wasm/` (or the directory in `OPENESL_WASM`); the build stops if it is missing or older than what it is built from (`renderer_inputs()` in `web/build.py`: `web/wasm/web_api.c`, the AP's layout and drawing code, the tag's fonts and headers, the boards' `limits`), also on an incremental `idf.py build`, so run `python web/build.py --wasm` again after changing those.
 
 **Updating an AP in use over USB, and keeping its data.** What the AP stores (tags, layout files, WiFi, token) is in NVS at 0x9000, which ways of flashing treat differently:

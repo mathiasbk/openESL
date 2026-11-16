@@ -137,6 +137,90 @@ class Jobs(unittest.TestCase):
         self.assertIn("own 802.15.4 radio", str(e.exception))
 
 
+class FreshSdkconfig(unittest.TestCase):
+    """A build folder's sdkconfig starts again from the defaults when they change, so a folder
+    from before a change in sdkconfig.defaults (-Os in #373) cannot go on building without it"""
+    FILES = ["sdkconfig.defaults", "boards/b1/sdkconfig.defaults"]
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.proj = self.tmp.name
+        os.makedirs(os.path.join(self.proj, "boards", "b1"))
+        os.makedirs(os.path.join(self.proj, "boards", "b2"))
+        self.write("sdkconfig.defaults", "CONFIG_COMPILER_OPTIMIZATION_SIZE=y\n")
+        self.write("boards/b1/sdkconfig.defaults", "CONFIG_X=y\n")
+        self.write("boards/b2/sdkconfig.defaults", "CONFIG_Y=y\n")
+        self.sdkconfig = os.path.join(self.proj, "build-b1", "sdkconfig")
+        self.backup = self.sdkconfig + ".before-reset"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def write(self, rel, text):
+        with open(os.path.join(self.proj, rel), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    def fresh(self, files=None):
+        with redirect_stdout(io.StringIO()) as out:
+            build.fresh_sdkconfig(self.proj, "build-b1", files or self.FILES)
+        return out.getvalue()
+
+    def made(self, text="CONFIG_COMPILER_OPTIMIZATION_DEBUG=y\n"):
+        self.write("build-b1/sdkconfig", text)
+
+    def test_new_folder_is_left_to_idf(self):
+        self.assertEqual(self.fresh(), "")
+        self.assertTrue(os.path.isfile(os.path.join(self.proj, "build-b1", "sdkconfig.defaults.sha256")))
+
+    def test_unchanged_defaults_keep_the_sdkconfig(self):
+        self.fresh()
+        self.made()
+        self.assertEqual(self.fresh(), "")
+        self.assertTrue(os.path.isfile(self.sdkconfig))
+
+    def test_changed_defaults_start_the_sdkconfig_again_and_keep_a_copy(self):
+        self.fresh()
+        self.made("CONFIG_MENUCONFIG_EDIT=y\n")
+        self.write("boards/b1/sdkconfig.defaults", "CONFIG_X=n\n")
+        out = self.fresh()
+        self.assertIn("starting it again", out)
+        self.assertIn("sdkconfig.before-reset", out)
+        self.assertFalse(os.path.exists(self.sdkconfig))
+        with open(self.backup, encoding="utf-8") as f:
+            self.assertEqual(f.read(), "CONFIG_MENUCONFIG_EDIT=y\n")
+
+    def test_another_boards_defaults_do_not_count(self):
+        self.fresh()
+        self.made()
+        self.write("boards/b2/sdkconfig.defaults", "CONFIG_Y=n\n")
+        self.assertEqual(self.fresh(), "")
+        self.assertTrue(os.path.isfile(self.sdkconfig))
+
+    def test_a_defaults_file_that_appears_counts(self):
+        files = self.FILES + ["sniffer.sdkconfig.defaults"]
+        self.fresh(files)
+        self.made()
+        self.write("sniffer.sdkconfig.defaults", "CONFIG_ESL_RADIO_SNIFFER=y\n")
+        self.assertIn("starting it again", self.fresh(files))
+
+    def test_folder_from_before_the_stamp_starts_again(self):
+        os.makedirs(os.path.dirname(self.sdkconfig))
+        self.made()
+        self.write("build-b1/CMakeCache.txt", "")
+        self.assertIn("starting it again", self.fresh())
+        self.assertFalse(os.path.exists(self.sdkconfig))
+        self.assertTrue(os.path.exists(self.backup))
+        self.assertFalse(os.path.exists(os.path.join(self.proj, "build-b1", "CMakeCache.txt")))
+
+    def test_sniffer_reads_its_own_defaults(self):
+        b = {"id": "c6-supermini-lcd", "base": "c6-supermini"}
+        self.assertEqual(build.defaults_files(b, sniffer=True),
+                         ["sdkconfig.defaults", "boards/c6-supermini/sdkconfig.defaults",
+                          "boards/c6-supermini-lcd/sdkconfig.defaults", "sniffer.sdkconfig.defaults"])
+        self.assertEqual(build.defaults_files({"id": "c6-supermini"}),
+                         ["sdkconfig.defaults", "boards/c6-supermini/sdkconfig.defaults"])
+
+
 class PagesOnly(unittest.TestCase):
     def test_every_module_packs_without_pages_only_files(self):
         files = webui.page_files(os.path.join(ROOT, "web"), list(webui.MODULES), renderer=False)
