@@ -56,7 +56,7 @@ BODY_MAX_TOKENS = 1024
 BODY_MAX_BYTES = 24576
 OTA_PART = 16384        # bytes per POST /api/ota part on the serial port (ap/main/serial_api.c)
 TAGFW_PART = 8192       # bytes per PUT /api/tag-firmware part: older AP firmware holds a part in RAM in one block
-TAGFW_TO_MAX = 16       # tags a tag firmware image can be offered to one by one (ESL_TAGFW_CHOSEN in esl_tagfw.h)
+TAGFW_TO_MAX = 64       # tags a tag firmware image can be offered to one by one (ESL_TAGFW_CHOSEN in esl_tagfw.h)
 TAGFW_TO_FROM = (0, 4, 4)  # the first AP firmware that offers tag firmware to chosen tags (to=, #88)
 TAGFW_MAGIC = b"OSFW"   # first bytes of a tag firmware file (tag/tools/build.py, shared/proto.h ESL_FWF_*)
 MAC_RE = re.compile(r"^[0-9A-F]{16}$")

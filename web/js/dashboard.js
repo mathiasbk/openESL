@@ -207,8 +207,9 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       const reply = await c.call("GET", "/api/tags?since=" + encodeURIComponent(since));
       const replyAt = Date.now(); // seen_s_ago is from now, not after the calls below
       const health = await optional("/api/health");
-      const wifi = await optional("/api/wifi");
       const ota = await optional("/api/ota");
+      // a Linux AP has no WiFi of its own: it answers 404, so it is not asked every time
+      const wifi = isLinuxAp(ota) ? null : await optional("/api/wifi");
       const tagfw = await optional("/api/tag-firmware");
       const layouts = await optional("/api/layouts");
       const config = await optional("/api/config");
@@ -1699,11 +1700,16 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       const g = await rolloutGate(model, verNum(version), null, "", { one: false, count: img?.tags?.not_chosen ?? null });
       if (!g || (!g.asked && !confirm(`Give ${modelName(model)} firmware ${version} to every ${modelName(model)} tag, not only the chosen ones?`))) return;
     }
+    // the arrow next to a tag is on the Tags page, the "To all" button on the Firmware page: say it where the click was
+    const say = (text, cls) => {
+      fwMsg(text, cls);
+      if (to !== "all") stMsg(text, cls);
+    };
     try {
       await chooseTagFirmware(client, model, to);
-      fwMsg(to === "all" ? `Every ${modelName(model)} tag gets ${version} over its next polls.` : `Tag ${to} gets ${version} over its next polls.`, "ok");
+      say(to === "all" ? `Every ${modelName(model)} tag gets ${version} over its next polls.` : `Tag ${to} gets ${version} over its next polls.`, "ok");
     } catch (e) {
-      fwMsg("Could not choose it: " + e.message, "error");
+      say("Could not choose it: " + e.message, "error");
     }
     refresh();
   }

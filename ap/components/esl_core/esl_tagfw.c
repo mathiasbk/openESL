@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "esl_tagfw.h"
 #include "esl_crc32.h"
 #include <string.h>
@@ -59,11 +60,56 @@ static bool check_slot(esl_tagfw_t *fw, uint8_t model, const esl_tagfw_img_t *im
     return crc == img->crc;
 }
 
-/* Keeps who an image is for. Outside the lock: NVS writes are slow. */
+/* Keeps who an image is for. Outside the lock: NVS writes are slow.
+ *
+ * Up to 0.11.0 the list had room for 16 tags and was kept as one blob of TO_V1_LEN bytes
+ * under the model's key, read with an exact length; a blob it cannot read makes the image
+ * "for all". So that a version that goes back never reads more than was chosen, the model's
+ * key always holds the v1 form, with the first 16 tags at most (an older AP offers the image
+ * to fewer tags, never to more), and a list of more than 16 is kept whole under a second key
+ * (the model with ESL_TAGFW_TO_LONG) that only this version reads. */
+#define TO_V1_LEN (offsetof(esl_tagfw_to_t, mac) + ESL_TAGFW_CHOSEN_V1 * sizeof(uint64_t))
+
 static void save_to(esl_tagfw_t *fw, uint8_t model, const esl_tagfw_to_t *to)
 {
-    if (fw->ops.save_to)
-        fw->ops.save_to(fw->ops.ctx, model, to, to ? sizeof(*to) : 0);
+    if (!fw->ops.save_to)
+        return;
+    if (!to) {
+        fw->ops.save_to(fw->ops.ctx, model, NULL, 0);
+        fw->ops.save_to(fw->ops.ctx, model | ESL_TAGFW_TO_LONG, NULL, 0);
+        return;
+    }
+    esl_tagfw_to_t v1 = *to;
+    if (!v1.all && v1.n > ESL_TAGFW_CHOSEN_V1) {
+        v1.n = ESL_TAGFW_CHOSEN_V1;
+        memset(&v1.mac[ESL_TAGFW_CHOSEN_V1], 0, sizeof(v1.mac) - ESL_TAGFW_CHOSEN_V1 * sizeof(uint64_t));
+    }
+    /* the long list first: a cut in between leaves a long list that does not match the short one,
+       which load_to ignores */
+    if (!to->all && to->n > ESL_TAGFW_CHOSEN_V1)
+        fw->ops.save_to(fw->ops.ctx, model | ESL_TAGFW_TO_LONG, to, sizeof(*to));
+    else
+        fw->ops.save_to(fw->ops.ctx, model | ESL_TAGFW_TO_LONG, NULL, 0);
+    fw->ops.save_to(fw->ops.ctx, model, &v1, TO_V1_LEN);
+}
+
+/* The kept list: the v1 form, and the long one when it belongs to it (the same image, and the
+   same first 16 tags, so a list that an older AP changed in between is not taken for it) */
+static bool load_to(esl_tagfw_t *fw, uint8_t model, esl_tagfw_to_t *to)
+{
+    if (!fw->ops.load_to)
+        return false;
+    memset(to, 0, sizeof(*to));
+    if (!fw->ops.load_to(fw->ops.ctx, model, to, TO_V1_LEN))
+        return false;
+    esl_tagfw_to_t lg;
+    memset(&lg, 0, sizeof(lg));
+    if (!to->all && to->n == ESL_TAGFW_CHOSEN_V1 &&
+        fw->ops.load_to(fw->ops.ctx, model | ESL_TAGFW_TO_LONG, &lg, sizeof(lg)) && lg.ver == to->ver && !lg.all &&
+        lg.n > ESL_TAGFW_CHOSEN_V1 && lg.n <= ESL_TAGFW_CHOSEN &&
+        memcmp(lg.mac, to->mac, ESL_TAGFW_CHOSEN_V1 * sizeof(uint64_t)) == 0)
+        *to = lg;
+    return true;
 }
 
 void esl_tagfw_init(esl_tagfw_t *fw, const esl_tagfw_ops_t *ops)
@@ -80,7 +126,7 @@ void esl_tagfw_init(esl_tagfw_t *fw, const esl_tagfw_ops_t *ops)
             fw->img[m - 1] = img;
             /* An image without a kept list (from before the list existed) is for all */
             esl_tagfw_to_t to;
-            if (!fw->ops.load_to || !fw->ops.load_to(fw->ops.ctx, m, &to, sizeof(to)) || to.ver != img.ver ||
+            if (!load_to(fw, m, &to) || to.ver != img.ver ||
                 to.n > ESL_TAGFW_CHOSEN || (!to.all && !to.n))
                 to = (esl_tagfw_to_t){.ver = img.ver, .all = 1};
             fw->to[m - 1] = to;
@@ -272,10 +318,50 @@ static bool chosen(const esl_tagfw_to_t *to, uint64_t mac)
     return false;
 }
 
+unsigned esl_tagfw_drop(esl_tagfw_t *fw, uint8_t model, const uint64_t *macs, size_t n)
+{
+    if (!fw || !model_ok(model) || !macs)
+        return 0;
+    unsigned dropped = 0;
+    esl_tagfw_to_t to;
+    lock(fw);
+    esl_tagfw_to_t *t = &fw->to[model - 1];
+    if (fw->img[model - 1].ver && !t->all) {
+        unsigned keep = 0;
+        const uint64_t first = t->mac[0];
+        for (unsigned i = 0; i < t->n; i++) {
+            bool drop = false;
+            for (size_t j = 0; j < n && !drop; j++)
+                drop = macs[j] == t->mac[i];
+            if (drop)
+                dropped++;
+            else
+                t->mac[keep++] = t->mac[i];
+        }
+        /* a list that is empty is read as "all" when it is loaded again: keep one */
+        if (keep == 0 && dropped) {
+            t->mac[keep++] = first;
+            dropped--;
+        }
+        t->n = (uint8_t)keep;
+        for (unsigned i = keep; i < ESL_TAGFW_CHOSEN; i++)
+            t->mac[i] = 0;
+    }
+    to = *t;
+    unlock(fw);
+    if (dropped)
+        save_to(fw, model, &to);
+    return dropped;
+}
+
 bool esl_tagfw_for(esl_tagfw_t *fw, uint8_t model, uint64_t mac)
 {
-    esl_tagfw_to_t to;
-    return esl_tagfw_get_to(fw, model, &to) && chosen(&to, mac);
+    if (!fw || !model_ok(model))
+        return false;
+    lock(fw);
+    bool yes = fw->img[model - 1].ver != 0 && chosen(&fw->to[model - 1], mac);
+    unlock(fw);
+    return yes;
 }
 
 int esl_tagfw_choose(esl_tagfw_t *fw, uint8_t model, uint64_t mac)

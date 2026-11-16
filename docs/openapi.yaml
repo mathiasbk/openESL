@@ -1160,7 +1160,7 @@ paths:
       summary: Offer the model's image to one more tag, or to all of them
       description: |
         `to` is a tag's MAC, added to the tags the image is for (`to` in the reply), or `all`.
-        At most 16 tags can be chosen one by one; after that only `all` is taken. The choice is
+        At most 64 tags can be chosen one by one (16 before 0.12.0); after that only `all` is taken. When the list is full, tags in it that already run the image are taken out of it to make room, so only a list of tags that are still updating can be full. The choice is
         kept across a restart, and a new upload starts it again.
       parameters:
         - $ref: "#/components/parameters/fw_to"
@@ -1180,11 +1180,11 @@ paths:
         "429": { $ref: "#/components/responses/Locked" }
         "404": { $ref: "#/components/responses/NoTagFirmware" }
         "409":
-          description: 16 tags are chosen one by one already
+          description: 64 tags are chosen one by one already and none of them runs the image yet
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Error" }
-              example: { error: "too many tags chosen one by one: give it to all of them (to=all)" }
+              example: { error: "too many tags are chosen at once and none of them has the update yet: wait for some to finish, or give it to all of them (to=all)" }
     delete:
       tags: [Tag firmware]
       operationId: deleteTagFirmware

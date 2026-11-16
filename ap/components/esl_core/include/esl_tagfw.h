@@ -20,7 +20,9 @@
  * it, on a slot that is not offered meanwhile. One upload at a time. */
 
 #define ESL_TAGFW_SLOT 0x10000u   /* bytes per model in the store */
-#define ESL_TAGFW_CHOSEN 16       /* tags that can be chosen for an image; more: all of them */
+#define ESL_TAGFW_CHOSEN 64       /* tags that can be chosen for an image at once; more: all of them */
+#define ESL_TAGFW_TO_LONG 0x80    /* ops.save_to/load_to get the model with this bit for the list of more than 16 tags (a key of its own) */
+#define ESL_TAGFW_CHOSEN_V1 16    /* the list's size before 0.12.0: a list of up to this many is still kept in that size */
 
 typedef struct {
     void *ctx;
@@ -91,6 +93,9 @@ bool esl_tagfw_get_to(esl_tagfw_t *fw, uint8_t model, esl_tagfw_to_t *to);
    0 when done, 404 when the model has no image, 409 when ESL_TAGFW_CHOSEN
    tags are chosen already. */
 int esl_tagfw_choose(esl_tagfw_t *fw, uint8_t model, uint64_t mac);
+/* Takes the n tags in macs out of the list of tags the model's image is chosen for (those that
+   already run it, so they need no more room). Returns how many were in it. */
+unsigned esl_tagfw_drop(esl_tagfw_t *fw, uint8_t model, const uint64_t *macs, size_t n);
 /* "model","version","size","crc" of one image (version as "1.2.3"), without braces */
 void esl_tagfw_write_fields(esl_sb_t *out, uint8_t model, const esl_tagfw_img_t *img);
 
