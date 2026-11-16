@@ -130,10 +130,26 @@ static int handle_tagfw(const esl_api_t *api, const char *method, const char *ur
         if (!api_query_str(uri, "to", &tl) || !api_query_to(uri, &mac))
             return api_error(out, 400, "give to=all or to= a tag's MAC (16 hex digits)");
         int status = esl_tagfw_choose(api->tagfw, model, mac);
+        if (status == 409) {
+            /* Full: the tags in the list that already run this image need no room any more */
+            esl_tagfw_img_t img;
+            esl_tagfw_to_t to;
+            uint64_t done[ESL_TAGFW_CHOSEN];
+            size_t nd = 0;
+            if (esl_tagfw_get(api->tagfw, model, &img) && esl_tagfw_get_to(api->tagfw, model, &to) && !to.all) {
+                for (unsigned i = 0; i < to.n; i++) {
+                    esl_tag_t t;
+                    if (esl_store_get(api->store, to.mac[i], &t) && t.fw == img.ver)
+                        done[nd++] = to.mac[i];
+                }
+                if (nd && esl_tagfw_drop(api->tagfw, model, done, nd))
+                    status = esl_tagfw_choose(api->tagfw, model, mac);
+            }
+        }
         if (status == 404)
             return api_error(out, 404, "no tag firmware for this model");
         if (status == 409)
-            return api_error(out, 409, "too many tags chosen one by one: give it to all of them (to=all)");
+            return api_error(out, 409, "too many tags are chosen at once and none of them has the update yet: wait for some to finish, or give it to all of them (to=all)");
         write_tagfw_model(api, out, model);
         return 200;
     }

@@ -2,6 +2,7 @@
 #include "esl_api.h"
 #include "esl_crc32.h"
 #include "esl_radio.h"
+#include <stddef.h>
 #include <stdlib.h>
 
 /* Tag firmware over the air (docs/tag-ota.md), the AP side: FW / FW_REQ, the
@@ -47,11 +48,16 @@ static bool st_read(void *ctx, uint8_t model, uint32_t off, void *d, size_t n)
 /* Who an image is for, kept as NVS would across a restart */
 static esl_tagfw_to_t kept[ESL_MODEL_COUNT - 1];
 static bool has_kept[ESL_MODEL_COUNT - 1];
+static size_t kept_len[ESL_MODEL_COUNT - 1];
+/* a list of up to 16 tags is kept in the size it had up to 0.11.0, so that version reads it */
+#define LEGACY_LEN (offsetof(esl_tagfw_to_t, mac) + 16 * sizeof(uint64_t))
 
 static void st_save_to(void *ctx, uint8_t model, const void *to, size_t len)
 {
     (void)ctx;
-    has_kept[model - 1] = to && len == sizeof(esl_tagfw_to_t);
+    has_kept[model - 1] = to && len > 0;
+    kept_len[model - 1] = len;
+    memset(&kept[model - 1], 0, sizeof(kept[0]));
     if (has_kept[model - 1])
         memcpy(&kept[model - 1], to, len);
 }
@@ -59,7 +65,7 @@ static void st_save_to(void *ctx, uint8_t model, const void *to, size_t len)
 static bool st_load_to(void *ctx, uint8_t model, void *to, size_t len)
 {
     (void)ctx;
-    if (!has_kept[model - 1] || len != sizeof(esl_tagfw_to_t))
+    if (!has_kept[model - 1] || len != kept_len[model - 1])
         return false;
     memcpy(to, &kept[model - 1], len);
     return true;
@@ -577,7 +583,36 @@ static void test_choose(void)
     for (unsigned i = 1; i < ESL_TAGFW_CHOSEN; i++)
         CHECK_INT(esl_tagfw_choose(&fw, ESL_MODEL_29, MAC + 100 + i), 0);
     CHECK_INT(esl_tagfw_choose(&fw, ESL_MODEL_29, MAC), 0);       /* already chosen */
-    CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/2.9?to=0000012345678999", AUTH, NULL, 0, 0, &out), 409);
+    CHECK_INT(kept_len[0], sizeof(esl_tagfw_to_t)); /* more than 16 are kept whole */
+    CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/2.9?to=0000012345670001", AUTH, NULL, 0, 0, &out), 409);
+    CHECK(HAS(out.buf, "none of them has the update yet"));
+    /* a tag in the list takes the update: it gives its place to the next one */
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -50, 0), ESL_MSG_FW);
+    CHECK_INT(a.fw, 102);
+    CHECK_INT(esl_faketag_round(&a, &st, &layouts, PAN, -50, 0), ESL_MSG_IDLE); /* the AP hears the new version */
+    CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/2.9?to=0000012345670001", AUTH, NULL, 0, 0, &out), 200);
+    CHECK(!HAS(out.buf, "\"0000012345678901\""));
+    CHECK(HAS(out.buf, "\"0000012345670001\""));
+    CHECK_INT(esl_tagfw_for(&fw, ESL_MODEL_29, MAC), 0);
+    CHECK(esl_tagfw_for(&fw, ESL_MODEL_29, 0x0000012345670001ull));
+    /* and the next one is full again */
+    CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/2.9?to=0000012345670002", AUTH, NULL, 0, 0, &out), 409);
+    /* Dropping every tag of the list leaves one: an empty list is read as "all" after a restart */
+    {
+        uint64_t every[ESL_TAGFW_CHOSEN + 1];
+        esl_tagfw_to_t t0;
+        CHECK(esl_tagfw_get_to(&fw, ESL_MODEL_29, &t0));
+        for (unsigned i = 0; i < t0.n; i++)
+            every[i] = t0.mac[i];
+        CHECK_INT(esl_tagfw_drop(&fw, ESL_MODEL_29, every, t0.n), t0.n - 1);
+        CHECK(esl_tagfw_get_to(&fw, ESL_MODEL_29, &t0));
+        CHECK_INT(t0.n, 1);
+        CHECK_INT(kept_len[0], LEGACY_LEN);
+        esl_tagfw_init(&fw, &ops);
+        CHECK(esl_tagfw_get_to(&fw, ESL_MODEL_29, &t0));
+        CHECK_INT(t0.all, 0);
+        CHECK_INT(t0.n, 1);
+    }
     CHECK_INT(esl_tagfw_choose(&fw, ESL_MODEL_29, 0), 0);
     /* Deleting it forgets the list */
     esl_tagfw_delete(&fw, ESL_MODEL_29);
