@@ -16,7 +16,7 @@ import { initLayouts } from "./aplayouts.js";
 import { initDashNav, showPart, navBadge, navNote } from "./dashnav.js";
 import { openRenderer, draw, LAYOUT_TEXT, FLAG_FRAME } from "./renderframe.js";
 import { trackRollout, modelTrial, firstTag, apCanChoose, rolloutQuestion, verNum, ROLLOUT_POLLS } from "./rollout.js";
-import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack } from "./fwupload.js";
+import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack, isLinuxAp, linuxImageFor, linuxBlocked, linuxSendQuestion, sendLinuxAp, waitLinuxBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
 const REFRESH_MS = 10000;
@@ -1316,10 +1316,17 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
 
   function renderFirmware() {
     const { ota, tagfw } = last;
-    const facts = !ota ? [] : [
+    const linux = isLinuxAp(ota);
+    const facts = !ota ? [] : linux ? [
+      // the AP as a Linux program: one file, and the one before it kept for a rollback
+      ["AP program", `${ota.version} (Linux${ota.arch ? " " + ota.arch : ""}${ota.confirmed === false ? ", on trial: not confirmed yet" : ""})`],
+      ["Kept for rollback", ota.other_slot ? ota.other_version || "the previous program" : "none yet"],
+    ] : [
       ["AP firmware", `${ota.version} (${ota.slot}${ota.confirmed === false ? ", not confirmed yet" : ""})`],
       ["Other slot", ota.other_slot ? `${ota.other_slot}: ${ota.other_version || "empty"}` : "none (old partition table)"],
     ];
+    const blocked = linuxBlocked(ota);
+    if (blocked) facts.push(["Updates from here", blocked]);
     if (ota && typeof ota.display === "boolean") facts.push(["Status screen", ota.display ? "yes" : "no"]);
     // An AP with a C6 radio on UART: what the radio runs, and whether the AP hears it
     const radio = ota?.radio;
@@ -1337,7 +1344,13 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       return d;
     }));
     // A newer release on this page than the AP runs: a button that sends the image that fits it
-    const img = ota && ota.other_slot ? apImageFor(ota, pageInfo) : null;
+    if (!linux) {
+      // an ESP32 AP (perhaps after a Linux one in this page): its own choices back
+      $("lx-box").hidden = true;
+      for (const o of $("fw-src").options) o.hidden = false;
+      $("fw-file").setAttribute("accept", ".bin");
+    }
+    const img = linux ? renderLinuxUpdate(ota) : ota && ota.other_slot ? apImageFor(ota, pageInfo) : null;
     const rimg = radioImageFor(ota, pageInfo);
     $("dash-fw-sum").textContent = fwSummary(ota, tagfw, img, rimg);
     navBadge("firmware", img?.newer || rimg?.newer ? "\u2191" : "", "new", "an update is ready"); // arrow up
@@ -1352,7 +1365,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       b.onclick = () => sendPageRadioFirmware(rimg);
       dd?.append(" ", b);
     }
-    if (img?.newer) {
+    if (img?.newer && !linux) {
       const dd = $("dash-ota").querySelector("dd");
       const b = document.createElement("button");
       b.className = "small fw-up";
@@ -1413,6 +1426,66 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       tr.append(td);
       $("dash-tagfw").append(tr);
     }
+  }
+
+  // The Linux AP's own update (ap/linux, docs/linux-ap.md "Updating"): the program for its machine
+  // from this page's release, sent whole to POST /api/ota. Shown only where the AP can update
+  // itself (started by openesl-ap-run, not in a container). Returns linuxImageFor() or null.
+  function renderLinuxUpdate(ota) {
+    const can = ota.self_update === true;
+    $("lx-box").hidden = !can;
+    // the Send list: ESP32 images are no use here, and a Linux program has no .bin ending
+    for (const o of $("fw-src").options) o.hidden = /^(ap|radio)-/.test(o.value);
+    if ($("fw-src").selectedOptions[0]?.hidden) $("fw-src").value = [...$("fw-src").options].find((o) => !o.hidden)?.value ?? "file";
+    $("fw-file").removeAttribute("accept");
+    if (!can) return null;
+    // 0.11.0 does not say its machine: the user picks it (the AP refuses one for another machine)
+    $("lx-arch-wrap").hidden = !!ota.arch;
+    if (!ota.arch) $("lx-arch").value = store.get("lx.arch") || $("lx-arch").value;
+    const arch = ota.arch || $("lx-arch").value;
+    const img = linuxImageFor(ota, pageInfo, arch);
+    const facts = [
+      ["Machine", ota.arch || "not said: pick it below"],
+      ["On this page", !pageInfo ? "loading …" : img ? `${img.version}${img.size ? ` (${(img.size / 1048576).toFixed(1)} MB)` : ""}` + (pageInfo.release ? "" : ", a test build") : `no program for ${arch}`],
+    ];
+    if (ota.confirmed === false) facts.push(["Status", "the running version is on trial: an update waits until it has confirmed itself"]);
+    else if (img && !img.newer && pageInfo?.release) facts.push(["Status", "this AP runs the newest release"]);
+    $("lx-facts").replaceChildren(...facts.map(([k, v]) => {
+      const d = document.createElement("div");
+      const dt = document.createElement("dt");
+      const dd = document.createElement("dd");
+      dt.textContent = k;
+      dd.textContent = v;
+      d.append(dt, dd);
+      return d;
+    }));
+    const b = $("lx-update");
+    b.hidden = !img?.newer;
+    b.disabled = sending || ota.confirmed === false;
+    if (img) {
+      b.textContent = `\u2191 Update to ${img.version}`; // arrow up
+      b.title = `Send openesl-ap-linux-${img.arch}-v${img.version} from this page to the AP`;
+      b.onclick = () => sendPageLinuxAp(img);
+    }
+    return img;
+  }
+  $("lx-arch").addEventListener("change", () => {
+    store.set("lx.arch", $("lx-arch").value);
+    if (last) renderFirmware();
+  });
+
+  // The button in the Linux AP box
+  async function sendPageLinuxAp(img) {
+    if (!client || sending) return;
+    let data;
+    try {
+      fwMsg(`Loading the ${img.arch} program ${img.version} from the page ...`);
+      data = await pageFile(img.file);
+    } catch (e) {
+      return fwMsg("Could not read the program: " + e.message, "error");
+    }
+    $("fw-msg").scrollIntoView({ block: "nearest" });
+    return sendData(data, null, null, false, img.version);
   }
 
   // The choices in "Send": the files published with this page, then a file of your own. The AP
@@ -1499,6 +1572,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     $("fw-src").disabled = on;
     $("fw-progress").hidden = !on;
     $("fw-progress").value = 0;
+    $("lx-update").disabled = on;
     if (last) renderFirmware();
   }
 
@@ -1637,7 +1711,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   // lcd: whether an AP or radio image is the one with the screen (null: a file of your own);
   // to: the one tag a tag image is for (null: all of its model); asked: the rollout question
   // was answered already (a tag image for all of its model asks it here otherwise)
-  async function sendData(data, lcd = null, to = null, asked = false) {
+  async function sendData(data, lcd = null, to = null, asked = false, linuxVersion = null) {
     const kind = firmwareKind(data);
     if (!kind.kind) return fwMsg("Not sent: " + kind.error + ".", "error");
     if (kind.kind === "tag" && !to && !asked) {
@@ -1651,7 +1725,15 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
         ` (${n === 1 ? "1 tag" : n + " tags"} not on it yet)? Each updates itself over its next polls.`)) return;
     }
     const what = kind.kind === "tag" ? `tag firmware ${kind.version} for the ${modelName(kind.model)}`
+      : kind.kind === "linux" ? `the AP program${linuxVersion ? " " + linuxVersion : ""} (${kind.arch})`
       : `${kind.kind === "radio" ? "radio" : "AP"} firmware${kind.version ? " " + kind.version : ""}`;
+    if (kind.kind === "linux") {
+      if (!isLinuxAp(last?.ota)) return fwMsg("Not sent: this is a Linux AP program, and this AP is an ESP32 board.", "error");
+      const blocked = linuxBlocked(last.ota);
+      if (blocked) return fwMsg("Not sent: " + blocked, "error");
+      if (!confirm(linuxSendQuestion(kind, last.ota, linuxVersion))) return;
+    } else if (isLinuxAp(last?.ota) && kind.kind !== "tag")
+      return fwMsg("Not sent: this AP is a Linux program, and this is firmware for an ESP32 board. Its update is the openesl-ap-linux file of a release.", "error");
     if (kind.kind === "ap" && !confirm(apSendQuestion(kind, last?.ota, lcd))) return;
     if (kind.kind === "radio" && !confirm(radioSendQuestion(kind, last?.ota, lcd))) return;
     setSending(true);
@@ -1662,7 +1744,25 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     };
     const c = client;
     try {
-      if (kind.kind === "tag") {
+      if (kind.kind === "linux") {
+        $("fw-progress").removeAttribute("value"); // one request: no parts to count
+        fwMsg(`Sending ${what} (${(data.length / 1048576).toFixed(1)} MB) ...`);
+        let r;
+        try {
+          r = await sendLinuxAp(c, data);
+        } catch (e) {
+          // 409 not newer: once more with force, if asked
+          if (e.status !== 409 || !/not newer/.test(e.message) ||
+            !confirm(`The AP says: ${e.message.replace(/^409: /, "")}.\n\nInstall it anyway?`)) throw e;
+          r = await sendLinuxAp(c, data, true);
+        }
+        fwMsg(`The AP took ${r.version} and is restarting into it (${r.previous} is kept). Waiting for it to confirm itself ...`);
+        const back = await waitLinuxBack(c, r.version, r.previous, {
+          alive: () => client === c,
+          onTrial: () => fwMsg(`The AP runs ${r.version} on trial: it confirms itself after about 10 s up, or goes back to ${r.previous} ...`),
+        });
+        fwMsg(back.text, back.ok ? "ok" : "error");
+      } else if (kind.kind === "tag") {
         const r = await sendTagFirmware(c, data, progress, to);
         fwMsg(to
           ? `The AP now has ${modelName(r.model)} firmware ${r.version} for tag ${to}. It takes it over its next polls; the table shows how far it is.`

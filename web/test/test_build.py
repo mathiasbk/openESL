@@ -69,6 +69,61 @@ class RadioNames(unittest.TestCase):
             self.assertTrue(os.path.exists(os.path.join(d, "firmware", "radio-linux-c6-usb-manifest.json")))
 
 
+def elf(cls, machine):
+    """The start of a little-endian ELF for e_machine"""
+    return b"\x7fELF" + bytes([cls, 1, 1]) + b"\0" * 11 + struct.pack("<H", machine) + b"\0" * 44
+
+
+class LinuxAp(unittest.TestCase):
+    """The Linux AP's own program (openesl-ap-linux-<arch>-<version>): told apart by e_machine,
+    served as ap-linux-<arch>.bin and listed in linux_ap, never with the ESP32 images"""
+
+    def add(self, files):
+        d = tempfile.mkdtemp()
+        paths = []
+        for name, data in files:
+            p = os.path.join(d, name)
+            with open(p, "wb") as fh:
+                fh.write(data)
+            paths.append(p)
+        saved = build.DIST
+        build.DIST = d
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                build.add_firmware(*paths)
+        finally:
+            build.DIST = saved
+        with open(os.path.join(d, "firmware", "info.json")) as fh:
+            return d, json.load(fh)
+
+    def test_release_files(self):
+        d, info = self.add([("openesl-ap-linux-x86_64-v0.12.0", elf(2, 62)),
+                            ("openesl-ap-linux-aarch64-v0.12.0", elf(2, 183)),
+                            ("openesl-ap-linux-armv7-v0.12.0", elf(1, 40))])
+        self.assertEqual([(x["arch"], x["file"], x["version"]) for x in info["linux_ap"]],
+                         [("aarch64", "ap-linux-aarch64", "0.12.0"), ("armv7", "ap-linux-armv7", "0.12.0"),
+                          ("x86_64", "ap-linux-x86_64", "0.12.0")])
+        self.assertEqual(info["ota"], {})
+        self.assertEqual(info["ap_boards"], [])
+        with open(os.path.join(d, "firmware", "ap-linux-armv7.bin"), "rb") as fh:
+            self.assertEqual(fh.read(), elf(1, 40))
+
+    def test_ci_names_take_the_page_version(self):
+        _, info = self.add([("openesl-ap-x86_64", elf(2, 62))])
+        self.assertEqual(info["linux_ap"][0]["version"], info["version"])
+
+    def test_a_name_for_another_machine_stops_the_build(self):
+        with self.assertRaises(SystemExit):
+            self.add([("openesl-ap-linux-armv7-v0.12.0", elf(2, 62))])
+
+    def test_another_machine_is_not_a_linux_ap(self):
+        d = tempfile.mkdtemp()
+        p = os.path.join(d, "riscv")
+        with open(p, "wb") as fh:
+            fh.write(elf(2, 243))
+        self.assertIsNone(build.linux_ap_arch(p))
+
+
 def app_image(project):
     """The start of an ESP32 app image with esp_app_desc_t: header, first segment, then the
     description (magic, secure_version, reserved, version, project_name)"""

@@ -45,11 +45,22 @@ export function firmwareKind(data) {
       return { kind: null, error: `an app for the chip, but not AP firmware (${project})` };
     return { kind: "ap", size: data.length, version: appVersion(data), chip };
   }
+  // The AP as a Linux program (openesl-ap-linux-<arch>-<version>): an ELF; the AP checks that it
+  // is for its machine and starts, and finds its version itself
+  if (data.length >= 20 && data[0] === 0x7f && data[1] === 0x45 && data[2] === 0x4c && data[3] === 0x46) {
+    const arch = data[5] === 1 ? ELF_ARCHS[`${data[4]}/${u16(data, 18)}`] : undefined;
+    if (!arch) return { kind: null, error: "a Linux program, but not for a machine the Linux AP is built for (x86_64, aarch64, armv7)" };
+    return { kind: "linux", size: data.length, version: null, arch };
+  }
   return {
     kind: null,
     error: "not a firmware file for the API. Use openesl-tag-<model>-<version>-ota.bin for tags, or openesl-ap-<board>-<version>-ota.bin for the AP; openesl.bin is for the tag flasher",
   };
 }
+
+// ELF class/e_machine of the Linux AP's builds, by the names of its release files
+const ELF_ARCHS = { "2/62": "x86_64", "2/183": "aarch64", "1/40": "armv7" };
+export const LINUX_ARCHS = ["aarch64", "armv7", "x86_64"];
 
 // chip_id in the ESP32 image header, as GET /api/ota names the chip ("chip")
 const CHIPS = { 9: "esp32s3", 13: "esp32c6", 23: "esp32c5" };
@@ -93,6 +104,7 @@ export function cmpVersion(a, b) {
 // changed only the tags is not newer for the AP; an info.json from before it has only the
 // release's version.
 export function apImageFor(ota, info) {
+  if (isLinuxAp(ota)) return null; // a program, not an ESP32 image: linuxImageFor
   const boards = (info?.ap_boards || [
     { file: "ap-openesl", target: "esp32c6", display: false },
     { file: "ap-openesl-lcd", target: "esp32c6", display: true },
@@ -102,6 +114,45 @@ export function apImageFor(ota, info) {
   const version = String(info.ap_version || info.version).replace(/^v/, "");
   const c = cmpVersion(version, ota?.version);
   return { file: b.file + "-ota", version, newer: info.release === true && c !== null && c > 0, display: !!b.display };
+}
+
+// The AP runs as a Linux program (ap/linux): GET /api/ota says slot "binary"
+export const isLinuxAp = (ota) => ota?.slot === "binary";
+
+// The Linux AP program on this page for the AP's machine (linux_ap in info.json; "arch" in GET
+// /api/ota, or the arch the user picked when the AP does not say, as 0.11.0 does not):
+// { file, version, size, arch, newer } or null when the page has none for it.
+export function linuxImageFor(ota, info, arch = ota?.arch) {
+  if (!isLinuxAp(ota) || !arch) return null;
+  const b = (info?.linux_ap || []).find((x) => x.arch === arch);
+  if (!b) return null;
+  const version = String(b.version || info.version).replace(/^v/, "");
+  const c = cmpVersion(version, ota.version);
+  return { file: b.file, version, size: b.size || null, arch, newer: info.release === true && c !== null && c > 0 };
+}
+
+// Why a Linux AP cannot take an update from here ("self_update_blocked"), or null when it can
+export function linuxBlocked(ota) {
+  if (!isLinuxAp(ota)) return null;
+  if (ota.self_update === true) return null;
+  const why = ota.self_update_blocked;
+  if (why === "container") return "It runs in a container: pull the new image (docker pull) and start a new container with the same data folder.";
+  if (why === "unguarded") return "It was not started by openesl-ap-run, which brings the old version back if a new one fails: replace the program by hand, or start it with openesl-ap-run (Linux AP guide).";
+  return "It cannot replace its own program here: replace it by hand (Linux AP guide).";
+}
+
+// What to ask before a new Linux AP program goes out: kind is firmwareKind() of the file,
+// version the release's (null for a file from this computer: the AP reads it from the file)
+export function linuxSendQuestion(kind, ota, version = null) {
+  const lines = [];
+  const running = ota?.version;
+  lines.push(version && running ? `Update the AP program to ${version}? It runs ${running} now.` : `Send this Linux AP program (${kind.arch}) to the AP?` + (running ? ` It runs ${running} now.` : ""));
+  if (ota?.arch && kind.arch && kind.arch !== ota.arch) lines.push(`This file is for ${kind.arch}, and this AP runs on ${ota.arch}: it will refuse it.`);
+  const c = cmpVersion(version, running);
+  if (c === 0) lines.push("That is the version it already runs.");
+  else if (c < 0) lines.push("That is older than what it runs.");
+  lines.push("The AP checks the file, keeps the program it runs now, and restarts into the new one. If the new one does not start, or does not confirm itself within a minute, the AP goes back to the old one by itself.");
+  return lines.join("\n\n");
 }
 
 // What to ask before new AP firmware goes out: kind is firmwareKind() of the image, ota
@@ -219,6 +270,38 @@ export function fwProgress(received, size) {
 // the last part. Returns { slot, version, ... }.
 export function sendApFirmware(ap, data, progress) {
   return uploadParts(ap, "POST", "/api/ota", data, progress);
+}
+
+// A new Linux AP program: the whole file in one request (no offset/total; the AP writes it to disk
+// as it arrives), force to install one that is not newer. Returns { version, previous,
+// restarting }; throws with .status as sendPart does (409 not newer, 422 not for this machine).
+export function sendLinuxAp(ap, data, force = false) {
+  return sendPart(ap, "POST", "/api/ota" + (force ? "?force=1" : ""), data);
+}
+
+// After a Linux AP update: asks GET /api/ota until the new version runs and has confirmed itself
+// (it does that after about 10 s up), or the old one is back (openesl-ap-run puts it back when
+// the new one dies or does not confirm within a minute). The old version still answers for a
+// moment before the restart, so it counts only after graceMs.
+export async function waitLinuxBack(ap, version, previous, { timeoutMs = 120000, everyMs = 2000, graceMs = 8000, sleep, alive = () => true, onTrial = () => {} } = {}) {
+  sleep ||= (ms) => new Promise((r) => setTimeout(r, ms));
+  const start = Date.now(), end = start + timeoutMs;
+  await sleep(2000);
+  for (;;) {
+    let o = null;
+    try {
+      o = await ap.call("GET", "/api/ota");
+    } catch {
+      /* restarting */
+    }
+    if (o?.version === version && o.confirmed !== false) return { ok: true, text: `The AP runs ${version} and has confirmed it. ${previous ? previous + " is kept" : "The old version is kept"} on the AP for the next rollback.` };
+    if (o?.version === version) onTrial(o);
+    else if (o && Date.now() - start >= graceMs)
+      return { ok: false, text: `The AP is back on ${o.version}: the new version did not start or did not confirm itself in time, so the AP went back to the old one. Its log (journalctl -u openesl-ap) says why.` };
+    if (!alive()) return { ok: false, text: "The connection to the AP closed while it restarted. Connect again to check its version." };
+    if (Date.now() >= end) return { ok: false, text: "The AP has not answered since the restart. Connect again to check its version." };
+    await sleep(everyMs);
+  }
 }
 
 // New radio firmware, for the AP's C6 radio on UART: the AP passes it on as it arrives, and the
