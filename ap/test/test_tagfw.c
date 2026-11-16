@@ -46,28 +46,33 @@ static bool st_read(void *ctx, uint8_t model, uint32_t off, void *d, size_t n)
 }
 
 /* Who an image is for, kept as NVS would across a restart */
-static esl_tagfw_to_t kept[ESL_MODEL_COUNT - 1];
-static bool has_kept[ESL_MODEL_COUNT - 1];
-static size_t kept_len[ESL_MODEL_COUNT - 1];
+static esl_tagfw_to_t kept[2 * (ESL_MODEL_COUNT - 1)];
+static bool has_kept[2 * (ESL_MODEL_COUNT - 1)];
+static size_t kept_len[2 * (ESL_MODEL_COUNT - 1)];
+/* the model's key, and the one for a list of more than 16 tags (ESL_TAGFW_TO_LONG): LONG(0) */
+#define KEPT(m) ((((m) & ESL_TAGFW_TO_LONG) ? ESL_MODEL_COUNT - 1 : 0) + ((m) & 0x7F) - 1)
+#define LONG0 (ESL_MODEL_COUNT - 1)
 /* a list of up to 16 tags is kept in the size it had up to 0.11.0, so that version reads it */
 #define LEGACY_LEN (offsetof(esl_tagfw_to_t, mac) + 16 * sizeof(uint64_t))
 
 static void st_save_to(void *ctx, uint8_t model, const void *to, size_t len)
 {
     (void)ctx;
-    has_kept[model - 1] = to && len > 0;
-    kept_len[model - 1] = len;
-    memset(&kept[model - 1], 0, sizeof(kept[0]));
-    if (has_kept[model - 1])
-        memcpy(&kept[model - 1], to, len);
+    unsigned k = KEPT(model);
+    has_kept[k] = to && len > 0;
+    kept_len[k] = len;
+    memset(&kept[k], 0, sizeof(kept[0]));
+    if (has_kept[k])
+        memcpy(&kept[k], to, len);
 }
 
 static bool st_load_to(void *ctx, uint8_t model, void *to, size_t len)
 {
     (void)ctx;
-    if (!has_kept[model - 1] || len != kept_len[model - 1])
+    unsigned k = KEPT(model);
+    if (!has_kept[k] || len != kept_len[k])
         return false;
-    memcpy(to, &kept[model - 1], len);
+    memcpy(to, &kept[k], len);
     return true;
 }
 
@@ -583,7 +588,38 @@ static void test_choose(void)
     for (unsigned i = 1; i < ESL_TAGFW_CHOSEN; i++)
         CHECK_INT(esl_tagfw_choose(&fw, ESL_MODEL_29, MAC + 100 + i), 0);
     CHECK_INT(esl_tagfw_choose(&fw, ESL_MODEL_29, MAC), 0);       /* already chosen */
-    CHECK_INT(kept_len[0], sizeof(esl_tagfw_to_t)); /* more than 16 are kept whole */
+    /* more than 16: the model's key holds the first 16 in the size 0.11.0 reads (so it offers the image to
+       fewer tags, never more), the whole list is under the second key */
+    CHECK_INT(kept_len[0], LEGACY_LEN);
+    CHECK_INT(kept[0].n, 16);
+    CHECK_INT(kept[0].all, 0);
+    CHECK(has_kept[LONG0]);
+    CHECK_INT(kept_len[LONG0], sizeof(esl_tagfw_to_t));
+    CHECK_INT(kept[LONG0].n, ESL_TAGFW_CHOSEN);
+    {
+        /* init takes the whole list back */
+        esl_tagfw_to_t t0;
+        esl_tagfw_init(&fw, &ops);
+        CHECK(esl_tagfw_get_to(&fw, ESL_MODEL_29, &t0));
+        CHECK_INT(t0.n, ESL_TAGFW_CHOSEN);
+        /* an older AP that changed the short list in between: the long one is not taken for it */
+        uint64_t keep0 = kept[0].mac[0];
+        kept[0].mac[0] = 0x0000012345670077ull;
+        esl_tagfw_init(&fw, &ops);
+        CHECK(esl_tagfw_get_to(&fw, ESL_MODEL_29, &t0));
+        CHECK_INT(t0.n, 16);
+        CHECK_INT(t0.mac[0], 0x0000012345670077ull);
+        kept[0].mac[0] = keep0;
+        /* another image's long list counts for nothing */
+        kept[LONG0].ver = 7;
+        esl_tagfw_init(&fw, &ops);
+        CHECK(esl_tagfw_get_to(&fw, ESL_MODEL_29, &t0));
+        CHECK_INT(t0.n, 16);
+        kept[LONG0].ver = kept[0].ver;
+        esl_tagfw_init(&fw, &ops);
+        CHECK(esl_tagfw_get_to(&fw, ESL_MODEL_29, &t0));
+        CHECK_INT(t0.n, ESL_TAGFW_CHOSEN);
+    }
     CHECK_INT(esl_api_handle(&api, "POST", "/api/tag-firmware/2.9?to=0000012345670001", AUTH, NULL, 0, 0, &out), 409);
     CHECK(HAS(out.buf, "none of them has the update yet"));
     /* a tag in the list takes the update: it gives its place to the next one */
@@ -608,6 +644,7 @@ static void test_choose(void)
         CHECK(esl_tagfw_get_to(&fw, ESL_MODEL_29, &t0));
         CHECK_INT(t0.n, 1);
         CHECK_INT(kept_len[0], LEGACY_LEN);
+        CHECK(!has_kept[LONG0]); /* a list of 16 or less has no long key */
         esl_tagfw_init(&fw, &ops);
         CHECK(esl_tagfw_get_to(&fw, ESL_MODEL_29, &t0));
         CHECK_INT(t0.all, 0);
@@ -617,6 +654,7 @@ static void test_choose(void)
     /* Deleting it forgets the list */
     esl_tagfw_delete(&fw, ESL_MODEL_29);
     CHECK(!has_kept[0]);
+    CHECK(!has_kept[LONG0]);
 }
 
 void test_tagfw(void)

@@ -60,27 +60,56 @@ static bool check_slot(esl_tagfw_t *fw, uint8_t model, const esl_tagfw_img_t *im
     return crc == img->crc;
 }
 
-/* Keeps who an image is for. Outside the lock: NVS writes are slow. */
-/* The list is kept in the size it had up to 0.11.0 (16 tags) while it fits, so an AP that goes
-   back to that version still reads it; a longer one is kept whole. */
+/* Keeps who an image is for. Outside the lock: NVS writes are slow.
+ *
+ * Up to 0.11.0 the list had room for 16 tags and was kept as one blob of TO_V1_LEN bytes
+ * under the model's key, read with an exact length; a blob it cannot read makes the image
+ * "for all". So that a version that goes back never reads more than was chosen, the model's
+ * key always holds the v1 form, with the first 16 tags at most (an older AP offers the image
+ * to fewer tags, never to more), and a list of more than 16 is kept whole under a second key
+ * (the model with ESL_TAGFW_TO_LONG) that only this version reads. */
 #define TO_V1_LEN (offsetof(esl_tagfw_to_t, mac) + ESL_TAGFW_CHOSEN_V1 * sizeof(uint64_t))
 
 static void save_to(esl_tagfw_t *fw, uint8_t model, const esl_tagfw_to_t *to)
 {
     if (!fw->ops.save_to)
         return;
-    size_t len = !to ? 0 : (to->all || to->n <= ESL_TAGFW_CHOSEN_V1) ? TO_V1_LEN : sizeof(*to);
-    fw->ops.save_to(fw->ops.ctx, model, to, len);
+    if (!to) {
+        fw->ops.save_to(fw->ops.ctx, model, NULL, 0);
+        fw->ops.save_to(fw->ops.ctx, model | ESL_TAGFW_TO_LONG, NULL, 0);
+        return;
+    }
+    esl_tagfw_to_t v1 = *to;
+    if (!v1.all && v1.n > ESL_TAGFW_CHOSEN_V1) {
+        v1.n = ESL_TAGFW_CHOSEN_V1;
+        memset(&v1.mac[ESL_TAGFW_CHOSEN_V1], 0, sizeof(v1.mac) - ESL_TAGFW_CHOSEN_V1 * sizeof(uint64_t));
+    }
+    /* the long list first: a cut in between leaves a long list that does not match the short one,
+       which load_to ignores */
+    if (!to->all && to->n > ESL_TAGFW_CHOSEN_V1)
+        fw->ops.save_to(fw->ops.ctx, model | ESL_TAGFW_TO_LONG, to, sizeof(*to));
+    else
+        fw->ops.save_to(fw->ops.ctx, model | ESL_TAGFW_TO_LONG, NULL, 0);
+    fw->ops.save_to(fw->ops.ctx, model, &v1, TO_V1_LEN);
 }
 
-/* The kept list, in either size */
+/* The kept list: the v1 form, and the long one when it belongs to it (the same image, and the
+   same first 16 tags, so a list that an older AP changed in between is not taken for it) */
 static bool load_to(esl_tagfw_t *fw, uint8_t model, esl_tagfw_to_t *to)
 {
     if (!fw->ops.load_to)
         return false;
     memset(to, 0, sizeof(*to));
-    return fw->ops.load_to(fw->ops.ctx, model, to, sizeof(*to)) ||
-           (memset(to, 0, sizeof(*to)), fw->ops.load_to(fw->ops.ctx, model, to, TO_V1_LEN));
+    if (!fw->ops.load_to(fw->ops.ctx, model, to, TO_V1_LEN))
+        return false;
+    esl_tagfw_to_t lg;
+    memset(&lg, 0, sizeof(lg));
+    if (!to->all && to->n == ESL_TAGFW_CHOSEN_V1 &&
+        fw->ops.load_to(fw->ops.ctx, model | ESL_TAGFW_TO_LONG, &lg, sizeof(lg)) && lg.ver == to->ver && !lg.all &&
+        lg.n > ESL_TAGFW_CHOSEN_V1 && lg.n <= ESL_TAGFW_CHOSEN &&
+        memcmp(lg.mac, to->mac, ESL_TAGFW_CHOSEN_V1 * sizeof(uint64_t)) == 0)
+        *to = lg;
+    return true;
 }
 
 void esl_tagfw_init(esl_tagfw_t *fw, const esl_tagfw_ops_t *ops)
@@ -327,8 +356,12 @@ unsigned esl_tagfw_drop(esl_tagfw_t *fw, uint8_t model, const uint64_t *macs, si
 
 bool esl_tagfw_for(esl_tagfw_t *fw, uint8_t model, uint64_t mac)
 {
-    esl_tagfw_to_t to;
-    return esl_tagfw_get_to(fw, model, &to) && chosen(&to, mac);
+    if (!fw || !model_ok(model))
+        return false;
+    lock(fw);
+    bool yes = fw->img[model - 1].ver != 0 && chosen(&fw->to[model - 1], mac);
+    unlock(fw);
+    return yes;
 }
 
 int esl_tagfw_choose(esl_tagfw_t *fw, uint8_t model, uint64_t mac)

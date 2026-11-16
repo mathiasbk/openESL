@@ -21,6 +21,7 @@
 
 #define ESL_TAGFW_SLOT 0x10000u   /* bytes per model in the store */
 #define ESL_TAGFW_CHOSEN 64       /* tags that can be chosen for an image at once; more: all of them */
+#define ESL_TAGFW_TO_LONG 0x80    /* ops.save_to/load_to get the model with this bit for the list of more than 16 tags (a key of its own) */
 #define ESL_TAGFW_CHOSEN_V1 16    /* the list's size before 0.12.0: a list of up to this many is still kept in that size */
 
 typedef struct {
