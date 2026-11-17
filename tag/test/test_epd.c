@@ -56,8 +56,9 @@ static int start_delay_ms, glitch_ms;
 
 /* ---- UC-type model (UC8151 family, EPD_UC_INIT): BUSY low while busy ---- */
 static bool uc_model;
+static int uc_late_ms;            /* BUSY low this long after each reset (some 1.54" boards) */
 static unsigned long uc_busy_until;
-static uint8_t uc_new[RAM_Y * RAM_X];
+static uint8_t uc_new[RAM_Y * RAM_X], uc_old[RAM_Y * RAM_X];
 static int uc_n_old, uc_n_new, uc_refreshes, uc_pon, uc_ssd_cmds;
 static bool uc_asleep;
 static uint8_t uc_cmd = 0xFF;
@@ -71,13 +72,21 @@ static void uc_on_byte(uint8_t b)
         case 0x04: uc_pon++; uc_busy_until = now_ms() + 40; break;
         case 0x12: uc_refreshes++; uc_busy_until = now_ms() + 2900; break;
         case 0x02: uc_busy_until = now_ms() + 20; break;
-        case 0x20: case 0x22: case 0x24: case 0x44: case 0x45: case 0x4E: case 0x4F:
+#if MODEL != 154                       /* the 1.54" UC-type list loads LUTs with 0x20-0x22 */
+        case 0x20: case 0x22:
+#endif
+        case 0x24: case 0x44: case 0x45: case 0x4E: case 0x4F:
             uc_ssd_cmds++; break;      /* SSD-only commands: must not be sent */
         default: break;
         }
         return;
     }
-    if (uc_cmd == 0x10) { uc_n_old++; return; }
+    if (uc_cmd == 0x10) {
+        if (uc_n_old < (int)sizeof(uc_old))
+            uc_old[uc_n_old] = b;
+        uc_n_old++;
+        return;
+    }
     if (uc_cmd == 0x13) {
         if (uc_n_new < (int)sizeof(uc_new))
             uc_new[uc_n_new] = b;
@@ -160,7 +169,14 @@ static void on_byte(uint8_t b)
 void hal_epd_power(bool on) { powered = on; }
 void hal_epd_cs(bool high) { cs = high; if (high) nbits = 0; }
 void hal_epd_dc(bool high) { dc = high; }
-void hal_epd_rst(bool high) { (void)high; }
+static int ssd_reset_busy_ms;     /* SSD-type: BUSY high this long after each reset */
+void hal_epd_rst(bool high)
+{
+    if (high && uc_model && uc_late_ms)
+        uc_busy_until = now_ms() + (unsigned long)uc_late_ms;
+    if (high && !uc_model && ssd_reset_busy_ms)
+        busy_until = now_ms() + (unsigned long)ssd_reset_busy_ms;
+}
 void hal_epd_mosi(bool high) { mosi = high; }
 void hal_epd_sck(bool high)
 {
@@ -411,6 +427,21 @@ static void test_epd_refresh_end(void)
     reset_model();
 }
 
+static void test_epd_reset_busy(void)
+{
+    /* An SSD-type controller that holds BUSY high for a while after reset is still drawn
+       through the SSD-type path (a 1.54" made in 2018 does this) */
+    static draw_scene_t sc;
+    draw_clear(&sc);
+    reset_model();
+    ssd_reset_busy_ms = 200;
+    CHECK(epd_draw(&sc));
+    CHECK(asleep);
+    CHECK(n_written[0] > 0);
+    ssd_reset_busy_ms = 0;
+    reset_model();
+}
+
 static void test_epd_no_busy(void)
 {
     /* A display that never answers: false, and the power is switched off again */
@@ -436,6 +467,12 @@ static void test_epd_uc(void)
     int x, i, bad = 0, round;
 
     build_scene(&sc);
+#if EPD_TRANSPOSE
+    /* The SSD-type path's RAM, to compare the UC-type byte stream with (see below) */
+    uc_model = false;
+    reset_model();
+    CHECK(epd_draw(&sc));
+#endif
     uc_model = true;
     for (round = 0; round < 2; round++) {        /* detected once, then remembered */
         uc_n_old = uc_n_new = uc_refreshes = uc_pon = uc_ssd_cmds = 0;
@@ -445,12 +482,48 @@ static void test_epd_uc(void)
         CHECK_EQ(uc_pon, 1);
         CHECK_EQ(uc_refreshes, 1);
         CHECK_EQ(uc_ssd_cmds, 0);
+#if EPD_TRANSPOSE
+        CHECK_EQ(uc_n_old, 2 * ((DRAW_W + 7) / 8) * DRAW_H + 1); /* 2 bits a pixel, + the SSD-type sleep byte */
+        CHECK_EQ(uc_n_new, 0);
+#else
         CHECK_EQ(uc_n_old, DRAW_W * DRAW_COL_BYTES + 1);   /* + the SSD-type sleep byte (0x10 0x01) */
         CHECK_EQ(uc_n_new, DRAW_W * DRAW_COL_BYTES);
+#endif
         CHECK(uc_asleep);
         CHECK_EQ(last_cmd, 0x07);        /* UC-type deep sleep last */
         CHECK(!powered);
     }
+#if EPD_TRANSPOSE
+    /* DTM1 holds two bits a pixel (11 white, 00 black); folded back to one bit (1 = white) */
+    for (i = 0; i < (DRAW_W + 7) / 8 * DRAW_H; i++) {
+        int k, v = 0;
+        for (k = 0; k < 8; k++) {
+            int two = (uc_old[2 * i + k / 4] >> (6 - 2 * (k % 4))) & 3;
+            if (two != 0 && two != 3)
+                bad++;
+            v = (v << 1) | (two == 3);
+        }
+        uc_new[i] = (uint8_t)v;
+    }
+    /* Gate line n of the UC-type stream is RAM line DRAW_H-1-n of the SSD-type path (which
+       counts RAM Y down from the last line), byte for byte */
+    for (x = 0; x < DRAW_H; x++)
+        for (i = 0; i < (DRAW_W + 7) / 8; i++)
+            if (uc_new[x * ((DRAW_W + 7) / 8) + i] != ram[0][DRAW_H - 1 - x][i])
+                bad++;
+    /* And independently: row y, byte i, bit 0x80 >> k is layout pixel (DRAW_W-1-(8i+k), y) */
+    draw_begin(&sc);
+    for (x = 0; x < DRAW_W; x++) {
+        int p = DRAW_W - 1 - x, y;
+        draw_column(&sc, (uint16_t)x, b, r);
+        for (y = 0; y < DRAW_H; y++) {
+            int black = (b[y >> 3] & (0x80 >> (y & 7))) != 0;
+            int white = (uc_new[y * ((DRAW_W + 7) / 8) + (p >> 3)] & (0x80 >> (p & 7))) != 0;
+            if (black == white)
+                bad++;
+        }
+    }
+#else
     draw_begin(&sc);
     for (x = 0; x < DRAW_W; x++) {
         draw_column(&sc, (uint16_t)x, b, r);
@@ -458,7 +531,24 @@ static void test_epd_uc(void)
             if (uc_new[x * DRAW_COL_BYTES + i] != (uint8_t)~b[i])
                 bad++;
     }
+#endif
     CHECK_EQ(bad, 0);
+
+    /* BUSY low for a while after reset (a 1.54" made in 2017): still found, and drawn */
+    {
+        static const int lates[] = { 30, 150, 1000000 };   /* the last: low until power on */
+        int k, late;
+        for (k = 0; k < 3; k++) {
+            late = lates[k];
+            uc_late_ms = late;
+            uc_n_old = uc_n_new = uc_refreshes = 0;
+            uc_asleep = false;
+            CHECK(epd_draw(&sc));
+            CHECK_EQ(uc_refreshes, 1);
+            CHECK(uc_asleep);
+        }
+        uc_late_ms = 0;
+    }
 
     /* A refresh that never pulls BUSY low is no display: false */
     uc_busy_until = 0;
@@ -477,6 +567,7 @@ int main(int argc, char **argv)
     RUN(test_epd_init_table);
     RUN(test_epd_awake);
     RUN(test_epd_refresh_end);
+    RUN(test_epd_reset_busy);
     RUN(test_epd_no_busy);
 #ifdef EPD_UC_INIT
     RUN(test_epd_uc);

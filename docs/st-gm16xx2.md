@@ -20,6 +20,37 @@ At boot the stock firmware copies flash `0xFC00–0xFC0C` to xdata `0xFD79–0xF
 
 The stock firmware contains complete drivers for both panel types. Both the 1.6" (`000002079350341C`) and the 2.9" (`000001C280923B15`) tags we have show `01 02`, so the 2.9" probably needs the same treatment (not tested yet).
 
+## UC-type boards
+
+Some boards carry a UC-type controller instead (BUSY low while busy, high when idle). Seen on a 1.54" tag made in 2017 (`00000190F6223417`), which gave "drawing failed" with firmware that only knew the SSD-type path. The firmware drives P0.3 high while the display is in use and low otherwise (UNCONFIRMED: it may switch the display supply on some boards).
+
+How `tag/src/epd.c` tells the two apart: after reset an SSD-type controller holds BUSY high for a few ms and then low (4 ms on a 2018 board). BUSY high for a whole second means UC-type. On the 2017 1.54" BUSY is low after reset until power on, so it takes the SSD-type path first; that draw fails at the refresh, and the UC-type path is tried. After a draw has worked, the firmware remembers the type until the next reboot.
+
+Hardware tested (jig, 2026-11-17): 2017 1.54" draws through the UC-type path, right way round and black on white; 2018 1.54" draws through the SSD-type path with no false "drawing failed".
+
+Init and refresh for this controller:
+
+```
+01 03 00           power setting
+06 07 06 05        booster soft start
+04                 power on, then wait while BUSY is low
+50 07              VCOM and data interval
+30 39              PLL (0x2A below about 20 degrees C)
+61 C8 00 C8        resolution: 200 sources, 200 gates
+82 0A              VCOM DC
+00 17              panel setting
+20 <15 bytes>      LUT VCOM   \
+21 <15 bytes>      LUT white   } the panel has no OTP waveform; values for 20-30 degrees C
+22 <15 bytes>      LUT black  /  in tag/src/panels/ssd16xx-154.h
+10 <10000 bytes>   the image, two bits per pixel (11 = white, 00 = black), MSB first
+12                 display refresh, then wait while BUSY is low
+82 00, 02          VCOM 0, power off
+```
+
+Without the three LUTs the refresh runs and BUSY behaves, but the panel does not change. The firmware sends one set (20-30 degrees C); other temperature bands use other values and are not in yet.
+
+`0x13` is not written. A UC-type controller has no data entry mode, so `tag/src/epd.c` builds the gate lines in two strips of 100 rows (`uc_stream`), in the same pixel order as the SSD-type path's RAM.
+
 ## Pins
 
 As on the other M2 tags: EPD CS P1.7, D/C P2.2, RESET P2.0, BUSY P2.1, BS1 P1.2 (low = 4-wire SPI).
