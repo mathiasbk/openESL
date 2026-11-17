@@ -436,6 +436,12 @@ static void test_epd_uc(void)
     int x, i, bad = 0, round;
 
     build_scene(&sc);
+#if EPD_TRANSPOSE
+    /* The SSD-type path's RAM, to compare the UC-type byte stream with (see below) */
+    uc_model = false;
+    reset_model();
+    CHECK(epd_draw(&sc));
+#endif
     uc_model = true;
     for (round = 0; round < 2; round++) {        /* detected once, then remembered */
         uc_n_old = uc_n_new = uc_refreshes = uc_pon = uc_ssd_cmds = 0;
@@ -445,12 +451,39 @@ static void test_epd_uc(void)
         CHECK_EQ(uc_pon, 1);
         CHECK_EQ(uc_refreshes, 1);
         CHECK_EQ(uc_ssd_cmds, 0);
+#if EPD_TRANSPOSE
+        CHECK_EQ(uc_n_old, (DRAW_W + 7) / 8 * DRAW_H + 1); /* + the SSD-type sleep byte (0x10 0x01) */
+        CHECK_EQ(uc_n_new, (DRAW_W + 7) / 8 * DRAW_H);
+#else
         CHECK_EQ(uc_n_old, DRAW_W * DRAW_COL_BYTES + 1);   /* + the SSD-type sleep byte (0x10 0x01) */
         CHECK_EQ(uc_n_new, DRAW_W * DRAW_COL_BYTES);
+#endif
         CHECK(uc_asleep);
         CHECK_EQ(last_cmd, 0x07);        /* UC-type deep sleep last */
         CHECK(!powered);
     }
+#if EPD_TRANSPOSE
+    /* The stock firmware streams the same bytes to both controller types, the SSD-type one
+       counting RAM Y down from the last line: gate line n of the UC-type stream is RAM line
+       DRAW_H-1-n of the SSD-type path, byte for byte */
+    (void)b; (void)r;
+    for (x = 0; x < DRAW_H; x++)
+        for (i = 0; i < (DRAW_W + 7) / 8; i++)
+            if (uc_new[x * ((DRAW_W + 7) / 8) + i] != ram[0][DRAW_H - 1 - x][i])
+                bad++;
+    /* And independently: row y, byte i, bit 0x80 >> k is layout pixel (DRAW_W-1-(8i+k), y) */
+    draw_begin(&sc);
+    for (x = 0; x < DRAW_W; x++) {
+        int p = DRAW_W - 1 - x, y;
+        draw_column(&sc, (uint16_t)x, b, r);
+        for (y = 0; y < DRAW_H; y++) {
+            int black = (b[y >> 3] & (0x80 >> (y & 7))) != 0;
+            int white = (uc_new[y * ((DRAW_W + 7) / 8) + (p >> 3)] & (0x80 >> (p & 7))) != 0;
+            if (black == white)
+                bad++;
+        }
+    }
+#else
     draw_begin(&sc);
     for (x = 0; x < DRAW_W; x++) {
         draw_column(&sc, (uint16_t)x, b, r);
@@ -458,6 +491,7 @@ static void test_epd_uc(void)
             if (uc_new[x * DRAW_COL_BYTES + i] != (uint8_t)~b[i])
                 bad++;
     }
+#endif
     CHECK_EQ(bad, 0);
 
     /* A refresh that never pulls BUSY low is no display: false */

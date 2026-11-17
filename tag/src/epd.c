@@ -333,8 +333,8 @@ static void hw_reset(void)
  * controller holds it low, a UC-type one high. The init values are the stock firmware's
  * for this panel (EPD_UC_INIT in the panel header).
  */
-#if EPD_TRANSPOSE || MODEL_HAS_RED
-#error "the UC-type path streams one black/white plane in gate line order"
+#if MODEL_HAS_RED
+#error "the UC-type path streams one black/white plane"
 #endif
 static const uint8_t __code uc_init[] = { EPD_UC_INIT };
 static bool uc_panel;          /* the display has answered as UC-type */
@@ -351,6 +351,73 @@ static bool uc_wait_ready(uint16_t timeout_ms)
     }
     return true;
 }
+
+#if EPD_TRANSPOSE
+/*
+ * A UC-type controller has no data entry mode: its RAM is always written one gate line
+ * (screen row) at a time, 8 pixels per byte. On a transposed panel (1.54") a gate line is a
+ * layout row, so the rows are built in strips of UC_STRIP_ROWS: every layout column is
+ * drawn once per strip and only its rows inside the strip are kept, then the strip is sent.
+ * The stock firmware sends the same byte stream to both controller types (gate line 0 here
+ * is RAM line DRAW_H-1 on the SSD-type path, which counts Y down), so with the 180 degree
+ * turn of the SSD-type path the bytes of a row run from layout column DRAW_W-1 down to 0,
+ * MSB first. The old image (DTM1) is written all white; the image goes into DTM2.
+ */
+#if !EPD_ROTATE_180
+#error "the transposed UC-type path assumes the SSD-type path's EPD_ROTATE_180"
+#endif
+#define UC_STRIP_ROWS   100u
+#if DRAW_H % UC_STRIP_ROWS
+#error "DRAW_H must be a multiple of UC_STRIP_ROWS"
+#endif
+static uint8_t __xdata uc_strip[UC_STRIP_ROWS * RAM_X_BYTES];
+
+static void uc_stream(draw_scene_t *s)
+{
+    uint16_t x, n;
+    uint8_t y0, y, p, m;
+    uint8_t __xdata *row;
+
+    cmd(UC_DTM1);
+    hal_epd_dc(1);
+    hal_epd_cs(0);
+    for (n = 0; n < (uint16_t)RAM_X_BYTES * DRAW_H; n++)
+        spi_byte(0xFF);                /* white */
+    hal_epd_cs(1);
+    hal_wdt_kick();
+
+    cmd(UC_DTM2);
+    for (y0 = 0; y0 < DRAW_H; y0 += UC_STRIP_ROWS) {
+        for (row = uc_strip; row != uc_strip + sizeof(uc_strip); row++)
+            *row = 0;
+        if (s)
+            draw_begin(s);
+        for (x = 0; x < DRAW_W; x++) {
+            column(s, x);
+            p = (uint8_t)(DRAW_W - 1 - x);
+            m = (uint8_t)(0x80 >> (p & 7));
+            row = uc_strip + (p >> 3);
+            for (y = y0; y < y0 + UC_STRIP_ROWS; y++, row += RAM_X_BYTES)
+                if (col_black[y >> 3] & (uint8_t)(0x80 >> (y & 7)))
+                    *row |= m;
+            if ((x & 31) == 0)
+                hal_wdt_kick();
+        }
+        hal_epd_dc(1);
+        hal_epd_cs(0);
+        for (row = uc_strip; row != uc_strip + sizeof(uc_strip); row++)
+            spi_byte(EPD_BW_INVERT ? (uint8_t)~*row : *row);
+        hal_epd_cs(1);
+    }
+}
+#else
+/* One layout column per gate line: the image goes into both RAMs as it is */
+static void uc_stream(draw_scene_t *s)
+{
+    stream_plane_cmd(s, 0, UC_DTM1);
+    stream_plane_cmd(s, 0, UC_DTM2);
+}
+#endif
 
 static bool update_uc(draw_scene_t *s)
 {
@@ -371,8 +438,7 @@ static bool update_uc(draw_scene_t *s)
         for (; n; n--)
             data(uc_init[i++]);
     }
-    stream_plane_cmd(s, 0, UC_DTM1);
-    stream_plane_cmd(s, 0, UC_DTM2);
+    uc_stream(s);
     cmd(UC_DRF);
     /* The refresh pulls BUSY low: a line that stays high is no display at all */
     for (t = 0; t < 200 && hal_epd_busy(); t++)

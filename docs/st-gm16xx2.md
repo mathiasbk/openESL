@@ -20,6 +20,26 @@ At boot the stock firmware copies flash `0xFC00–0xFC0C` to xdata `0xFD79–0xF
 
 The stock firmware contains complete drivers for both panel types. Both the 1.6" (`000002079350341C`) and the 2.9" (`000001C280923B15`) tags we have show `01 02`, so the 2.9" probably needs the same treatment (not tested yet).
 
+## UC-type boards
+
+Some boards carry the UC-type controller instead (seen on a 1.54" tag made in 2017, which gave "drawing failed" with firmware that only knew the SSD-type path). From the stock firmware (UC path at code `0x5D6A`; command at `0x3F8A`, data at `0x3F66`), after a hardware reset, when `0xFC0B` is `01`:
+
+```
+01 03 01           power setting
+06 17 17 17        booster soft start
+04                 power on, then wait while BUSY is low
+00 D7              panel setting: OTP waveform, black/white
+61 C8 00 C8        resolution: 200 sources, 200 gates
+82 0A              VCOM DC (0x0A for this model, 0x12 for others)
+50 97              VCOM and data interval
+13 <5000 bytes>    new image, the same bytes in the same order as on the SSD-type path
+12                 display refresh, then wait while BUSY is low
+82 00, 02          VCOM 0, power off (wait)
+07 A5              deep sleep
+```
+
+A UC-type controller has no data entry mode, so `tag/src/epd.c` builds the gate lines in two strips of 100 rows (`uc_stream`) and writes the old image (`0x10`) all white.
+
 ## Pins
 
 As on the other M2 tags: EPD CS P1.7, D/C P2.2, RESET P2.0, BUSY P2.1, BS1 P1.2 (low = 4-wire SPI).
