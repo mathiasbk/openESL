@@ -327,11 +327,9 @@ static void hw_reset(void)
 #ifdef EPD_UC_INIT
 /*
  * Some boards of the same tag carry a UC-type controller (UC8151 family) instead of the
- * SSD-type one: the stock firmware has a driver for each and picks one from flash 0xFC0B
- * (docs/st-gm16xx2.md), which our flasher erases. The two are told apart by BUSY, which
- * is active high on SSD-type and active low on UC-type: once out of reset an SSD-type
- * controller holds it low, a UC-type one high. The init values are the stock firmware's
- * for this panel (EPD_UC_INIT in the panel header).
+ * SSD-type one (docs/st-gm16xx2.md). The two are told apart by BUSY, which is active high
+ * on SSD-type and active low on UC-type: once out of reset an SSD-type controller holds it
+ * low, a UC-type one high. The init list is in the panel header (EPD_UC_INIT).
  */
 #if MODEL_HAS_RED
 #error "the UC-type path streams one black/white plane"
@@ -354,15 +352,13 @@ static bool uc_wait_ready(uint16_t timeout_ms)
 
 #if EPD_TRANSPOSE
 /*
- * The UC-type controller on the 1.54" (seen on a tag made in 2017; the stock firmware calls
- * it panel type 0) is written one gate line (screen row) at a time, two bits per pixel
+ * The UC-type controller on the 1.54" (seen on a tag made in 2017) is written one gate line (screen row) at a time, two bits per pixel
  * (11 = white, 00 = black), all into DTM1; DTM2 is not used. It has no data entry mode, and
  * on this transposed panel a gate line is a layout row, so the rows are built in strips of
  * UC_STRIP_ROWS: every layout column is drawn once per strip and only its rows inside the
- * strip are kept, then the strip is sent. The stock firmware sends its frame buffer to both
- * controller types in the same order (gate line 0 here is RAM line DRAW_H-1 on the SSD-type
- * path, which counts Y down), so with the 180 degree turn of the SSD-type path a row runs
- * from layout column DRAW_W-1 down to 0, MSB first.
+ * strip are kept, then the strip is sent. Gate line 0 here is RAM line DRAW_H-1 on the
+ * SSD-type path (which counts Y down), byte for byte, so with the 180 degree turn of the
+ * SSD-type path a row runs from layout column DRAW_W-1 down to 0, MSB first.
  */
 #if !EPD_ROTATE_180
 #error "the transposed UC-type path assumes the SSD-type path's EPD_ROTATE_180"

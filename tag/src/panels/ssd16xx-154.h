@@ -35,11 +35,10 @@
     0x21, 1, 0x83           /* display update control 1 */
 
 /*
- * Some ST-GM16XX2 boards (seen on a tag made in 2017, flash 0xFC0B = 00) carry a UC-type
- * controller instead, which takes two bits per pixel (epd.c); epd.c tells it apart by BUSY
- * and then sends this list instead of the one above. Command, byte count, bytes; count 0
- * waits for BUSY (power on). The values are what the 2017 stock firmware sends for this
- * panel type (docs/st-gm16xx2.md). PLL 0x39 is its choice above 20 degrees C (0x2A below).
+ * Some ST-GM16XX2 boards (seen on a tag made in 2017) carry a UC-type controller instead,
+ * which takes two bits per pixel (epd.c); epd.c tells it apart by BUSY and then sends this
+ * list instead of the one above. Command, byte count, bytes; count 0 waits for BUSY (power
+ * on). See docs/st-gm16xx2.md.
  */
 #define EPD_UC_INIT \
     0x01, 2, 0x03, 0x00,            /* power setting */ \

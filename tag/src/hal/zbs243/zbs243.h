@@ -41,6 +41,7 @@ __sfr __at (0xA9) P2INTEN;
 __sbit __at (0x80) P0_0;
 __sbit __at (0x81) P0_1;
 __sbit __at (0x82) P0_2;
+__sbit __at (0x83) P0_3;
 __sbit __at (0x90) P1_0;
 __sbit __at (0x92) P1_2;
 __sbit __at (0x97) P1_7;

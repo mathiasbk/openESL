@@ -479,9 +479,8 @@ static void test_epd_uc(void)
         }
         uc_new[i] = (uint8_t)v;
     }
-    /* The stock firmware streams the same frame buffer to both controller types, the SSD-type
-       one counting RAM Y down from the last line: gate line n of the UC-type stream is RAM
-       line DRAW_H-1 of the SSD-type path, byte for byte */
+    /* Gate line n of the UC-type stream is RAM line DRAW_H-1-n of the SSD-type path (which
+       counts RAM Y down from the last line), byte for byte */
     for (x = 0; x < DRAW_H; x++)
         for (i = 0; i < (DRAW_W + 7) / 8; i++)
             if (uc_new[x * ((DRAW_W + 7) / 8) + i] != ram[0][DRAW_H - 1 - x][i])
