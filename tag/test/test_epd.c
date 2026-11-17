@@ -72,7 +72,10 @@ static void uc_on_byte(uint8_t b)
         case 0x04: uc_pon++; uc_busy_until = now_ms() + 40; break;
         case 0x12: uc_refreshes++; uc_busy_until = now_ms() + 2900; break;
         case 0x02: uc_busy_until = now_ms() + 20; break;
-        case 0x20: case 0x22: case 0x24: case 0x44: case 0x45: case 0x4E: case 0x4F:
+#if MODEL != 154                       /* the 1.54" UC-type list loads LUTs with 0x20-0x22 */
+        case 0x20: case 0x22:
+#endif
+        case 0x24: case 0x44: case 0x45: case 0x4E: case 0x4F:
             uc_ssd_cmds++; break;      /* SSD-only commands: must not be sent */
         default: break;
         }
