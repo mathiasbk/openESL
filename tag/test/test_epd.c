@@ -57,7 +57,7 @@ static int start_delay_ms, glitch_ms;
 /* ---- UC-type model (UC8151 family, EPD_UC_INIT): BUSY low while busy ---- */
 static bool uc_model;
 static unsigned long uc_busy_until;
-static uint8_t uc_new[RAM_Y * RAM_X];
+static uint8_t uc_new[RAM_Y * RAM_X], uc_old[RAM_Y * RAM_X];
 static int uc_n_old, uc_n_new, uc_refreshes, uc_pon, uc_ssd_cmds;
 static bool uc_asleep;
 static uint8_t uc_cmd = 0xFF;
@@ -77,7 +77,12 @@ static void uc_on_byte(uint8_t b)
         }
         return;
     }
-    if (uc_cmd == 0x10) { uc_n_old++; return; }
+    if (uc_cmd == 0x10) {
+        if (uc_n_old < (int)sizeof(uc_old))
+            uc_old[uc_n_old] = b;
+        uc_n_old++;
+        return;
+    }
     if (uc_cmd == 0x13) {
         if (uc_n_new < (int)sizeof(uc_new))
             uc_new[uc_n_new] = b;
@@ -452,8 +457,8 @@ static void test_epd_uc(void)
         CHECK_EQ(uc_refreshes, 1);
         CHECK_EQ(uc_ssd_cmds, 0);
 #if EPD_TRANSPOSE
-        CHECK_EQ(uc_n_old, (DRAW_W + 7) / 8 * DRAW_H + 1); /* + the SSD-type sleep byte (0x10 0x01) */
-        CHECK_EQ(uc_n_new, (DRAW_W + 7) / 8 * DRAW_H);
+        CHECK_EQ(uc_n_old, 2 * ((DRAW_W + 7) / 8) * DRAW_H + 1); /* 2 bits a pixel, + the SSD-type sleep byte */
+        CHECK_EQ(uc_n_new, 0);
 #else
         CHECK_EQ(uc_n_old, DRAW_W * DRAW_COL_BYTES + 1);   /* + the SSD-type sleep byte (0x10 0x01) */
         CHECK_EQ(uc_n_new, DRAW_W * DRAW_COL_BYTES);
@@ -463,10 +468,20 @@ static void test_epd_uc(void)
         CHECK(!powered);
     }
 #if EPD_TRANSPOSE
-    /* The stock firmware streams the same bytes to both controller types, the SSD-type one
-       counting RAM Y down from the last line: gate line n of the UC-type stream is RAM line
-       DRAW_H-1-n of the SSD-type path, byte for byte */
-    (void)b; (void)r;
+    /* DTM1 holds two bits a pixel (11 white, 00 black); folded back to one bit (1 = white) */
+    for (i = 0; i < (DRAW_W + 7) / 8 * DRAW_H; i++) {
+        int k, v = 0;
+        for (k = 0; k < 8; k++) {
+            int two = (uc_old[2 * i + k / 4] >> (6 - 2 * (k % 4))) & 3;
+            if (two != 0 && two != 3)
+                bad++;
+            v = (v << 1) | (two == 3);
+        }
+        uc_new[i] = (uint8_t)v;
+    }
+    /* The stock firmware streams the same frame buffer to both controller types, the SSD-type
+       one counting RAM Y down from the last line: gate line n of the UC-type stream is RAM
+       line DRAW_H-1 of the SSD-type path, byte for byte */
     for (x = 0; x < DRAW_H; x++)
         for (i = 0; i < (DRAW_W + 7) / 8; i++)
             if (uc_new[x * ((DRAW_W + 7) / 8) + i] != ram[0][DRAW_H - 1 - x][i])

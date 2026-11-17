@@ -354,14 +354,15 @@ static bool uc_wait_ready(uint16_t timeout_ms)
 
 #if EPD_TRANSPOSE
 /*
- * A UC-type controller has no data entry mode: its RAM is always written one gate line
- * (screen row) at a time, 8 pixels per byte. On a transposed panel (1.54") a gate line is a
- * layout row, so the rows are built in strips of UC_STRIP_ROWS: every layout column is
- * drawn once per strip and only its rows inside the strip are kept, then the strip is sent.
- * The stock firmware sends the same byte stream to both controller types (gate line 0 here
- * is RAM line DRAW_H-1 on the SSD-type path, which counts Y down), so with the 180 degree
- * turn of the SSD-type path the bytes of a row run from layout column DRAW_W-1 down to 0,
- * MSB first. The old image (DTM1) is written all white; the image goes into DTM2.
+ * The UC-type controller on the 1.54" (seen on a tag made in 2017; the stock firmware calls
+ * it panel type 0) is written one gate line (screen row) at a time, two bits per pixel
+ * (11 = white, 00 = black), all into DTM1; DTM2 is not used. It has no data entry mode, and
+ * on this transposed panel a gate line is a layout row, so the rows are built in strips of
+ * UC_STRIP_ROWS: every layout column is drawn once per strip and only its rows inside the
+ * strip are kept, then the strip is sent. The stock firmware sends its frame buffer to both
+ * controller types in the same order (gate line 0 here is RAM line DRAW_H-1 on the SSD-type
+ * path, which counts Y down), so with the 180 degree turn of the SSD-type path a row runs
+ * from layout column DRAW_W-1 down to 0, MSB first.
  */
 #if !EPD_ROTATE_180
 #error "the transposed UC-type path assumes the SSD-type path's EPD_ROTATE_180"
@@ -372,21 +373,24 @@ static bool uc_wait_ready(uint16_t timeout_ms)
 #endif
 static uint8_t __xdata uc_strip[UC_STRIP_ROWS * RAM_X_BYTES];
 
+/* Four pixels (bits 3..0, 1 = white) as two bits each, the first in bits 7..6 */
+static uint8_t uc_2bpp(uint8_t n)
+{
+    uint8_t r = 0;
+    if (n & 0x08) r |= 0xC0;
+    if (n & 0x04) r |= 0x30;
+    if (n & 0x02) r |= 0x0C;
+    if (n & 0x01) r |= 0x03;
+    return r;
+}
+
 static void uc_stream(draw_scene_t *s)
 {
-    uint16_t x, n;
-    uint8_t y0, y, p, m;
+    uint16_t x;
+    uint8_t y0, y, p, m, b;
     uint8_t __xdata *row;
 
     cmd(UC_DTM1);
-    hal_epd_dc(1);
-    hal_epd_cs(0);
-    for (n = 0; n < (uint16_t)RAM_X_BYTES * DRAW_H; n++)
-        spi_byte(0xFF);                /* white */
-    hal_epd_cs(1);
-    hal_wdt_kick();
-
-    cmd(UC_DTM2);
     for (y0 = 0; y0 < DRAW_H; y0 += UC_STRIP_ROWS) {
         for (row = uc_strip; row != uc_strip + sizeof(uc_strip); row++)
             *row = 0;
@@ -405,8 +409,11 @@ static void uc_stream(draw_scene_t *s)
         }
         hal_epd_dc(1);
         hal_epd_cs(0);
-        for (row = uc_strip; row != uc_strip + sizeof(uc_strip); row++)
-            spi_byte(EPD_BW_INVERT ? (uint8_t)~*row : *row);
+        for (row = uc_strip; row != uc_strip + sizeof(uc_strip); row++) {
+            b = (uint8_t)~*row;            /* 1 = white */
+            spi_byte(uc_2bpp((uint8_t)(b >> 4)));
+            spi_byte(uc_2bpp((uint8_t)(b & 0x0F)));
+        }
         hal_epd_cs(1);
     }
 }

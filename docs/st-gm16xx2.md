@@ -22,23 +22,28 @@ The stock firmware contains complete drivers for both panel types. Both the 1.6"
 
 ## UC-type boards
 
-Some boards carry the UC-type controller instead (seen on a 1.54" tag made in 2017, which gave "drawing failed" with firmware that only knew the SSD-type path). From the stock firmware (UC path at code `0x5D6A`; command at `0x3F8A`, data at `0x3F66`), after a hardware reset, when `0xFC0B` is `01`:
+Some boards carry a UC-type controller instead (BUSY low while busy).
+
+**Panel type 0 (seen).** A 1.54" tag made in 2017 (`00000190F6223417`) gave "drawing failed" with firmware that only knew the SSD-type path. Its stock firmware is an older build (reset vector `02 04 56`, SHA-256 of `0x0000-0xFBFF` starts `b8a274a3`) that copies flash `0xFC00-0xFC0B` to xdata `0xFD1E`, so `0xFC0A` is `0xFD28` and `0xFC0B` is `0xFD29`. This tag has `01 00`: board variant 1 (BS1 on P1.2, as on our other tags), panel type 0. The firmware has no SSD-type driver at all: type 1 and everything else (type 0) are both UC-type. Type 0 (init at code `0x2F4D`, command at `0x30B5`, data at `0x2EFE`):
 
 ```
-01 03 01           power setting
-06 17 17 17        booster soft start
+01 03 00           power setting
+06 07 06 05        booster soft start
 04                 power on, then wait while BUSY is low
-00 D7              panel setting: OTP waveform, black/white
+50 07              VCOM and data interval
+30 2A or 39        PLL: 2A at 20 degrees C or below, 39 above
 61 C8 00 C8        resolution: 200 sources, 200 gates
-82 0A              VCOM DC (0x0A for this model, 0x12 for others)
-50 97              VCOM and data interval
-13 <5000 bytes>    new image, the same bytes in the same order as on the SSD-type path
+82 0A              VCOM DC
+00 17              panel setting
+10 <10000 bytes>   the image, two bits per pixel (11 = white, 00 = black), MSB first;
+                   the frame buffer in the same order as on the SSD-type path (code 0x833A)
 12                 display refresh, then wait while BUSY is low
-82 00, 02          VCOM 0, power off (wait)
-07 A5              deep sleep
+82 00, 01 02 00, 02   VCOM 0, power setting, power off
 ```
 
-A UC-type controller has no data entry mode, so `tag/src/epd.c` builds the gate lines in two strips of 100 rows (`uc_stream`) and writes the old image (`0x10`) all white.
+`0x13` (DTM2) is not written. A UC-type controller has no data entry mode, so `tag/src/epd.c` builds the gate lines in two strips of 100 rows (`uc_stream`).
+
+**Panel type 1 (not seen on a 1.54").** The newer stock firmware above (`634ea952`) also has a UC-type driver for `0xFC0B` = `01` (code `0x5D6A`): `01 03 01`, `06 17 17 17`, `04`, `00 D7`, `61 C8 00 C8`, `82 0A`, `50 97`, image to `0x13` one bit per pixel. Our firmware does not use it.
 
 ## Pins
 

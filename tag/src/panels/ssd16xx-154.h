@@ -35,18 +35,20 @@
     0x21, 1, 0x83           /* display update control 1 */
 
 /*
- * Some ST-GM16XX2 boards (seen on a tag made in 2017) carry a UC-type controller instead;
- * epd.c tells them apart by BUSY and then sends this list instead of the one above.
- * Command, byte count, bytes; count 0 waits for BUSY (power on). The values are what the
- * stock firmware sends when flash 0xFC0B says 1 (UC-type), see docs/st-gm16xx2.md.
+ * Some ST-GM16XX2 boards (seen on a tag made in 2017, flash 0xFC0B = 00) carry a UC-type
+ * controller instead, which takes two bits per pixel (epd.c); epd.c tells it apart by BUSY
+ * and then sends this list instead of the one above. Command, byte count, bytes; count 0
+ * waits for BUSY (power on). The values are what the 2017 stock firmware sends for this
+ * panel type (docs/st-gm16xx2.md). PLL 0x39 is its choice above 20 degrees C (0x2A below).
  */
 #define EPD_UC_INIT \
-    0x01, 2, 0x03, 0x01,            /* power setting */ \
-    0x06, 3, 0x17, 0x17, 0x17,      /* booster soft start */ \
+    0x01, 2, 0x03, 0x00,            /* power setting */ \
+    0x06, 3, 0x07, 0x06, 0x05,      /* booster soft start */ \
     0x04, 0,                        /* power on */ \
-    0x00, 1, 0xD7,                  /* panel setting: OTP waveform, black/white */ \
+    0x50, 1, 0x07,                  /* VCOM and data interval */ \
+    0x30, 1, 0x39,                  /* PLL */ \
     0x61, 3, 0xC8, 0x00, 0xC8,      /* resolution: 200 sources, 200 gates */ \
     0x82, 1, 0x0A,                  /* VCOM DC */ \
-    0x50, 1, 0x97                   /* VCOM and data interval */
+    0x00, 1, 0x17                   /* panel setting: OTP waveform, black/white */
 
 #endif /* PANEL_SSD16XX_154_H */
