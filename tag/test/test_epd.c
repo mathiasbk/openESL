@@ -56,6 +56,7 @@ static int start_delay_ms, glitch_ms;
 
 /* ---- UC-type model (UC8151 family, EPD_UC_INIT): BUSY low while busy ---- */
 static bool uc_model;
+static int uc_late_ms;            /* BUSY low this long after each reset (some 1.54" boards) */
 static unsigned long uc_busy_until;
 static uint8_t uc_new[RAM_Y * RAM_X], uc_old[RAM_Y * RAM_X];
 static int uc_n_old, uc_n_new, uc_refreshes, uc_pon, uc_ssd_cmds;
@@ -165,7 +166,7 @@ static void on_byte(uint8_t b)
 void hal_epd_power(bool on) { powered = on; }
 void hal_epd_cs(bool high) { cs = high; if (high) nbits = 0; }
 void hal_epd_dc(bool high) { dc = high; }
-void hal_epd_rst(bool high) { (void)high; }
+void hal_epd_rst(bool high) { if (high && uc_model && uc_late_ms) uc_busy_until = now_ms() + (unsigned long)uc_late_ms; }
 void hal_epd_mosi(bool high) { mosi = high; }
 void hal_epd_sck(bool high)
 {
@@ -507,6 +508,20 @@ static void test_epd_uc(void)
     }
 #endif
     CHECK_EQ(bad, 0);
+
+    /* BUSY low for a while after reset (a 1.54" made in 2017): still found, and drawn */
+    {
+        int late;
+        for (late = 30; late <= 150; late += 120) {
+            uc_late_ms = late;
+            uc_n_old = uc_n_new = uc_refreshes = 0;
+            uc_asleep = false;
+            CHECK(epd_draw(&sc));
+            CHECK_EQ(uc_refreshes, 1);
+            CHECK(uc_asleep);
+        }
+        uc_late_ms = 0;
+    }
 
     /* A refresh that never pulls BUSY low is no display: false */
     uc_busy_until = 0;

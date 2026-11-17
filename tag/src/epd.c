@@ -428,8 +428,14 @@ static bool update_uc(draw_scene_t *s)
     uint8_t i = 0, n;
     uint8_t t;
 
-    hw_reset();
-    if (!uc_wait_ready(100)) {
+    /* Out of reset BUSY goes high (idle); on some boards it takes a while, or a second
+       reset pulse */
+    for (t = 0; t < 5; t++) {
+        hw_reset();
+        if (uc_wait_ready(300))
+            break;
+    }
+    if (t == 5) {
         sleep_any();
         return false;
     }
@@ -457,18 +463,37 @@ static bool update_uc(draw_scene_t *s)
     return ok;
 }
 
-/* After hw_reset(): BUSY still high after 100 ms means a UC-type controller (or none) */
+/*
+ * After hw_reset(): an SSD-type controller holds BUSY low (idle) once its reset is done. A
+ * UC-type one holds it high when idle, but on some boards (a 1.54" made in 2017) it is low
+ * at first and goes high later. BUSY high for UC_HIGH_MS in a row within UC_DETECT_MS
+ * means UC-type (or no display); the full wait is paid only until an SSD-type draw has
+ * worked once.
+ */
+#define UC_DETECT_MS    300u
+#define UC_HIGH_MS      50u
+static bool ssd_panel;         /* an SSD-type draw has worked */
+
 static bool busy_says_uc(void)
 {
-    uint8_t t;
-    for (t = 0; t < 100; t++) {
-        if (!hal_epd_busy())
-            return false;
+    uint16_t t;
+    uint8_t high = 0;
+    for (t = 0; t < UC_DETECT_MS; t++) {
+        if (hal_epd_busy()) {
+            if (++high >= UC_HIGH_MS)
+                return true;
+        } else {
+            high = 0;
+            if (ssd_panel)
+                return false;
+        }
         hal_delay_ms(1);
     }
-    return true;
+    return false;
 }
 #endif
+
+static bool update_ssd(draw_scene_t *s);
 
 /* s = 0: the image in the SPI flash */
 static bool update(draw_scene_t *s)
@@ -486,6 +511,21 @@ static bool update(draw_scene_t *s)
         return uc_panel;
     }
 #endif
+    ok = update_ssd(s);
+#ifdef EPD_UC_INIT
+    /* An SSD-type draw that fails before it has ever worked: try the UC-type path once */
+    if (ok)
+        ssd_panel = true;
+    else if (!ssd_panel)
+        ok = uc_panel = update_uc(s);
+#endif
+    return ok;
+}
+
+/* The SSD-type path, after hw_reset() */
+static bool update_ssd(draw_scene_t *s)
+{
+    bool ok;
 
     cmd(CMD_SW_RESET);
     if (!wait_busy(1000)) {
