@@ -466,32 +466,24 @@ static bool update_uc(draw_scene_t *s)
 }
 
 /*
- * After hw_reset(): an SSD-type controller holds BUSY low (idle) once its reset is done. A
- * UC-type one holds it high when idle, but on some boards (a 1.54" made in 2017) it is low
- * at first and goes high later. BUSY high for UC_HIGH_MS in a row within UC_DETECT_MS
- * means UC-type (or no display); the full wait is paid only until an SSD-type draw has
- * worked once.
+ * After hw_reset(): an SSD-type controller holds BUSY high for a while and then low (idle).
+ * A UC-type one holds it high when idle, so BUSY that never goes low within UC_DETECT_MS
+ * means UC-type (or no display). On some UC-type boards (a 1.54" made in 2017) BUSY is low
+ * after reset: those take the SSD-type path first, which fails, and then the UC-type path
+ * (update()). The wait is paid only until either kind of draw has worked once.
  */
-#define UC_DETECT_MS    300u
-#define UC_HIGH_MS      50u
+#define UC_DETECT_MS    1000u
 static bool ssd_panel;         /* an SSD-type draw has worked */
 
 static bool busy_says_uc(void)
 {
     uint16_t t;
-    uint8_t high = 0;
     for (t = 0; t < UC_DETECT_MS; t++) {
-        if (hal_epd_busy()) {
-            if (++high >= UC_HIGH_MS)
-                return true;
-        } else {
-            high = 0;
-            if (ssd_panel)
-                return false;
-        }
+        if (!hal_epd_busy())
+            return false;
         hal_delay_ms(1);
     }
-    return false;
+    return true;
 }
 #endif
 

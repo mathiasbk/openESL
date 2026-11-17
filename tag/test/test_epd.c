@@ -169,7 +169,14 @@ static void on_byte(uint8_t b)
 void hal_epd_power(bool on) { powered = on; }
 void hal_epd_cs(bool high) { cs = high; if (high) nbits = 0; }
 void hal_epd_dc(bool high) { dc = high; }
-void hal_epd_rst(bool high) { if (high && uc_model && uc_late_ms) uc_busy_until = now_ms() + (unsigned long)uc_late_ms; }
+static int ssd_reset_busy_ms;     /* SSD-type: BUSY high this long after each reset */
+void hal_epd_rst(bool high)
+{
+    if (high && uc_model && uc_late_ms)
+        uc_busy_until = now_ms() + (unsigned long)uc_late_ms;
+    if (high && !uc_model && ssd_reset_busy_ms)
+        busy_until = now_ms() + (unsigned long)ssd_reset_busy_ms;
+}
 void hal_epd_mosi(bool high) { mosi = high; }
 void hal_epd_sck(bool high)
 {
@@ -420,6 +427,21 @@ static void test_epd_refresh_end(void)
     reset_model();
 }
 
+static void test_epd_reset_busy(void)
+{
+    /* An SSD-type controller that holds BUSY high for a while after reset is still drawn
+       through the SSD-type path (a 1.54" made in 2018 does this) */
+    static draw_scene_t sc;
+    draw_clear(&sc);
+    reset_model();
+    ssd_reset_busy_ms = 200;
+    CHECK(epd_draw(&sc));
+    CHECK(asleep);
+    CHECK(n_written[0] > 0);
+    ssd_reset_busy_ms = 0;
+    reset_model();
+}
+
 static void test_epd_no_busy(void)
 {
     /* A display that never answers: false, and the power is switched off again */
@@ -545,6 +567,7 @@ int main(int argc, char **argv)
     RUN(test_epd_init_table);
     RUN(test_epd_awake);
     RUN(test_epd_refresh_end);
+    RUN(test_epd_reset_busy);
     RUN(test_epd_no_busy);
 #ifdef EPD_UC_INIT
     RUN(test_epd_uc);
