@@ -327,9 +327,9 @@ static void hw_reset(void)
 #ifdef EPD_UC_INIT
 /*
  * Some boards of the same tag carry a UC-type controller (UC8151 family) instead of the
- * SSD-type one (docs/st-gm16xx2.md). The two are told apart by BUSY, which is active high
- * on SSD-type and active low on UC-type: once out of reset an SSD-type controller holds it
- * low, a UC-type one high. The init list is in the panel header (EPD_UC_INIT).
+ * SSD-type one (docs/st-gm16xx2.md). BUSY is active high on SSD-type and active low on
+ * UC-type; how update() tells them apart is above busy_says_uc(). The init list is in the
+ * panel header (EPD_UC_INIT).
  */
 #if MODEL_HAS_RED
 #error "the UC-type path streams one black/white plane"
@@ -470,7 +470,7 @@ static bool update_uc(draw_scene_t *s)
  * A UC-type one holds it high when idle, so BUSY that never goes low within UC_DETECT_MS
  * means UC-type (or no display). On some UC-type boards (a 1.54" made in 2017) BUSY is low
  * after reset: those take the SSD-type path first, which fails, and then the UC-type path
- * (update()). The wait is paid only until either kind of draw has worked once.
+ * (update()). After a UC-type draw has worked, uc_panel skips this check until reboot.
  */
 #define UC_DETECT_MS    1000u
 static bool ssd_panel;         /* an SSD-type draw has worked */
