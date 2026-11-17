@@ -422,28 +422,30 @@ static void uc_stream(draw_scene_t *s)
 }
 #endif
 
+/* Power on can take seconds on the 1.54" made in 2017 */
+#define UC_PON_MS       10000u
+
 static bool update_uc(draw_scene_t *s)
 {
     bool ok = false;
     uint8_t i = 0, n;
     uint8_t t;
 
-    /* Out of reset BUSY goes high (idle); on some boards it takes a while, or a second
-       reset pulse */
-    for (t = 0; t < 5; t++) {
+    /* Out of reset BUSY goes high (idle) on most boards. On the 1.54" made in 2017 it stays
+       low until power on, so after a few reset pulses the init goes ahead anyway; power on
+       is where the controller has to answer. */
+    for (t = 0; t < 3; t++) {
         hw_reset();
-        if (uc_wait_ready(300))
+        if (uc_wait_ready(100))
             break;
-    }
-    if (t == 5) {
-        sleep_any();
-        return false;
     }
     while (i < sizeof(uc_init)) {
         cmd(uc_init[i++]);
         n = uc_init[i++];
-        if (!n)
-            uc_wait_ready(1000);       /* power on */
+        if (!n && !uc_wait_ready(UC_PON_MS)) {   /* power on */
+            sleep_any();
+            return false;
+        }
         for (; n; n--)
             data(uc_init[i++]);
     }

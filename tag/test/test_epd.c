@@ -511,8 +511,10 @@ static void test_epd_uc(void)
 
     /* BUSY low for a while after reset (a 1.54" made in 2017): still found, and drawn */
     {
-        int late;
-        for (late = 30; late <= 150; late += 120) {
+        static const int lates[] = { 30, 150, 1000000 };   /* the last: low until power on */
+        int k, late;
+        for (k = 0; k < 3; k++) {
+            late = lates[k];
             uc_late_ms = late;
             uc_n_old = uc_n_new = uc_refreshes = 0;
             uc_asleep = false;
