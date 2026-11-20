@@ -727,6 +727,54 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
     return n;
 }
 
+bool esl_store_note_seen(esl_store_t *st, uint64_t mac, uint8_t model, uint16_t battery_mv, int8_t rssi,
+                         uint64_t now_ms)
+{
+    uint32_t unix_s = st->ops.unix_now ? st->ops.unix_now(st->ops.ctx) : 0;
+    bool save = false; /* a new tag, or another model: its record now */
+    esl_seen_t rec;
+    lock(st);
+    int idx = find(st, mac);
+    if (idx < 0) {
+        idx = find_free(st);
+        if (idx >= 0) {
+            take_slot(st, (unsigned)idx, mac);
+            save = true;
+        } else {
+            st->full = true;
+        }
+    }
+    if (idx >= 0) {
+        esl_tag_t *t = at(st, (unsigned)idx);
+        if (t->model != model) {
+            t->model = model;
+            t->content_check = true; /* checked against the file of the model it turns out to be */
+            save = true;
+        }
+        if (unix_s)
+            t->seen_unix = unix_s;
+        t->seen = true;
+        t->last_seen_ms = now_ms;
+        t->rssi = rssi;
+        if (battery_mv)
+            t->battery_mv = battery_mv;
+        t->polls++;
+        /* the signal history, as esl_store_on_poll keeps it (no link block to read) */
+        t->hist_rssi[t->hist_at] = rssi;
+        t->hist_info[t->hist_at] = 0;
+        t->hist_at = (uint8_t)((t->hist_at + 1) % ESL_LINK_HIST);
+        if (t->hist_n < ESL_LINK_HIST)
+            t->hist_n++;
+        t->seen_dirty = !save;
+        if (save)
+            seen_record(t, &rec);
+    }
+    unlock(st);
+    if (save && st->ops.persist_seen)
+        st->ops.persist_seen(st->ops.ctx, (unsigned)idx, mac, &rec);
+    return idx >= 0;
+}
+
 bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint16_t ver)
 {
     bool offer = false;

@@ -185,7 +185,7 @@ OpenESL is written from scratch. It does not contain code from other firmware fo
 
 This project would be much harder without the people who opened up these tags first:
 
-- **Dmitry Grinberg** ([dmitry.gr](https://dmitry.gr)) for the reverse engineering of the ZBS243 and the SoluM tags.
+- **Dmitry Grinberg** ([dmitry.gr](https://dmitry.gr)) for opening up the ZBS243 and the SoluM tags.
 - **atc1441** for [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher), the flasher used to read and write the tags, and for a lot of public research and videos on these tags.
 - **Project Nayuki** for the [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) (MIT) that our QR encoder follows.
 - The **[OpenEPaperLink](https://github.com/OpenEPaperLink)** project and its contributors for documenting the tags, pinouts and flashing.

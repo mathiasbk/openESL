@@ -243,6 +243,31 @@ menu "OpenESL AP"
                 device on the network can connect as the radio.
     endchoice
 
+    config ESL_SOLUM_STOCK_TAGS
+        bool "SoluM stock-firmware tags: answer the vendor's own protocol too"
+        depends on ESL_RADIO_DRIVER_IEEE802154 && !ESL_RADIO_SNIFFER
+        default n
+        help
+            Some SoluM labels in the field still run the vendor's own firmware. The
+            AP answers their frames (components/esl_core/esl_solum_stock.c) next to
+            the openESL ones, draws the same content with esl_render, and sends it in
+            SoluM's own image format. Such a tag uses its own PAN and channel, so set
+            "802.15.4 PAN ID" and "802.15.4 channel" to match it, or the AP will not
+            hear it at all. Only the 1.54" and 2.9" panels are known. This protocol
+            is SoluM's: another vendor's stock firmware needs its own handler.
+
+    config ESL_SOLUM_STOCK_GW_ADDR
+        string "SoluM stock-firmware tags: the gateway address they expect"
+        depends on ESL_SOLUM_STOCK_TAGS
+        default ""
+        help
+            The gateway's 8-byte 802.15.4 address as 16 hex digits in the order
+            the AP shows a MAC (as on the gateway's label, e.g.
+            00:11:22:FF:FE:33:44:55; ':' or spaces allowed). A tag that is already
+            attached only answers the gateway it was attached to, so the AP must
+            present that address. Empty: the AP's own 802.15.4 address, which a
+            tag that is not attached yet learns during its scan.
+
     config ESL_NETRADIO_PORT
         int "Radio over WiFi: TCP port"
         depends on ESL_RADIO_DRIVER_NET

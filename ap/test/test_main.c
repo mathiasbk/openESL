@@ -31,6 +31,7 @@ void test_clock(void);
 void test_font(void);
 void test_compat(void);
 void test_remote(void);
+void test_solum_stock(void);
 
 static const struct {
     const char *name;
@@ -65,13 +66,14 @@ static const struct {
     {"clock", test_clock},
     {"font", test_font},
     {"compat", test_compat},
+    {"solum_stock", test_solum_stock},
 };
 
 int main(void)
 {
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
         int before = tt_failures;
-        printf("%-10s", tests[i].name);
+        printf("%-12s", tests[i].name);
         fflush(stdout);
         tests[i].fn();
         printf("%s\n", tt_failures == before ? "ok" : "");

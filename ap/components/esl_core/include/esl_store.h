@@ -344,6 +344,14 @@ esl_store_err_t esl_store_set(esl_store_t *st, uint64_t mac, const esl_content_t
 size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, int8_t rssi,
                          uint64_t now_ms, const esl_layout_env_t *env, uint8_t *reply);
 
+/* Records a tag that speaks another protocol (esl_solum_stock): adds it to the table if
+ * there is room and notes what it said (model, RSSI, last seen), so it is listed like any
+ * other tag. battery_mv 0 = unknown. It is not the openESL POLL handling
+ * (esl_store_on_poll): such a tag has no CONFIG, image or firmware to answer. Returns
+ * true when the tag has a row. */
+bool esl_store_note_seen(esl_store_t *st, uint64_t mac, uint8_t model, uint16_t battery_mv, int8_t rssi,
+                         uint64_t now_ms);
+
 typedef struct {
     bool changed;
     bool pending; /* the tag understands CONFIG and has not confirmed these settings yet */

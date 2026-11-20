@@ -23,6 +23,9 @@ ap/
     esl_layout    layout files per tag model: storage, version, drawing with them
     esl_layout_compile  layout file (JSON) -> the binary the AP draws with, checked per model
     esl_render    draws a tag's content into its image; esl_image sends it
+    esl_solum_stock  SoluM's stock-firmware protocol, next to esl_radio: its frames
+                  (E0/D7/AA/F4 -> E1/D8/AD/DE) and its image (1-bit BMP behind a page
+                  block, zlib); one vendor's, so another is a sibling file
     esl_persist   blob formats for NVS (content and settings per tag)
     esl_sched     scheduled content ("at") and the AP's clock
     esl_source    data sources (/api/sources): configuration, MET's answer -> values -> content
@@ -111,6 +114,7 @@ What the tests cover:
 - **Per-tag settings over CONFIG:** the fake tag uses the new interval, confirms with `cfg_ver`, gets them again after a tag restart but not after an AP restart; an old-firmware fake tag never gets CONFIG but still gets its interval. Also the run-time default interval in NVS.
 - **Images:** drawn when the tag shows another, sent in blocks in one wake-up, named layouts drawn from the file, a new or deleted file, lost blocks, busy buffers, drawing after the reply with many tags waiting at once and on an IMG_REQ for content changed meanwhile, RLE and the 2D code (with a decoder of its own written from the protocol, in place and not, and edge cases).
 - **Scheduled content and the clock** (`test_sched.c`), the health report and the webhook body.
+- **SoluM's stock-firmware protocol** (`test_solum_stock.c`, `esl_solum_stock.c`): the model bytes, the frames both ways, the 1-bit BMP and its zlib round-trip (checked with an inflater of its own), and the per-tag state machine.
 
 The test reads `../../tag/designs/layouts/*.json`, so run it from `ap/test`.
 
@@ -139,7 +143,13 @@ Not covered here: the ESP-IDF glue in `main/` (built in CI and run on hardware),
 - Flag bit 1 gives a black frame around the whole screen.
 - Layouts from a layout file (A12-A14, below) use the same elements.
 
-Choices: **Highlighted price:** `price_highlight` gives white digits in a black box (like the stock SoluM firmware), not just bold black. On the 2.9" the box only fits the mid font (36 px), so a highlighted price is smaller than a plain one. **Shrinking text:** a long name or text line changes to the small font before it is truncated. This shows more of the text, but labels side by side can end up with different font sizes.
+Choices: **Highlighted price:** `price_highlight` gives white digits in a black box (like SoluM's own labels), not just bold black. On the 2.9" the box only fits the mid font (36 px), so a highlighted price is smaller than a plain one. **Shrinking text:** a long name or text line changes to the small font before it is truncated. This shows more of the text, but labels side by side can end up with different font sizes.
+
+## SoluM stock-firmware tags (a second protocol)
+
+Some SoluM labels in the field still run the vendor's own firmware and never speak the openESL protocol. With `ESL_SOLUM_STOCK_TAGS` (off by default) the AP answers them too: `esl_solum_stock.c` recognises their frames — scan, activate, poll and a status report — and replies with the scan or activate reply, or with a burst of image fragments, next to `esl_radio_handle()` on the same link (a tag that speaks another protocol gets another handler, not another link). It draws the tag's content with the same `esl_render` and sends it in SoluM's own image format: a 1-bit BMP, zlib-compressed (`esl_solum_stock_deflate`, fixed Huffman, written from RFC 1950/1951), behind a small page block. Only the 2.9" (`ESL_MODEL_29`) and 1.54" (`ESL_MODEL_154`) panels are known; the content is stored and diffed per tag exactly as for an openESL tag, keyed by the tag's EUI-64. This is one vendor's protocol, not a general stock-firmware driver: another brand's factory firmware is another handler (`esl_link.h`).
+
+A SoluM stock tag uses the vendor's own PAN and channel, not openESL's, so set `ESL_PAN_ID` and `ESL_CHANNEL` to match it or the AP will not hear it at all (SoluM's network uses its own channel, channel 20; openESL channel 25). Such a tag also addresses its frames to its gateway's long address; the AP presents `ESL_SOLUM_STOCK_GW_ADDR` when set (16 hex digits in the order the AP shows a MAC, as on the gateway's label, e.g. `00:11:22:FF:FE:33:44:55`), otherwise its own 802.15.4 address, which a tag that is not attached yet learns during its scan. A SoluM stock tag is listed in `GET /api/tags` like any other: its scan, activate and poll frames go through `esl_store_note_seen()`, which adds it to the table with its model, signal and last-seen (its frames carry no battery reading, so that stays empty), and its content is stored and drawn per tag as usual. A status report is logged (`F4`, with the code that says why a screen did not take) but not stored.
 
 ## HTTP API
 
@@ -332,7 +342,7 @@ Byte 11 of POLL, formerly reserved and always 0, is the tag model (`ESL_POLL_OFF
 - **Token:** `ESL_API_TOKEN`, a token built into the firmware, used when NVS has none. There is no default, and with no token every API request gets `401`.
 - **Radio:** channel (`ESL_CHANNEL`, 25), PAN ID (0x4553), TX power (`ESL_TX_POWER_DBM`, 10; about 13 is the EU limit for 802.15.4), the radio mode (below; `ESL_STUB_TAGS`, `ESL_STUB_INTERVAL_S` for Stub).
 - **Tags:** `ESL_NEXT_POLL_S` (the built-in default interval; 0 = the tags keep their own), max tags.
-- **Features:** the API over USB (`ESL_SERIAL_API`), scheduled content (`ESL_MAX_SCHEDULED`, `ESL_NTP_SERVER`), health and webhook (`ESL_HEALTH_PERIOD_S`, `ESL_WEBHOOK`), data sources (`ESL_DATASOURCES`, on for the S3 boards; [docs/data-sources.md](../docs/data-sources.md)), OTA (`ESL_OTA`) and the LCD (`ESL_DISPLAY`, `ESL_LCD_*`).
+- **Features:** the API over USB (`ESL_SERIAL_API`), scheduled content (`ESL_MAX_SCHEDULED`, `ESL_NTP_SERVER`), health and webhook (`ESL_HEALTH_PERIOD_S`, `ESL_WEBHOOK`), data sources (`ESL_DATASOURCES`, on for the S3 boards; [docs/data-sources.md](../docs/data-sources.md)), OTA (`ESL_OTA`), the LCD (`ESL_DISPLAY`, `ESL_LCD_*`) and, off by default, SoluM's stock-firmware protocol (`ESL_SOLUM_STOCK_TAGS`, `ESL_SOLUM_STOCK_GW_ADDR`; see "SoluM stock-firmware tags").
 
 What can change at run time:
 
@@ -355,15 +365,15 @@ A `sdkconfig` made before this change keeps its old watchdog settings (no restar
 
 These are notes from development. Some may be out of date; the code and the tests are the reference. The original plan for the AP, with notes on what came of it, is in [docs/history/ap-firmware-plan.md](../docs/history/ap-firmware-plan.md).
 
-**Status (October 2026).** The core, the HTTP API (including layout files, per-tag settings and the setup form), the radio receive path, images and CONFIG to the tags are written, and the host tests pass: 2183 checks, 0 failures (gcc on Fedora, also with UBSan in trap mode). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, images sent block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub); image about 1 MB of the 1.5 MB app slot. It runs on an ESP32-C6 Super Mini with the API over USB (phase 5, see "Open points"); WiFi, CONFIG and the scheduled content are not tried on hardware yet; OTA (`POST /api/ota`) was tried on 2026-10-15, its rollback not.
+**Status (November 2026).** The core, the HTTP API (layout files, per-tag settings, the setup form), the radio receive path, images and CONFIG to the tags are written, and the host tests pass: 16354 checks, 0 failures (also with the sanitizers CI uses, `SAN=1`). The tests run whole rounds on the air with a fake tag: client → API → store → 802.15.4 frame → fake tag → next POLL, including AP restarts from (fake) NVS, images sent block by block and settings sent with CONFIG. The ESP-IDF part (`main/`) builds without warnings with ESP-IDF v5.5.5 in all three radio modes (AP, sniffer, stub). For what has been tried on real hardware, see the [main README Status](../README.md#status) and the [release notes](https://github.com/mathiasbk/openESL/releases).
 
 **Open points.**
 
-- **Tested on hardware (ESP32-C6 Super Mini, ESP-IDF v5.5.5, 1.54" jig tag):** the phase 5 test matrix, see "Results on hardware" in [docs/history/work-plan.md](../docs/history/work-plan.md). CONFIG and per-tag settings are not tested on hardware yet.
-- **WiFi on the jig's C6 Super Mini is weak:** it was not dead but turned off by 802.15.4 until coexistence was switched on (v0.3.1). The board's chip antenna still hears the router at only -75 to -85 dBm where a PC hears -65, so place it near the router, on a USB extension cable away from the computer's USB 3 ports.
+- **Tested on hardware (ESP32-C6 Super Mini, ESP-IDF v5.5.5, 1.54" jig tag):** the end-to-end path and WiFi, see "Results on hardware" in [docs/history/work-plan.md](../docs/history/work-plan.md). CONFIG and per-tag settings are not tried on hardware yet.
+- **WiFi on the jig's C6 Super Mini:** it was not dead but turned off by 802.15.4 until coexistence was switched on (v0.3.1); it now joins the network, does NTP and serves a tag. The board's chip antenna still hears the router at only -75 to -85 dBm where a PC hears -65, so place it near the router, on a USB extension cable away from the computer's USB 3 ports.
 - **Battery in POLL:** the 1.54" tag reports 0 mV (= unknown), since its panel does not answer the voltage-detector reads; see issue #4.
 - **Another model** is described in `shared/models.json` (see [Adding hardware](../wiki/developers/Adding-hardware.md) in the wiki).
 - **Validation per model (A13):** layout files are checked against the model's screen and what the AP can draw, and named content against the tag's model. The text limit (256 bytes with the length bytes, 255 in one field) is the same for both sizes; there is no other per-field or per-line length check (the AP shrinks and truncates text that does not fit).
 - **Tag settings:** the tag firmware keeps CONFIG in flash (`hal_store_*`), so a restarted tag uses its settings at once; the fake tag does not (it reports `cfg_ver` 0 after a restart and gets one extra CONFIG, which the tests rely on). The fake tag and `radio_stub.c` do not sleep per tag; the stub still polls all simulated tags every `ESL_STUB_INTERVAL_S`.
-- **WiFi setup** (setup network, `/setup`, `PUT /api/wifi`, the captive portal) is host-tested and builds, but not tried on hardware: the jig's C6 has dead WiFi.
+- **WiFi setup** (setup network, `/setup`, `PUT /api/wifi`, the captive portal) is host-tested and builds, but not tried on hardware yet.
 - **OTA (A10)**: writing a slot and the restart into it work on the Super Mini (2026-10-15, both ways between 0.2.0 and 0.2.91, from the web page); the rollback of a broken image is not tried on hardware yet.

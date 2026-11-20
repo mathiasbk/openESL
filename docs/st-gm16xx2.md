@@ -1,28 +1,28 @@
 # ST-GM16XX2: what we learned getting it to draw
 
-The small SoluM tag (label ST-GM16XX2, display FPC marked **HINK-E0154A16-A0**) was brought up on 2026-10-14 by studying a backup of its stock firmware and testing changes to the OpenEPaperLink (OEPL) tag firmware. The OEPL changes live in our fork of OEPL, not here (this repo contains no code from other firmware). This page keeps the hardware facts, so our own tag firmware can use them. Each fact is also a line in [sources.md](sources.md).
+The small SoluM tag (label ST-GM16XX2, display FPC marked **HINK-E0154A16-A0**) was brought up on 2026-10-14 by measuring the panel on the bench and testing changes to the OpenEPaperLink (OEPL) tag firmware. The OEPL changes live in our fork of OEPL, not here (this repo contains no code from other firmware). This page keeps the hardware facts, so our own tag firmware can use them. Each fact is also a line in [sources.md](sources.md).
 
 ## Summary
 
 - The display is **200×200, black/white**, not 152×152 as on the older 1.54" ST-GR16000.
 - The controller is **SSD-type** (BUSY high while busy), on the same pins as on the other M2 tags.
 - It **ignores** some commands that SSD1619/SSD1680-style code relies on. Code written for those controllers shows nothing, or shows noise or an inverted image (see the table).
-- With the stock init and refresh sequence below, plus the workarounds, the panel draws correctly. Tested on two tags (000002079350341C, 0000020663463415).
+- With the init and refresh sequence below, plus the workarounds, the panel draws correctly. Tested on two tags (000002079350341C, 0000020663463415).
 
-## How the stock firmware picks the panel
+## How the panel is selected
 
-At boot the stock firmware copies flash `0xFC00–0xFC0C` to xdata `0xFD79–0xFD85` (the routine at code `0x650B`, length 0x0D). The two bytes after the MAC then select the hardware:
+At boot the tag copies flash `0xFC00–0xFC0C` to xdata. The two bytes after the MAC then select the hardware:
 
 | Flash | Our tags | Meaning |
 |---|---|---|
 | `0xFC0A` | `01` | Board variant. 1: BS1 on P1.2, P0.3 driven high before EPD access (not needed for the display: it works without it). Other: BS1 on P1.5, P1.6 high |
 | `0xFC0B` | `02` | Panel type. 2: SSD-type (BUSY active high). 1: UC-type (UC8151 family, BUSY active low) |
 
-The stock firmware contains complete drivers for both panel types. Both the 1.6" (`000002079350341C`) and the 2.9" (`000001C280923B15`) tags we have show `01 02`, so the 2.9" probably needs the same treatment (not tested yet).
+Both the 1.54" (`000002079350341C`) and the 2.9" (`000001C280923B15`) tags we have show `01 02`, so the 2.9" probably needs the same treatment (not tested yet).
 
 ## UC-type boards
 
-Some boards carry a UC-type controller instead (BUSY low while busy, high when idle). Seen on a 1.54" tag made in 2017 (`00000190F6223417`), which gave "drawing failed" with firmware that only knew the SSD-type path. The firmware drives P0.3 high while the display is in use and low otherwise (UNCONFIRMED: it may switch the display supply on some boards).
+Some boards carry a UC-type controller instead (BUSY low while busy, high when idle). Seen on a 1.54" tag made in 2017 (`00000190F6223417`), which gave "drawing failed" with firmware that only knew the SSD-type path. The UC-type path drives P0.3 high while the display is in use and low otherwise (UNCONFIRMED: it may switch the display supply on some boards).
 
 How `tag/src/epd.c` tells the two apart: after reset an SSD-type controller holds BUSY high for a few ms and then low (4 ms on a 2018 board). BUSY high for a whole second means UC-type. On the 2017 1.54" BUSY is low after reset until power on, so it takes the SSD-type path first; that draw fails at the refresh, and the UC-type path is tried. After a draw has worked, the firmware remembers the type until the next reboot.
 
@@ -55,7 +55,7 @@ Without the three LUTs the refresh runs and BUSY behaves, but the panel does not
 
 As on the other M2 tags: EPD CS P1.7, D/C P2.2, RESET P2.0, BUSY P2.1, BS1 P1.2 (low = 4-wire SPI).
 
-## Init and refresh (SSD path of the stock firmware)
+## Init and refresh (SSD-type panel)
 
 After a hardware reset (RESET low, then high) and `0x12` soft reset:
 
@@ -81,7 +81,7 @@ Refresh:
 10 01              deep sleep
 ```
 
-The stock firmware never sends `0x18` (temperature sensor select). It writes the temperature itself with `0x1A` and uses `0x22 = 0xD7`. With OEPL's `0x18 = 0x80` and `0x22 = 0xF7` the refresh runs but the panel does not change.
+This panel never uses `0x18` (temperature sensor select): the temperature is written with `0x1A` and `0x22 = 0xD7`. With OEPL's `0x18 = 0x80` and `0x22 = 0xF7` the refresh runs but the panel does not change.
 
 ## Things this controller does not do
 
@@ -102,11 +102,11 @@ Reading a port pin that is set as an output (for example `P2_2`, the EPD D/C lin
 ## Consequences for our own tag firmware
 
 - `tag/src/epd.c` uses `0x18` and `0xF7`, which do not work on this panel. Use the sequence above.
-- [tag-firmware.md](tag-firmware.md) assumes the 1.54" is 152×152. The ST-GM16XX2 is 200×200.
-- Read `0xFC0A`/`0xFC0B` at boot to choose the panel driver, as the stock firmware does.
+- [tag-firmware.md](tag-firmware.md) used to assume the 1.54" is 152×152; the ST-GM16XX2 is 200×200.
+- Read `0xFC0A`/`0xFC0B` at boot to choose the panel driver.
 
 ## Tools
 
-- [`tag/tools/dis51.py`](../tag/tools/dis51.py) is a small 8051 disassembler used to read the stock firmware: `python3 dis51.py flash.bin 9C22 9C90`.
+- [`tag/tools/dis51.py`](../tag/tools/dis51.py) is a small 8051 disassembler, handy when debugging the tag firmware at the instruction level: `python3 dis51.py file.bin start end`.
 - A D1 mini running a SoftwareSerial passthrough on D5 reads the tag's UART (pad 4) at 115200. Lines are clean when the tag sends short bursts.
 - With the ESP8266 ZBS_Flasher, `reset` only works after the flasher has done an operation since it powered up (for example `read-infopage`). Otherwise it times out.
