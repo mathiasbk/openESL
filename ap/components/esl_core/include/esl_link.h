@@ -75,6 +75,10 @@ struct esl_link {
     /* Changes the transmit power (dBm, ESL_TX_POWER_MIN..MAX) while running, from any
      * task; NULL if not possible */
     int (*set_tx_power)(esl_link_t *l, int8_t dbm);
+    /* Sets the extended (EUI-64) address the radio answers to, in on-air order; NULL
+     * if not possible. A SoluM stock-firmware tag (esl_solum_stock) addresses its
+     * frames to the gateway's long address, so an AP that serves those needs one. */
+    int (*set_extended_addr)(esl_link_t *l, const uint8_t addr[8]);
     void *ctx;          /* the driver's own */
     esl_link_stats_t stats;
 };

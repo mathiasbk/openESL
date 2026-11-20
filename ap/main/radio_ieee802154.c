@@ -158,10 +158,19 @@ static int link_set_tx_power(esl_link_t *l, int8_t dbm)
     return esp_ieee802154_set_txpower(dbm);
 }
 
+/* The address a SoluM stock-firmware tag (esl_solum_stock) sends to, on-air order; the
+ * hardware then accepts those frames and auto-ACKs them. */
+static int link_set_extended_addr(esl_link_t *l, const uint8_t addr[8])
+{
+    (void)l;
+    return esp_ieee802154_set_extended_address(addr);
+}
+
 esl_link_t radio_link = {
     .name = "802.15.4",
     .start = link_start,
     .send = link_send,
     .set_channel = link_set_channel,
     .set_tx_power = link_set_tx_power,
+    .set_extended_addr = link_set_extended_addr,
 };

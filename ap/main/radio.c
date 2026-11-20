@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h>
 #include "app.h"
 #include "esl_link.h"
 #include "esp_heap_caps.h"
@@ -10,6 +11,10 @@
 #include "freertos/task.h"
 #include "radio.h"
 #include "sdkconfig.h"
+#ifdef CONFIG_ESL_SOLUM_STOCK_TAGS
+#include "esl_solum_stock.h"
+#include "esp_mac.h"
+#endif
 
 /* The radio task (docs/history/ap-firmware-plan.md, Radio), the same for every link: the
  * driver (radio_ieee802154.c, ...) puts each received frame on a queue, and a
@@ -178,11 +183,112 @@ static void hop(int64_t *next_hop_us, int64_t last_frame_us)
 }
 #endif
 
+#ifdef CONFIG_ESL_SOLUM_STOCK_TAGS
+/* Some SoluM labels still run the vendor's own firmware: a second handler next to
+ * esl_radio_handle on the same link (esl_solum_stock.h). Such a tag scans for its
+ * gateway, activates, then asks for an image job, which the AP answers with a burst of
+ * AD fragments rather than one reply, so it goes through esl_solum_stock_handle and this
+ * link's send. Such a tag uses its own PAN and channel, so the AP must be set to them. */
+static esl_solum_stock_t solum_stock;
+static bool solum_stock_ready;
+
+typedef struct {
+    const esl_link_rx_t *req;
+    unsigned sent;
+} solum_stock_send_t;
+
+/* One frame of a burst: esl_solum_stock builds it without the FCS, and the link takes it
+ * with the FCS, exactly as esl_link_handle's single replies. */
+static bool solum_stock_send(void *ctx, const uint8_t *psdu, size_t len)
+{
+    solum_stock_send_t *s = ctx;
+    static uint8_t tx[ESL_PSDU_MAX];
+    if (len + ESL_FCS_LEN > ESL_PSDU_MAX)
+        return false;
+    memcpy(tx, psdu, len);
+    memset(tx + len, 0, ESL_FCS_LEN); /* the radio fills the FCS in */
+    /* A burst outlasts the tag's 20 ms listening window that a single reply is timed
+       against, so time each fragment from now: one the radio refused is sent again
+       within its own window, not the window of the AA frame that started the burst. */
+    esl_link_rx_t req = *s->req;
+    req.rx_us = esp_timer_get_time();
+    if (radio_link.send(&radio_link, tx, len + ESL_FCS_LEN, &req) != 0)
+        return false;
+    s->sent++;
+    return true;
+}
+
+static int hexval(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
+
+/* The gateway address a SoluM stock tag sends to, in on-air (little-endian) order.
+ * CONFIG_ESL_SOLUM_STOCK_GW_ADDR is 16 hex digits in the order the AP shows a MAC
+ * (esl_mac_format, as on a label, e.g. 00:11:22:FF:FE:33:44:55), so its bytes are
+ * reversed here. Empty: this AP's own 802.15.4 address, which a tag that is not
+ * attached yet learns during its scan. */
+static void solum_stock_gw_addr(uint8_t gw[8])
+{
+    uint8_t in[8];
+    int n = 0;
+    for (const char *s = CONFIG_ESL_SOLUM_STOCK_GW_ADDR; *s && n < 8;) {
+        int hi = hexval(*s++);
+        if (hi < 0)
+            continue; /* a separator */
+        int lo = *s ? hexval(*s++) : -1;
+        if (lo < 0)
+            break;
+        in[n++] = (uint8_t)(hi << 4 | lo);
+    }
+    if (n == 8) {
+        for (int i = 0; i < 8; i++)
+            gw[i] = in[7 - i]; /* the AP shows a MAC big-endian; on air it is little */
+        return;
+    }
+    uint8_t mac[8];
+    if (esp_read_mac(mac, ESP_MAC_IEEE802154) == ESP_OK)
+        for (int i = 0; i < 8; i++)
+            gw[i] = mac[7 - i]; /* esp_read_mac is big-endian; on air it is little */
+    else
+        memset(gw, 0, 8);
+}
+#endif
+
 static void __attribute__((unused)) handle_frame(const esl_link_rx_t *f)
 {
     static uint8_t tx[ESL_PSDU_MAX];
     esl_radio_event_t ev;
     uint64_t now_ms = (uint64_t)esp_timer_get_time() / 1000;
+
+#ifdef CONFIG_ESL_SOLUM_STOCK_TAGS
+    if (solum_stock_ready && f->len > ESL_FCS_LEN) {
+        esl_solum_stock_frame_t sf;
+        if (esl_solum_stock_parse(f->psdu, f->len - ESL_FCS_LEN, &sf) && sf.msg == ESL_SOLUM_STOCK_MSG_STATUS) {
+            /* The tag's report on the job it fetched: the code says why a screen did not
+               take (00 = taken), which is what one wants when bringing a tag up. */
+            radio_link.stats.rx++;
+            ESP_LOGI(TAG, "solum-stock: status job %08lX msg %02X code %02X", (unsigned long)sf.job, sf.status_msg,
+                     sf.code);
+            return;
+        }
+        solum_stock_send_t s = { f, 0 };
+        unsigned n = esl_solum_stock_handle(&solum_stock, store, layouts, pan, f->psdu, f->len - ESL_FCS_LEN,
+                                            f->rssi, now_ms, solum_stock_send, &s);
+        if (n) {
+            radio_link.stats.rx++;
+            radio_link.stats.replies += n;
+            ESP_LOGI(TAG, "solum-stock: answered with %u frame(s)", n);
+            return;
+        }
+    }
+#endif
 
     if (!esl_link_handle(&radio_link, store, layouts, pan, f, now_ms, tx, &ev, clock_us, NULL))
         return;
@@ -387,6 +493,19 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
     rx_queue = xQueueCreate(8, sizeof(esl_link_rx_t));
     if (!rx_queue)
         return ESP_ERR_NO_MEM;
+#ifdef CONFIG_ESL_SOLUM_STOCK_TAGS
+    /* Before the task runs, so the first SoluM stock frame finds it ready. The scratch is
+       esl_solum_stock_mem_size() bytes (the render, the BMP, the stream and the deflate hash). */
+    void *mem = heap_caps_malloc(esl_solum_stock_mem_size(), MALLOC_CAP_8BIT);
+    if (mem) {
+        uint8_t gw[8];
+        solum_stock_gw_addr(gw);
+        esl_solum_stock_init(&solum_stock, mem, gw, channel);
+        solum_stock_ready = true;
+    } else {
+        ESP_LOGW(TAG, "solum-stock: no memory, the protocol is off");
+    }
+#endif
     /* esl_radio_handle copies one model's layout names (about 0.5 KB) onto the stack, and
        drawing an image holds a tag's content and its NVS blob (about 0.6 KB since #182) */
     if (xTaskCreate(radio_task, "radio", 6656, NULL, configMAX_PRIORITIES - 2, NULL) != pdPASS)
@@ -395,6 +514,15 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
 #if REMOTE
     if (err == ESP_OK)
         remote_start_visits(channel);
+#endif
+#ifdef CONFIG_ESL_SOLUM_STOCK_TAGS
+    if (solum_stock_ready) {
+        if (radio_link.set_extended_addr)
+            radio_link.set_extended_addr(&radio_link, solum_stock.gw);
+        ESP_LOGI(TAG, "solum-stock: on, gateway %02X%02X%02X%02X%02X%02X%02X%02X", solum_stock.gw[7],
+                 solum_stock.gw[6], solum_stock.gw[5], solum_stock.gw[4], solum_stock.gw[3], solum_stock.gw[2],
+                 solum_stock.gw[1], solum_stock.gw[0]);
+    }
 #endif
     int8_t dbm = radio_tx_power()->dbm;
     if (err == ESP_OK && dbm != CONFIG_ESL_TX_POWER_DBM) /* the driver starts with menuconfig's */
