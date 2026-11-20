@@ -19,10 +19,9 @@ are. What is new is how the picture gets to the tag.
 
 ## Parts
 
-1. **Learning a tag's protocol:** [`tools/ble-probe`](../tools/ble-probe/README.md) reads a
-   phone's Bluetooth log of the maker's app and lists what it wrote to which
-   characteristic. Clean-room: only our own recordings of our own tags and the makers'
-   published documents, and what we learn is written here in our own words.
+1. **Learning a tag's protocol:** [`tools/ble-probe`](../tools/ble-probe/README.md) helps map
+   what a tag's app writes to which characteristic. Clean-room: only our own tags and the
+   makers' published documents, and what we learn is written here in our own words.
 2. **Delivery** (`esl_core/esl_push.c`, built and tested on the PC, not used on the AP
    yet): the tags the AP sends to itself. Each round, a tag whose content gives another
    image than the one it was last given gets it through a transport. A tag that is not
@@ -36,7 +35,7 @@ are. What is new is how the picture gets to the tag.
    `esl_push_seen`, and the transport `send`, which connects, hands the picture to the
    tag's protocol module and disconnects. Tags are paired in the web page and kept in
    NVS with the id of the image each was last given.
-4. **Protocol modules** (to do, once the tags are recorded): one per tag family, turning
+4. **Protocol modules** (to do, once a tag's protocol is known): one per tag family, turning
    a raw picture (the black plane, then the red plane) into the maker's commands.
 5. **Models:** `shared/models.json` already has `radio` and `protocol` fields; a
    Bluetooth tag becomes a model with `radio: "ble"` and its maker's protocol.
