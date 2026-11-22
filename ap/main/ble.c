@@ -64,7 +64,7 @@ typedef struct {
     bool busy;
     bool scanning;
     uint16_t svc_start, svc_end;
-    uint16_t fef1_val, fef2_val, fef1_cccd;
+    uint16_t fef1_val, fef2_val, fef1_cccd, fef2_cccd;
     uint16_t mtu;
     int write_status;
     uint64_t cur_mac; /* the tag being connected to, for nim_info */
@@ -220,6 +220,37 @@ static int cccd_write_cb(uint16_t conn_handle, const struct ble_gatt_error *erro
     return 0;
 }
 
+static int cccd2_write_cb(uint16_t conn_handle, const struct ble_gatt_error *error, struct ble_gatt_attr *attr,
+                          void *arg)
+{
+    (void)conn_handle;
+    (void)attr;
+    ble_state_t *s = arg;
+    if (error->status != 0)
+        ESP_LOGW(TAG, "FEF2 CCCD write: %d", error->status);
+    s->write_status = 0; /* FEF1 is on; that is the one the transfer needs */
+    xSemaphoreGive(s->setup_sem);
+    return 0;
+}
+
+/* FEF1's CCCD is written; FEF2's (when the tag has one) follows, as the maker's app does.
+ * The setup result is FEF1's: the tag answers every step there. */
+static int cccd1_write_cb(uint16_t conn_handle, const struct ble_gatt_error *error, struct ble_gatt_attr *attr,
+                          void *arg)
+{
+    (void)attr;
+    ble_state_t *s = arg;
+    if (error->status != 0 || !s->fef2_cccd)
+        return cccd_write_cb(conn_handle, error, attr, arg);
+    uint8_t v[2] = {1, 0};
+    s->write_status = -1;
+    if (ble_gattc_write_flat(conn_handle, s->fef2_cccd, v, sizeof v, cccd2_write_cb, s) != 0) {
+        s->write_status = 0; /* FEF1 is on; FEF2 notifications are not needed */
+        xSemaphoreGive(s->setup_sem);
+    }
+    return 0;
+}
+
 static int write_cb(uint16_t conn_handle, const struct ble_gatt_error *error, struct ble_gatt_attr *attr, void *arg)
 {
     (void)conn_handle;
@@ -236,8 +267,18 @@ static int dsc_disc_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
     (void)chr_val_handle;
     ble_state_t *s = arg;
     if (error->status == 0 && dsc) {
-        if (ble_uuid_u16(&dsc->uuid.u) == 0x2902)
-            s->fef1_cccd = dsc->handle;
+        /* A CCCD belongs to the characteristic whose value handle is the closest below it.
+           Only the first one after each value counts: the search runs to the end of the
+           service, so it also passes the CCCDs of the characteristics after it */
+        if (ble_uuid_u16(&dsc->uuid.u) == 0x2902) {
+            uint16_t h = dsc->handle;
+            bool fef2 = h > s->fef2_val && (s->fef2_val > s->fef1_val || h < s->fef1_val);
+            bool fef1 = !fef2 && h > s->fef1_val;
+            if (fef1 && !s->fef1_cccd)
+                s->fef1_cccd = h;
+            else if (fef2 && !s->fef2_cccd)
+                s->fef2_cccd = h;
+        }
         return 0;
     }
     if (error->status == BLE_HS_EDONE) {
@@ -247,7 +288,7 @@ static int dsc_disc_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
         }
         uint8_t v[2] = {1, 0};
         s->write_status = -1;
-        int rc = ble_gattc_write_flat(conn_handle, s->fef1_cccd, v, sizeof v, cccd_write_cb, s);
+        int rc = ble_gattc_write_flat(conn_handle, s->fef1_cccd, v, sizeof v, cccd1_write_cb, s);
         if (rc != 0) {
             ESP_LOGW(TAG, "CCCD write: %d", rc);
             xSemaphoreGive(s->setup_sem);
@@ -273,7 +314,8 @@ static int chr_disc_cb(uint16_t conn_handle, const struct ble_gatt_error *error,
             xSemaphoreGive(s->setup_sem);
             return 0;
         }
-        int rc = ble_gattc_disc_all_dscs(conn_handle, s->fef1_val, s->svc_end, dsc_disc_cb, s);
+        uint16_t from = s->fef1_val < s->fef2_val ? s->fef1_val : s->fef2_val;
+        int rc = ble_gattc_disc_all_dscs(conn_handle, from, s->svc_end, dsc_disc_cb, s);
         if (rc != 0) {
             ESP_LOGW(TAG, "descriptor discovery: %d", rc);
             xSemaphoreGive(s->setup_sem);
@@ -402,7 +444,7 @@ static bool nim_connect(void *ctx, uint64_t mac)
     s->connected = false;
     s->conn_handle = BLE_HS_CONN_HANDLE_NONE;
     s->svc_start = s->svc_end = 0;
-    s->fef1_val = s->fef2_val = s->fef1_cccd = 0;
+    s->fef1_val = s->fef2_val = s->fef1_cccd = s->fef2_cccd = 0;
     s->write_status = -1;
 
     int rc = ble_gap_connect(s->own_addr_type, &addr, BLE_CONNECT_TIMEOUT_MS, NULL, gap_event, s);
@@ -449,7 +491,8 @@ static bool nim_connect(void *ctx, uint64_t mac)
         nim_disconnect(s);
         return false;
     }
-    ESP_LOGI(TAG, "connected %012llX, MTU %u", (unsigned long long)mac, s->mtu);
+    ESP_LOGI(TAG, "connected %012llX, MTU %u, CCCD FEF1 0x%04x FEF2 0x%04x", (unsigned long long)mac, s->mtu,
+             s->fef1_cccd, s->fef2_cccd);
     return true;
 }
 
