@@ -127,3 +127,28 @@ bool esl_persist_seen_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_s
     s->stock = len >= ESL_PERSIST_SEEN_LEN && in[19] != 0;
     return true;
 }
+
+size_t esl_persist_push_encode(uint64_t mac, uint8_t model, uint32_t shown, uint8_t *out)
+{
+    size_t o = 0;
+    out[o++] = ESL_PERSIST_PUSH_VER;
+    for (int i = 0; i < 8; i++)
+        out[o++] = (uint8_t)(mac >> (8 * i));
+    out[o++] = model;
+    for (int i = 0; i < 4; i++)
+        out[o++] = (uint8_t)(shown >> (8 * i));
+    return o;
+}
+
+bool esl_persist_push_decode(const uint8_t *in, size_t len, uint64_t *mac, uint8_t *model, uint32_t *shown)
+{
+    if (len != ESL_PERSIST_PUSH_LEN || in[0] != ESL_PERSIST_PUSH_VER)
+        return false;
+    uint64_t m = 0;
+    for (int i = 8; i >= 1; i--)
+        m = (m << 8) | in[i];
+    *mac = m;
+    *model = in[9];
+    *shown = (uint32_t)in[10] | ((uint32_t)in[11] << 8) | ((uint32_t)in[12] << 16) | ((uint32_t)in[13] << 24);
+    return true;
+}

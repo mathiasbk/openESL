@@ -32,7 +32,7 @@ static esl_layouts_t *stub_layouts;
 static void stub_task(void *arg)
 {
     esl_store_t *st = arg;
-    static esl_faketag_t tags[CONFIG_ESL_STUB_TAGS];
+    static esl_faketag_t tags[CONFIG_ESL_STUB_TAGS ? CONFIG_ESL_STUB_TAGS : 1];
 
     for (int i = 0; i < CONFIG_ESL_STUB_TAGS; i++)
         esl_faketag_init(&tags[i], STUB_MAC_BASE + 1 + (uint64_t)i, 1, (uint16_t)(3000 - 10 * i),

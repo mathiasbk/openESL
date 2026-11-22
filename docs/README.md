@@ -30,6 +30,7 @@ This folder is for developers. To **use** OpenESL, read the [wiki](https://githu
 | [tag-ota.md](tag-ota.md) | Firmware updates over the radio for the tags: bootloader, SPI flash slots, rollback |
 | [st-gm16xx2.md](st-gm16xx2.md) | The 1.54" ST-GM16XX2: panel detection, init and refresh |
 | [ble-tags.md](ble-tags.md) | Bluetooth tags with their maker's firmware: how the AP will send to them, what is built so far (in progress) |
+| [gicisky-296-bwry.md](gicisky-296-bwry.md) | The Gicisky/PICKSMART 2.9" BWRY BLE tag: GATT, command sequence, chunked image, 2-bit colours and orientation, recorded from our own captures, and the BLE AP build |
 | [solum-remote.md](solum-remote.md) | The SoluM ESL remote SLT-RC004 as a wireless button: its frames, how the AP hears it on channel 11, and the webhook |
 | [power-budget.md](power-budget.md) | Battery life: the estimate, the model and how to measure a tag |
 | [sources.md](sources.md) | Every hardware fact the code uses, and where it came from |

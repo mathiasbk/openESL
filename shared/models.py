@@ -2,8 +2,9 @@
 The tag model registry (shared/models.json) for the Python tools in this repository.
 
   import models                      (with shared/ on sys.path)
-  models.load()                      -> the models OpenESL builds firmware for, ordered by code
+  models.load()                      -> the models OpenESL knows (tag firmware or BLE), ordered by code
   models.load(planned=True)          -> also the "planned" ones, which are only described
+  models.flashable()                 -> the models the tag firmware is built for (not BLE)
   models.by_build("154")             -> the model built with MODEL=154
   models.by_name("1.54")             -> the model the API calls "1.54"
   models.fw_dir(m)                   -> the build folder under tag/build/ ("fw", "fw154")
@@ -25,11 +26,17 @@ def load(path=PATH, planned=False):
         ms = json.load(f)["models"]
     built = [m for m in ms if m["status"] != "planned"]
     for m in built:
-        m["mac_code"] = int(m["mac_code"], 16)
+        if "mac_code" in m:
+            m["mac_code"] = int(m["mac_code"], 16)
     for m in ms:
         m["has_red"] = "red" in m["colors"]
     built.sort(key=lambda m: m["code"])
     return built + [m for m in ms if m["status"] == "planned"] if planned else built
+
+
+def flashable(ms=None):
+    """The models the tag firmware is built for: not the Bluetooth tags with the maker's firmware."""
+    return [m for m in (ms or load()) if m["radio"] != "ble"]
 
 
 def by_build(build, ms=None):

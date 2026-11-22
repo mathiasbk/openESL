@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app.h"
+#include "ble.h"
 #include "radio.h"
 #include "esp_app_desc.h"
 #include "esp_log.h"
@@ -195,6 +196,18 @@ void app_main(void)
     esl_channel_state_t ch;
     esl_store_channel_state(&store, 0, &ch);
     ESL_CHECK(radio_start(&store, api.layouts, ch.channel, CONFIG_ESL_PAN_ID));
+#if CONFIG_ESL_BLE
+    /* Bluetooth tags with their maker's firmware (docs/ble-tags.md): the BLE central and
+       the push task, on the AP's own BLE radio (CONFIG_ESL_BLE; the radio mode is the stub,
+       so 802.15.4 is off). */
+    if (image_mem) {
+        esp_err_t ble_err = ble_start(&store, api.layouts, &images);
+        if (ble_err != ESP_OK)
+            ESP_LOGE(TAG, "BLE: %s", esp_err_to_name(ble_err));
+    } else {
+        ESP_LOGE(TAG, "BLE: no image buffers, no tag can be sent to");
+    }
+#endif
     /* The tag table is the one thing that grows with the number of tags (store_nvs.c
        stops it before WiFi and HTTP run short); this shows how much
        room is left for it. */

@@ -92,6 +92,7 @@ The whole list, with links, is on [What you need](https://github.com/mathiasbk/o
 | SoluM | SoluM 2.9" black/white | ST-GM29XX2 | 296 × 128 | black/white | ZBS243 | 802.15.4 | Supported |
 | SoluM | SoluM 1.54" black/white | ST-GM16XX2 | 200 × 200 | black/white | ZBS243 | 802.15.4 | Supported |
 | SoluM | SoluM 2.9" black/white/red | ST-GR29000 | 296 × 128 | black/white/red | ZBS243 | 802.15.4 | Experimental |
+| Gicisky | Gicisky/PICKSMART 2.9" black/white/red/yellow | PICKSMART 2.9 BWRY | 296 × 128 | black/white/red/yellow | unknown | ble | Experimental |
 <!-- END models -->
 
 The list is made from [shared/models.json](shared/models.json). **Have a label that is not on the list?** [Suggest it in an issue](https://github.com/mathiasbk/openESL/issues/new?template=hardware.yml) with photos of the board and what is written on the chip and display, or see [Adding hardware](https://github.com/mathiasbk/openESL/wiki/Adding-hardware).

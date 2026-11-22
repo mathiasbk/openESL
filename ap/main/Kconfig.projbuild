@@ -303,7 +303,7 @@ menu "OpenESL AP"
     config ESL_STUB_TAGS
         int "Simulated tags"
         depends on ESL_RADIO_STUB
-        range 1 16
+        range 0 16
         default 3
 
     config ESL_STUB_INTERVAL_S
@@ -311,5 +311,33 @@ menu "OpenESL AP"
         depends on ESL_RADIO_STUB
         range 1 600
         default 10
+
+    config ESL_BLE
+        bool "Bluetooth tags with the maker's firmware (BLE central)"
+        depends on ESL_RADIO_STUB && BT_ENABLED && BT_NIMBLE_ENABLED
+        default n
+        help
+            The AP uses its BLE radio instead of 802.15.4 (the stub radio mode)
+            and sends pictures to Bluetooth price tags that keep their maker's
+            firmware, such as the Gicisky/PICKSMART 2.9" BWRY (docs/ble-tags.md,
+            docs/gicisky-296-bwry.md). Needs the NimBLE central and observer
+            roles; ble.sdkconfig.defaults has them and is read by
+            "python build.py --ble <board>" or idf.py -D BLE=1.
+
+    config ESL_BLE_TAG_MAC
+        string "Tag MAC to add at boot (AA:BB:CC:DD:EE:FF; empty = from the scan)"
+        depends on ESL_BLE
+        default ""
+
+    config ESL_BLE_AUTO_ADD
+        bool "Add a Gicisky tag the scan hears"
+        depends on ESL_BLE
+        default y
+
+    config ESL_BLE_ROUND_MS
+        int "Milliseconds between push rounds"
+        depends on ESL_BLE
+        range 1000 60000
+        default 5000
 
 endmenu

@@ -1,0 +1,31 @@
+# Bluetooth AP: the BLE central for tags that keep their maker's firmware
+# (docs/ble-tags.md, docs/gicisky-296-bwry.md). Read after the board's defaults by
+# "python build.py --ble <board>" or idf.py -D BLE=1; the radio mode is the stub, so
+# 802.15.4 is off and the BLE radio is the AP's only tag radio.
+
+CONFIG_ESL_BLE=y
+CONFIG_ESL_BLE_AUTO_ADD=y
+CONFIG_ESL_BLE_ROUND_MS=5000
+CONFIG_ESL_BLE_TAG_MAC=""
+
+# Two larger app slots: the BLE image is about 1.6 MB, and a Bluetooth AP has no
+# 802.15.4 tag firmware partition to keep.
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="ble.partitions.csv"
+
+# No 802.15.4: the stub radio starts no simulated tags either.
+CONFIG_ESL_RADIO_STUB=y
+CONFIG_ESL_STUB_TAGS=0
+CONFIG_IEEE802154_ENABLED=n
+
+# NimBLE in the central and observer roles, one connection. The tag needs an ATT MTU of
+# at least 247 for the 244-byte image chunks.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=n
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=n
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=517
+CONFIG_BT_NIMBLE_NVS_PERSIST=n
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=4096

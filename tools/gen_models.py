@@ -45,13 +45,13 @@ def _tag_chips():
 CHIPS = _tag_chips()
 # radio is the radio the tag has (the PHY), protocol what OpenESL speaks over it. A tag on the
 # same radio with its maker's firmware is a different protocol.
-RADIOS = ("802.15.4",)
-PROTOCOLS = ("openesl",)
+RADIOS = ("802.15.4", "ble")
+PROTOCOLS = ("openesl", "gicisky")
 # How the AP sends a screen image to the tag. "openesl-raw" is ESL_IMG_FMT_RAW in
 # shared/proto.h (1 bit per pixel in screen coordinates, column by column, the black plane and
 # then the red one), which the AP may code (ESL_IMG_FMT_2D or ESL_IMG_FMT_RLE) for a tag that says it takes
 # that. A tag that needs another layout gets a new name here and in the AP renderer.
-IMAGE_FORMATS = ("openesl-raw",)
+IMAGE_FORMATS = ("openesl-raw", "gicisky-2bpp")
 COLORS = ("black", "white", "red", "yellow")
 STATUSES = ("supported", "experimental", "planned")
 # Every model describes the tag (the README lists them all) ...
@@ -59,6 +59,8 @@ DESCRIBE = ("id", "vendor", "label", "product", "chip", "radio", "protocol", "wi
             "colors", "status")
 # ... and one OpenESL builds firmware for (not "planned") also has these
 BUILD = ("code", "build", "name", "image", "mac_code", "panel")
+# A Bluetooth tag with its maker's firmware has no tag build, MAC code or panel
+BUILD_BLE = ("code", "build", "name", "image")
 
 
 def validate(ms):
@@ -66,7 +68,8 @@ def validate(ms):
     for i, m in enumerate(ms):
         where = "model %s" % m.get("id", i)
         planned = m.get("status") == "planned"
-        for f in DESCRIBE + (() if planned else BUILD):
+        ble = m.get("radio") == "ble"
+        for f in DESCRIBE + (() if planned else (BUILD_BLE if ble else BUILD)):
             if f not in m:
                 errors.append("%s: no %s" % (where, f))
         if errors:
@@ -92,7 +95,7 @@ def validate(ms):
             errors.append("%s: build must be digits (it is -DMODEL=<build> and ESL_MODEL_<build>)" % where)
         if not re.fullmatch(r"[0-9A-Za-z._-]+", m["name"]):
             errors.append("%s: name must be letters, digits, . _ or - (it names files and is split on spaces in CI)" % where)
-        if m["chip"] not in CHIPS:
+        if not ble and m["chip"] not in CHIPS:
             errors.append("%s: chip %s is not one the tag firmware is built for (CHIPS in tag/tools/build.py: %s)" %
                           (where, m["chip"], ", ".join(CHIPS)))
         if m["radio"] not in RADIOS:
@@ -101,19 +104,19 @@ def validate(ms):
             errors.append("%s: protocol %s is not one the AP speaks (%s)" % (where, m["protocol"], PROTOCOLS))
         if m["image"] not in IMAGE_FORMATS:
             errors.append("%s: image %s is not one the AP draws (%s)" % (where, m["image"], IMAGE_FORMATS))
-        if not 0 <= m["mac_code"] <= 255:
+        if not ble and not 0 <= m["mac_code"] <= 255:
             errors.append("%s: mac_code is one byte" % where)
-        if not re.fullmatch(r"[a-z0-9-]+", m["panel"]) or \
-                not os.path.exists(os.path.join(ROOT, "tag", "src", "panels", m["panel"] + ".h")):
+        if not ble and (not re.fullmatch(r"[a-z0-9-]+", m["panel"]) or
+                        not os.path.exists(os.path.join(ROOT, "tag", "src", "panels", m["panel"] + ".h"))):
             errors.append("%s: panel %s has no header tag/src/panels/%s.h" % (where, m["panel"], m["panel"]))
         if "wiki" in m and not os.path.exists(os.path.join(ROOT, "wiki", "labels", "models", m["wiki"] + ".md")):
             errors.append("%s: wiki page %s is not in wiki/labels/models/" % (where, m["wiki"]))
         if "photo" in m and not os.path.exists(os.path.join(ROOT, "web", m["photo"].get("file", ""))):
             errors.append("%s: photo %s is not in web/" % (where, m["photo"].get("file")))
-        if m["chip"] == "zbs243" and m["height"] > 248:
+        if not ble and m["chip"] == "zbs243" and m["height"] > 248:
             # tag/src/model.h: a column is indexed with uint8_t, and the layout format has u8 Y/H
             errors.append("%s: the ZBS243 firmware draws at most 248 pixels high (needs layout format 2)" % where)
-        if "yellow" in m["colors"]:
+        if not ble and "yellow" in m["colors"]:
             errors.append("%s: the firmware does not draw yellow yet (plan-flere-tagtyper 2b)" % where)
         layout = os.path.join(ROOT, "tag", "designs", "layouts", m["name"] + ".json")
         if "same_as" in m:
@@ -138,7 +141,8 @@ def validate(ms):
         vals = [m[f] for m in ms]
         if len(set(vals)) != len(vals):
             errors.append("two models have the same %s" % f)
-    if len({m["mac_code"] for m in ms}) != len(ms):
+    macs = [m["mac_code"] for m in ms if "mac_code" in m]
+    if len(set(macs)) != len(macs):
         errors.append("two models have the same mac_code")
     errors += validate_same_as(ms)
     return errors
@@ -210,6 +214,7 @@ def gen_shared_h(ms):
 
 
 def gen_tag_h(ms):
+    ms = [m for m in ms if m["radio"] != "ble"]
     out = ["/* %s */" % HEADER,
            "/* Selected with -DMODEL=<build> (tag/tools/build.py MODEL=...); included by model.h. */",
            "#ifndef MODEL_GEN_H",
@@ -242,6 +247,7 @@ def gen_tag_h(ms):
 
 
 def gen_js(ms):
+    ms = [m for m in ms if m["radio"] != "ble"]
     out = ["// %s" % HEADER,
            "//",
            "// The tag models, keyed by the name the AP's API uses (\"2.9\", \"1.54\").",
@@ -297,7 +303,8 @@ def gen_client_block(ms):
         "MODELS = (%s%s)" % (names, "," if len(ms) == 1 else ""),
         "MODEL_BY_CODE = {%s}" % ", ".join("%d: %s" % (m["code"], c_str(m["name"])) for m in ms),
         "# Model code in byte 6 of the MAC",
-        "MODEL_MAC_CODE = {%s}" % ", ".join("%s: 0x%02X" % (c_str(m["name"]), m["mac_code"]) for m in ms),
+        "MODEL_MAC_CODE = {%s}" % ", ".join("%s: 0x%02X" % (c_str(m["name"]), m["mac_code"])
+                                            for m in ms if "mac_code" in m),
         "# Not tried on a real tag yet (status experimental)",
         "MODEL_EXPERIMENTAL = {%s}" % ", ".join(c_str(m["name"]) for m in ms if m["status"] == "experimental")
         if any(m["status"] == "experimental" for m in ms) else "MODEL_EXPERIMENTAL = set()",

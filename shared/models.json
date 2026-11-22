@@ -63,6 +63,24 @@
       "mac_code": "0x3C",
       "panel": "ssd16xx-29-bwr",
       "status": "experimental"
+    },
+    {
+      "code": 4,
+      "build": "294",
+      "name": "2.9-bwry",
+      "short": "2.9\" BWRY",
+      "id": "gicisky-29-bwry",
+      "vendor": "Gicisky",
+      "label": "Gicisky/PICKSMART 2.9\" black/white/red/yellow",
+      "product": "PICKSMART 2.9 BWRY",
+      "chip": "unknown",
+      "radio": "ble",
+      "protocol": "gicisky",
+      "image": "gicisky-2bpp",
+      "width": 296,
+      "height": 128,
+      "colors": ["black", "white", "red", "yellow"],
+      "status": "experimental"
     }
   ]
 }

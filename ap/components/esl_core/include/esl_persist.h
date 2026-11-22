@@ -50,3 +50,14 @@ typedef struct {
 
 size_t esl_persist_seen_encode(uint64_t mac, const esl_seen_t *s, uint8_t *out);
 bool esl_persist_seen_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_seen_t *s);
+
+/* Blob format for one tag the AP sends to itself (esl_push, a Bluetooth tag with the
+ * maker's firmware), so a restart keeps the table and the id of the image the tag was
+ * last given:
+ *   ver(1) mac(8, LE) model(1) shown(4, LE)
+ * shown is the image id the tag was last given, 0 = none since it was added. */
+#define ESL_PERSIST_PUSH_VER 1
+#define ESL_PERSIST_PUSH_LEN (1 + 8 + 1 + 4)
+
+size_t esl_persist_push_encode(uint64_t mac, uint8_t model, uint32_t shown, uint8_t *out);
+bool esl_persist_push_decode(const uint8_t *in, size_t len, uint64_t *mac, uint8_t *model, uint32_t *shown);

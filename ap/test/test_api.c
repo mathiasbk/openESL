@@ -518,6 +518,8 @@ static void test_layouts(void)
                     "\"binary_size\":0,\"layouts\":[]},"
                     "{\"model\":\"1.54\",\"same_as\":null,\"used_by\":[\"1.54\"],\"version\":null,\"size\":0,\"binary_size\":0,\"layouts\":[]},"
                     "{\"model\":\"2.9-bwr\",\"same_as\":null,\"used_by\":[\"2.9-bwr\"],\"version\":null,\"size\":0,"
+                    "\"binary_size\":0,\"layouts\":[]},"
+                    "{\"model\":\"2.9-bwry\",\"same_as\":null,\"used_by\":[\"2.9-bwry\"],\"version\":null,\"size\":0,"
                     "\"binary_size\":0,\"layouts\":[]}]}");
     CHECK_INT(req("GET", "/api/layouts/", AUTH, NULL, 0), 200);
     CHECK_INT(req("PUT", "/api/layouts", AUTH, f29, 0), 405);
