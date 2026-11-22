@@ -67,10 +67,7 @@ typedef struct {
     uint16_t fef1_val, fef2_val, fef1_cccd;
     uint16_t mtu;
     int write_status;
-    int8_t last_rssi;
-    uint16_t last_battery_mv;
-    ble_addr_t tag_addr;
-    bool have_tag_addr;
+    uint64_t cur_mac; /* the tag being connected to, for nim_info */
     SemaphoreHandle_t conn_sem, disc_sem, setup_sem, write_sem, mtu_sem;
     QueueHandle_t notify_q, scan_q;
     uint8_t fb[ESL_GICISKY_FB_SIZE];
@@ -78,6 +75,43 @@ typedef struct {
 
 static ble_state_t nim;
 static esl_ble_t ble;
+
+/* What the scan last heard from each tag: its address (with the address type, which a
+ * MAC alone does not carry) and signal. One entry per tag, so several tags in range do
+ * not overwrite each other's address. Only the push task reads and writes it. */
+typedef struct {
+    uint64_t mac;
+    ble_addr_t addr;
+    int8_t rssi;
+    uint16_t battery_mv;
+} heard_t;
+
+static heard_t heard[ESL_PUSH_TAGS];
+static unsigned heard_next;
+
+static heard_t *heard_get(uint64_t mac)
+{
+    for (unsigned i = 0; i < ESL_PUSH_TAGS; i++)
+        if (heard[i].mac == mac)
+            return &heard[i];
+    return NULL;
+}
+
+static void heard_put(const scan_report_t *r)
+{
+    heard_t *h = heard_get(r->mac);
+    if (!h) {
+        for (unsigned i = 0; i < ESL_PUSH_TAGS && !h; i++)
+            if (!heard[i].mac)
+                h = &heard[i];
+        if (!h)
+            h = &heard[heard_next++ % ESL_PUSH_TAGS];
+    }
+    h->mac = r->mac;
+    h->addr = r->addr;
+    h->rssi = r->rssi;
+    h->battery_mv = r->battery_mv;
+}
 
 static int gap_event(struct ble_gap_event *event, void *arg);
 static void nim_disconnect(void *ctx);
@@ -285,7 +319,8 @@ static int gap_event(struct ble_gap_event *event, void *arg)
             s->connected = true;
         } else {
             s->connected = false;
-            ESP_LOGW(TAG, "connection failed: %d", event->connect.status);
+            ESP_LOGW(TAG, "%012llX: connection failed: %d", (unsigned long long)s->cur_mac,
+                     event->connect.status);
         }
         xSemaphoreGive(s->conn_sem);
         return 0;
@@ -352,10 +387,12 @@ static bool nim_connect(void *ctx, uint64_t mac)
     }
 
     ble_addr_t addr;
-    if (s->have_tag_addr && mac_of(&s->tag_addr) == mac)
-        addr = s->tag_addr;
+    const heard_t *h = heard_get(mac);
+    if (h)
+        addr = h->addr;
     else
-        addr_of(mac, &addr);
+        addr_of(mac, &addr); /* not heard yet (CONFIG_ESL_BLE_TAG_MAC): assume public */
+    s->cur_mac = mac;
 
     drain(s->conn_sem);
     drain(s->disc_sem);
@@ -370,12 +407,13 @@ static bool nim_connect(void *ctx, uint64_t mac)
 
     int rc = ble_gap_connect(s->own_addr_type, &addr, BLE_CONNECT_TIMEOUT_MS, NULL, gap_event, s);
     if (rc != 0) {
-        ESP_LOGW(TAG, "connect: %d", rc);
+        ESP_LOGW(TAG, "%012llX: connect: %d", (unsigned long long)mac, rc);
         s->busy = false;
         start_scan();
         return false;
     }
     if (xSemaphoreTake(s->conn_sem, pdMS_TO_TICKS(BLE_CONNECT_TIMEOUT_MS + 2000)) != pdTRUE || !s->connected) {
+        ESP_LOGW(TAG, "%012llX: no connection (address type %u)", (unsigned long long)mac, addr.type);
         if (!s->connected)
             ble_gap_conn_cancel();
         s->busy = false;
@@ -461,10 +499,21 @@ static bool nim_wait(void *ctx, const uint8_t *prefix, size_t len)
         if (now >= deadline)
             return false;
         notify_t n;
-        if (xQueueReceive(s->notify_q, &n, deadline - now) != pdTRUE)
+        if (xQueueReceive(s->notify_q, &n, deadline - now) != pdTRUE) {
+            ESP_LOGW(TAG, "%012llX: no answer starting %02x %02x %02x", (unsigned long long)s->cur_mac,
+                     prefix[0], len > 1 ? prefix[1] : 0, len > 2 ? prefix[2] : 0);
             return false;
+        }
         if (n.len >= len && memcmp(n.data, prefix, len) == 0)
             return true;
+        /* Not the answer this step waits for: logged, so a tag that answers another way
+           than the one the protocol was recorded from shows what it said */
+        char hex[3 * sizeof n.data + 1];
+        size_t o = 0;
+        for (unsigned i = 0; i < n.len; i++)
+            o += (size_t)snprintf(hex + o, sizeof hex - o, "%02x ", n.data[i]);
+        hex[o ? o - 1 : 0] = 0;
+        ESP_LOGW(TAG, "%012llX: unexpected notification %s", (unsigned long long)s->cur_mac, hex);
     }
 }
 
@@ -473,8 +522,9 @@ static bool nim_info(void *ctx, esl_push_info_t *info)
     ble_state_t *s = ctx;
     if (!s || !info)
         return false;
-    info->battery_mv = s->last_battery_mv;
-    info->rssi = s->last_rssi;
+    const heard_t *h = heard_get(s->cur_mac);
+    info->battery_mv = h ? h->battery_mv : 0;
+    info->rssi = h ? h->rssi : 0;
     return true;
 }
 
@@ -578,21 +628,30 @@ static void push_task(void *arg)
         while (xQueueReceive(nim.scan_q, &r, 0) == pdTRUE) {
             if (r.model != ESL_MODEL_294)
                 continue;
-            nim.tag_addr = r.addr;
-            nim.have_tag_addr = true;
-            nim.last_rssi = r.rssi;
+            heard_put(&r);
             if (CONFIG_ESL_BLE_AUTO_ADD && !esl_push_get(&push, r.mac)) {
                 esl_push_add(&push, r.mac, r.model, 0);
-                ESP_LOGI(TAG, "tag %012llX added (model %u, rssi %d)", (unsigned long long)r.mac, r.model, r.rssi);
+                ESP_LOGI(TAG, "tag %012llX added (model %u, address type %u, rssi %d)", (unsigned long long)r.mac,
+                         r.model, r.addr.type, r.rssi);
             }
             uint64_t now = (uint64_t)esp_timer_get_time() / 1000;
             esl_push_seen(&push, push_cfg.st, push_cfg.ls, r.mac, r.rssi, r.battery_mv, now);
         }
         uint64_t now = (uint64_t)esp_timer_get_time() / 1000;
-        uint32_t sent = push.stats.sent;
+        uint32_t sent = push.stats.sent, away = push.stats.away, refused = push.stats.refused;
         unsigned n = esl_push_round(&push, push_cfg.st, push_cfg.ls, push_cfg.im, now, 1);
-        if (push.stats.sent != sent)
-            ESP_LOGI(TAG, "image sent to a tag (%u this round)", n);
+        if (n) {
+            /* max_sends 1: the tag tried this round is the one before the cursor */
+            const esl_push_tag_t *t = &push.tags[(push.cursor + ESL_PUSH_TAGS - 1) % ESL_PUSH_TAGS];
+            if (push.stats.sent != sent)
+                ESP_LOGI(TAG, "%012llX: image sent", (unsigned long long)t->mac);
+            else if (push.stats.refused != refused)
+                ESP_LOGW(TAG, "%012llX: image refused", (unsigned long long)t->mac);
+            else if (push.stats.away != away)
+                ESP_LOGW(TAG, "%012llX: not delivered (%u failed tries), next try in %llu s",
+                         (unsigned long long)t->mac, t->fails,
+                         (unsigned long long)((t->next_ms > now ? t->next_ms - now : 0) / 1000));
+        }
         vTaskDelay(pdMS_TO_TICKS(CONFIG_ESL_BLE_ROUND_MS));
     }
 }
