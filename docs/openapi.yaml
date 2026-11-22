@@ -65,7 +65,7 @@ info:
     `textBytes`. Empty fields at the end are dropped first and cost nothing.
 
     **Which tag is which.** Every tag is known by its MAC. `GET /api/tags` gives each tag's
-    `model` (`"2.9"`, `"1.54"` or `"2.9-bwr"`, the 2.9" black/white/red, experimental: not tried on a real tag yet; from its poll). The 12 hex digits under the barcode on the
+    `model` (`"2.9"`, `"1.54"` or `"2.9-bwr"`, the 2.9" black/white/red, experimental: not tried on a real tag yet; from its poll), or `"2.9-bwry"` for the Bluetooth 2.9" black/white/red/yellow tag on the BLE AP (experimental). The 12 hex digits under the barcode on the
     label (e.g. `020663461013`) give the MAC without the AP: `0000`, the first 8 digits, the
     model code (`3B` for 2.9", `34` for 1.54", `3C` for the 2.9" with red), then `1` and a check digit: the XOR of the
     11 hex digits between `0000` and it (so `0000020663463415`). The last 4
@@ -1748,7 +1748,7 @@ components:
       in: path
       required: true
       description: The tag model
-      schema: { type: string, enum: ["2.9", "1.54", "2.9-bwr"] }
+      schema: { type: string, enum: ["2.9", "1.54", "2.9-bwr", "2.9-bwry"] }
       example: "2.9"
 
     font:
@@ -2295,7 +2295,7 @@ components:
         battery_mv: { type: [integer, "null"], minimum: 0, description: "Battery voltage; 0 = the tag cannot measure it (the 1.54\")" }
         rssi: { type: [integer, "null"], description: "Signal strength of the last poll, dBm" }
         fw: { type: [integer, "null"], minimum: 0, description: "The tag firmware version, fw_ver from its poll (100 = 0.1.0)" }
-        model: { type: [string, "null"], enum: ["2.9", "1.54", "2.9-bwr", null], description: "null until the tag has polled, and for firmware that does not send it" }
+        model: { type: [string, "null"], enum: ["2.9", "1.54", "2.9-bwr", "2.9-bwry", null], description: "null until the tag has polled, and for firmware that does not send it" }
         stock: { type: boolean, description: "The tag speaks SoluM's stock-firmware protocol; its fw is 0 because those frames carry no version" }
         draw_failed: { type: boolean, description: The tag said in its last poll that its last drawing failed }
         content_id: { type: integer, minimum: 0, maximum: 4294967295, description: "The content set for the tag; 0: none (a new tag)" }
@@ -2875,7 +2875,7 @@ components:
 
     ModelName:
       type: string
-      enum: ["2.9", "1.54", "2.9-bwr"]
+      enum: ["2.9", "1.54", "2.9-bwr", "2.9-bwry"]
 
     LayoutInfoFields:
       type: object
