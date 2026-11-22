@@ -99,6 +99,7 @@ const AP = { fw: "0.4.4", channel: 11 };
 const WIFI = { connected: true, ip: "192.168.1.40", ssid: "Butikken", hostname: "openesl" };
 const T1 = { mac: "00000123456789A8", model: "2.9", battery_mv: 2950, rssi: -61, fw: 400, seen_s_ago: 75 };
 const T2 = { mac: "00000123456789B0", model: "1.54", battery_mv: 0, rssi: null, fw: null, seen_s_ago: null };
+const T3 = { mac: "C8BA94FF0206AD5A", model: "1.54", battery_mv: 0, rssi: -68, fw: 0, stock: true, seen_s_ago: 12 };
 
 test("placeholders are filled in for each tag", () => {
   const v = infoValues(T1, { ap: AP, wifi: WIFI, tags: 2, day: new Date(2026, 9, 17), now: new Date(2026, 9, 17, 9, 5) });
@@ -106,6 +107,8 @@ test("placeholders are filled in for each tag", () => {
   assert.equal(fillLine("{mac} {model} {fw} {battery} {rssi} {seen}", v), '00000123456789A8 2.9" 0.4.0 2.95 V -61 dBm 1 min');
   assert.equal(fillLine("{weekday} {date} {time} kanal {channel} AP {ap_fw} av {tags}", v), "Lørdag 17. oktober 2026 09:05 kanal 11 AP 0.4.4 av 2");
   assert.equal(fillLine("{nope} {mac", v), "{nope} {mac", "unknown names and stray braces stay");
+  const stock = infoValues(T3);
+  assert.equal(fillLine("{model} FW {fw}", stock), '1.54" FW Stock');
   // what is not known becomes "-" (Latin-1, so the tag draws it)
   const u = infoValues(T2, { wifi: { connected: false, ip: "1.2.3.4" } });
   assert.equal(fillLine("{ap_ip} {battery} {rssi} {fw} {seen} {wifi} {ap_fw}", u), "- - - - - - -");

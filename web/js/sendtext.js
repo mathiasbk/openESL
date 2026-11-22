@@ -156,7 +156,7 @@ export function infoValues(tag, { ap = null, wifi = null, tags = null, day = new
     model: tag?.model ? modelLabel(tag.model) : "-",
     battery: tag?.battery_mv ? (tag.battery_mv / 1000).toFixed(2) + " V" : "-",
     rssi: tag?.rssi == null ? "-" : tag.rssi + " dBm",
-    fw: tag?.fw == null ? "-" : fmtTagFw(tag.fw),
+    fw: tag?.stock ? "Stock" : tag?.fw == null ? "-" : fmtTagFw(tag.fw),
     seen: tag?.seen_s_ago == null ? "-" : fmtAgo(tag.seen_s_ago),
     weekday,
     date,
