@@ -37,24 +37,23 @@ const fontLabel = (f) => (BUILTIN_FONTS.includes(f) ? f[0].toUpperCase() + f.sli
 const TEXT_COLORS = ["black", "white", "invert", "highlight", "frame"];
 const RECT_COLORS = ["black", "white", "frame"];
 const LINE_COLORS = ["black", "white"];      // lines and icons
-// On a model with red (colors in shared/models.json) the AP also takes these
-const TEXT_COLORS_RED = [...TEXT_COLORS, "red", "red_invert"];
-const RECT_COLORS_RED = [...RECT_COLORS, "red"];
-const LINE_COLORS_RED = [...LINE_COLORS, "red"];
 const ICON_MAX = 128;                         // ESL_ICON_MAX_W / _H in shared/proto.h
 const ICON_FILE_MAX = 16;                     // ESL_LBIN_ICON_MAX: icons in one layout file
 const COLOR_NAMES = {
   black: "Black", white: "White", invert: "Inverted", highlight: "Highlight",
   frame: "Frame", red: "Red", red_invert: "Red inverted",
+  yellow: "Yellow", yellow_invert: "Yellow inverted",
 };
 const COLOR_HINTS = {
   invert: "White text in a black box", highlight: "Inverted when the update has price_highlight, otherwise black",
   frame: "Drawn only when the update has frame", red_invert: "White text in a red box",
+  yellow_invert: "White text in a yellow box",
 };
 const SWATCH = {
   black: "#111", white: "#fff", invert: "linear-gradient(135deg, #111 50%, #fff 50%)",
   highlight: "linear-gradient(135deg, #111 50%, #888 50%)", frame: "transparent", red: "#c81e1e",
-  red_invert: "linear-gradient(135deg, #c81e1e 50%, #fff 50%)",
+  red_invert: "linear-gradient(135deg, #c81e1e 50%, #fff 50%)", yellow: "#ffd200",
+  yellow_invert: "linear-gradient(135deg, #ffd200 50%, #fff 50%)",
 };
 const BUILTIN = {
   price: { id: LAYOUT_PRICE, fields: ["name", "price", "subtitle"] },
@@ -439,7 +438,7 @@ function paint(pixels, w, h) {
   const img = ctx.createImageData(w, h);
   for (let i = 0; i < w * h; i++) {
     const v = pixels[i];
-    img.data.set(v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
+    img.data.set(v === 2 ? [200, 30, 30, 255] : v === 3 ? [255, 210, 0, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
   }
   ctx.putImageData(img, 0, 0);
   c.style.opacity = 1;
@@ -497,7 +496,7 @@ function refreshList() {
     li.dataset.i = i;
     li.draggable = true;
     const ico = document.createElement("span");
-    const inverted = e.type === "text" && ["invert", "highlight", "red_invert"].includes(e.color);
+    const inverted = e.type === "text" && ["invert", "highlight", "red_invert", "yellow_invert"].includes(e.color);
     ico.className = "ico" + (isShape(e) || e.type === "icon" ? " rect" : inverted ? " inv" : "");
     ico.textContent = { rect: e.radius ? "▢" : "▬", line: e.w > 1 && e.h > 1 ? (e.direction === "up" ? "╱" : "╲") : "─", icon: "◆", barcode: "▥", qr: "▦", chart: "∿",
       ellipse: e.border ? "○" : "●", polygon: e.border ? "△" : "▲" }[e.type] ??
@@ -936,7 +935,7 @@ function drawThumbs() {
     const img = new ImageData(r.width, r.height);
     for (let p = 0; p < r.width * r.height; p++) {
       const v = out.pixels[p];
-      img.data.set(v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], p * 4);
+      img.data.set(v === 2 ? [200, 30, 30, 255] : v === 3 ? [255, 210, 0, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], p * 4);
     }
     list[i] = img;
   });
@@ -1310,10 +1309,14 @@ function refreshBar() {
   }
   if (e.type !== "barcode" && e.type !== "qr") {
     if (e.type === "text") sep();
-    const red = MODELS[state.model].colors?.includes("red");
-    const colors = e.type === "text" ? (red ? TEXT_COLORS_RED : TEXT_COLORS)
-      : e.type === "rect" ? (red ? RECT_COLORS_RED : RECT_COLORS) : e.type === "chart" ? (red ? ["black", "red"] : ["black"])
-      : red ? LINE_COLORS_RED : LINE_COLORS; // lines, icons, ellipses, polygons
+    const modelColors = MODELS[state.model].colors || [];
+    const red = modelColors.includes("red"), yellow = modelColors.includes("yellow");
+    const text = [...TEXT_COLORS, ...(red ? ["red", "red_invert"] : []), ...(yellow ? ["yellow", "yellow_invert"] : [])];
+    const rect = [...RECT_COLORS, ...(red ? ["red"] : []), ...(yellow ? ["yellow"] : [])];
+    const line = [...LINE_COLORS, ...(red ? ["red"] : []), ...(yellow ? ["yellow"] : [])];
+    const colors = e.type === "text" ? text
+      : e.type === "rect" ? rect : e.type === "chart" ? ["black", ...(red ? ["red"] : []), ...(yellow ? ["yellow"] : [])]
+      : line; // lines, icons, ellipses, polygons
     const sw = document.createElement("span");
     sw.className = "swatch";
     sw.style.background = SWATCH[e.color || "black"];

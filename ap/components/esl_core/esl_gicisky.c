@@ -9,22 +9,32 @@ static void put_pixel(uint8_t *fb, unsigned x, unsigned y, uint8_t v)
     fb[idx >> 2] |= (uint8_t)(v << (6u - 2u * (idx & 3u)));
 }
 
-bool esl_gicisky_pack_bw_red(const uint8_t *planes, size_t len, uint8_t *fb)
+bool esl_gicisky_pack_planes(const uint8_t *planes, size_t len, uint8_t *fb)
 {
-    if (!planes || !fb || len != ESL_GICISKY_PLANES_SIZE)
-        return false;
     const unsigned plane = ESL_GICISKY_WIDTH * ESL_GICISKY_COL_BYTES;
+    if (!planes || !fb || (len != plane && len != 2u * plane && len != 3u * plane))
+        return false;
+    const uint8_t *red = len >= 2u * plane ? planes + plane : NULL;
+    const uint8_t *yellow = len == 3u * plane ? planes + 2u * plane : NULL;
     memset(fb, 0, ESL_GICISKY_FB_SIZE);
     for (unsigned x = 0; x < ESL_GICISKY_WIDTH; x++) {
         for (unsigned y = 0; y < ESL_GICISKY_HEIGHT; y++) {
             unsigned bit = 7u - (y & 7u);
             unsigned off = x * ESL_GICISKY_COL_BYTES + (y >> 3);
             bool black = (planes[off] & (1u << bit)) != 0;
-            bool red = (planes[plane + off] & (1u << bit)) != 0;
-            put_pixel(fb, x, y, red ? ESL_GICISKY_RED : black ? ESL_GICISKY_BLACK : ESL_GICISKY_WHITE);
+            bool is_red = red && (red[off] & (1u << bit)) != 0;
+            bool is_yellow = yellow && (yellow[off] & (1u << bit)) != 0;
+            put_pixel(fb, x, y, is_red ? ESL_GICISKY_RED
+                                      : is_yellow ? ESL_GICISKY_YELLOW
+                                                  : black ? ESL_GICISKY_BLACK : ESL_GICISKY_WHITE);
         }
     }
     return true;
+}
+
+bool esl_gicisky_pack_bw_red(const uint8_t *planes, size_t len, uint8_t *fb)
+{
+    return len == ESL_GICISKY_PLANES_SIZE && esl_gicisky_pack_planes(planes, len, fb);
 }
 
 bool esl_gicisky_pack_logical_2bpp(const uint8_t *logical, size_t len, uint8_t *fb)

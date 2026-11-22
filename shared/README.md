@@ -23,7 +23,7 @@ screen a model has already), a panel header
 | `protocol` | what the AP speaks with the tag over that radio: `openesl` is ours (`proto.h`); `gicisky` is the Gicisky/PICKSMART BLE tag (docs/gicisky-296-bwry.md) |
 | `image` | how the AP sends the screen: `openesl-raw` is `ESL_IMG_FMT_RAW` in `proto.h` (screen coordinates, column by column, black plane then red), coded (`ESL_IMG_FMT_2D` or `ESL_IMG_FMT_RLE`) for a tag that takes it; the tag turns it for its panel. `gicisky-2bpp` is the Gicisky tag's own framebuffer (docs/gicisky-296-bwry.md) |
 | `width`, `height` | the screen in the orientation the layouts use |
-| `colors` | `black`, `white`, and `red` on a three-colour panel: layout files for the model may then use the colours `red` and `red_invert` (`yellow` is refused until the firmware draws it; a Bluetooth model may have it, the AP renderer does not draw it yet) |
+| `colors` | `black`, `white`, and `red` and/or `yellow` on a colour panel: layout files for the model may then use `red`/`red_invert` and/or `yellow`/`yellow_invert`; the AP renderer draws all of them |
 | `mac_code` | byte 6 of the MAC on a tag of this model (the flashers check it); not on a Bluetooth model |
 | `panel` | how the tag firmware drives the screen: `tag/src/panels/<panel>.h` (RAM direction, update sequence, init commands; `model.h` lists the macros it must define, `EPD_SLEEP_CTRL1` is optional); not on a Bluetooth model |
 | `wiki` | optional: the model's page in `wiki/labels/models/` (without `.md`); the wiki's Home and What you need pages link the models that have one |

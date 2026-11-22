@@ -18,7 +18,7 @@ Problems and fixes are on [Troubleshooting](Troubleshooting).
 
 **I use OpenEPaperLink. Can I switch?** Yes, label by label, with both running side by side. The labels are flashed once in the jig, and the original firmware is backed up first. See [Coming from OpenEPaperLink](Coming-from-OpenEPaperLink).
 
-**Can I use labels from other makers?** Not yet, but the project is built to grow there. See [Adding hardware](Adding-hardware).
+**Can I use labels from other makers?** Yes: the [Gicisky 2.9" BWRY Bluetooth tag](Gicisky-2.9-BWRY), with a separate BLE AP build. More makers are not supported yet; see [Adding hardware](Adding-hardware).
 
 
 ## Labels

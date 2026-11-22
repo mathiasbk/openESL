@@ -41,7 +41,7 @@
     <section class="hero">
       <div class="hero-text">
         <h2>Open firmware for e-paper shelf labels</h2>
-        <p class="lead">Turn SoluM e-paper tags into labels you control. An ESP32 access point sends them your text over radio, and any software can talk to it over plain HTTP.</p>
+        <p class="lead">Turn SoluM e-paper tags into labels you control. An ESP32 access point sends them your text over radio, and any software can talk to it over plain HTTP. A separate BLE build also drives the Gicisky 2.9″ BWRY Bluetooth tag.</p>
         <div class="hero-go">
           <a class="button primary big" href="#ap">Flash the firmware</a>
           <a class="button big" href="?demo=browser#dashboard" title="A pretend AP with six tags in this page, no hardware needed">Try the demo</a>
@@ -65,7 +65,7 @@
     </div>
     <section class="gallery" aria-labelledby="gallery-h">
       <h2 id="gallery-h">What you can make</h2>
-      <p class="muted">Every picture below is the screen of a simulated tag: the access point's code drew it and the tag firmware showed it, the same code that runs on real hardware. Start from a template or draw your own layout in the <a href="#design">Designer</a>, send a photo from the <a href="#dashboard">Dashboard</a>, or fill the fields from Home Assistant or a script.</p>
+      <p class="muted">Every picture below is a tag's screen. The 802.15.4 pictures are simulated: the access point's code drew them and the tag firmware showed them, the same code that runs on real hardware. The two Gicisky 2.9″ cards are drawn in the tag's own four colours, one per tag. Start from a template or draw your own layout in the <a href="#design">Designer</a>, send a photo from the <a href="#dashboard">Dashboard</a>, or fill the fields from Home Assistant or a script.</p>
       <div class="gallery-grid">
         <figure class="wide"><img src="img/gallery/weather.png" width="596" height="260" loading="lazy" alt="Weather with a symbol that follows the forecast, on a simulated 2.9″ tag"><figcaption>Weather with a symbol that follows the forecast</figcaption></figure>
         <figure class="wide"><img src="img/gallery/freeform.png" width="596" height="260" loading="lazy" alt="A layout of your own: boxes, round corners, lines and icons, on a simulated 2.9″ tag"><figcaption>A layout of your own: boxes, round corners, lines and icons</figcaption></figure>
@@ -73,6 +73,8 @@
         <figure><img src="img/gallery/guest-wifi.png" width="404" height="404" loading="lazy" alt="Guest WiFi with a QR code to join, on a simulated 1.54″ tag"><figcaption>Guest WiFi with a QR code to join</figcaption></figure>
         <figure class="wide"><img src="img/gallery/calendar.png" width="596" height="260" loading="lazy" alt="Your next events from a calendar, on a simulated 2.9″ tag"><figcaption>Your next events from a calendar</figcaption></figure>
         <figure class="wide"><img src="img/gallery/shelf-red.png" width="596" height="260" loading="lazy" alt="A shelf label with a red bar, on a simulated 2.9″ black/white/red tag"><figcaption>A shelf label with red, on the 2.9″ black/white/red</figcaption></figure>
+        <figure class="wide"><img src="img/gallery/openesl-bwry-1.png" width="596" height="260" loading="lazy" alt="An openESL demo card on the Gicisky 2.9″ black/white/red/yellow tag NEMR92852188"><figcaption>openESL on the 2.9″ BWRY, tag NEMR92852188</figcaption></figure>
+        <figure class="wide"><img src="img/gallery/openesl-bwry-2.png" width="596" height="260" loading="lazy" alt="An openESL demo card on the Gicisky 2.9″ black/white/red/yellow tag NEMR92835821"><figcaption>openESL on the 2.9″ BWRY, tag NEMR92835821</figcaption></figure>
         <figure><img src="img/gallery/3d-printer.png" width="404" height="404" loading="lazy" alt="A 3D print's progress, from Home Assistant, on a simulated 1.54″ tag"><figcaption>A 3D print's progress, from Home Assistant</figcaption></figure>
         <figure class="wide"><img src="img/gallery/product-ean.png" width="596" height="260" loading="lazy" alt="A price with an EAN-13 barcode, on a simulated 2.9″ tag"><figcaption>A price with an EAN-13 barcode</figcaption></figure>
         <figure class="wide"><img src="img/gallery/meeting-room.png" width="596" height="260" loading="lazy" alt="A meeting room sign, on a simulated 2.9″ tag"><figcaption>A meeting room sign</figcaption></figure>

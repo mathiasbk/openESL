@@ -579,7 +579,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     const px = new Uint32Array(data.data.buffer);
     const le = new Uint8Array(new Uint32Array([1]).buffer)[0] === 1;
     const rgba = (r, g, b) => (le ? (0xff << 24) | (b << 16) | (g << 8) | r : (r << 24) | (g << 16) | (b << 8) | 0xff) >>> 0;
-    const colours = [rgba(255, 255, 255), rgba(17, 17, 17), rgba(200, 30, 30)];
+    const colours = [rgba(255, 255, 255), rgba(17, 17, 17), rgba(200, 30, 30), rgba(255, 210, 0)];
     for (let i = 0; i < img.pixels.length; i++) px[i] = colours[img.pixels[i]];
     ctx.putImageData(data, 0, 0);
     canvas.setAttribute("role", "img");
@@ -871,7 +871,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       const img = ctx.createImageData(w, h);
       for (let i = 0; i < w * h; i++) {
         const v = out.pixels[i];
-        img.data.set(v === 2 ? [200, 30, 30, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
+        img.data.set(v === 2 ? [200, 30, 30, 255] : v === 3 ? [255, 210, 0, 255] : v ? [17, 17, 17, 255] : [255, 255, 255, 255], i * 4);
       }
       ctx.putImageData(img, 0, 0);
       c.title = "Preview: " + row.mac;
@@ -1002,8 +1002,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     const [rw, rh] = picTurn % 180 ? [place.dh, place.dw] : [place.dw, place.dh];
     ctx.drawImage(b, -rw / 2, -rh / 2, rw, rh);
     const data = tone(ctx.getImageData(0, 0, w, h).data, set);
-    const red = colors.includes("red");
-    return { w, h, red, place, pixels: quantize(data, w, h, { red, dither: set.dither }) };
+    const red = colors.includes("red"), yellow = colors.includes("yellow");
+    return { w, h, red, yellow, place, pixels: quantize(data, w, h, { red, yellow, dither: set.dither }) };
   }
 
   // The previews of the models in plan (picturePlan), drawn again in the same canvases
@@ -1187,7 +1187,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     const images = {};
     for (const m of new Set(ok.map((p) => p.model))) {
       const s = picScreen(m);
-      images[m] = packRaw(s.pixels, s.w, s.h, s.red);
+      images[m] = packRaw(s.pixels, s.w, s.h, s.red, s.yellow);
     }
     stBusy = true;
     $("pic-send").disabled = $("st-send").disabled = $("st-forget").disabled = true;
@@ -1491,7 +1491,8 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
 
   // The choices in "Send": the files published with this page, then a file of your own. The AP
   // images are one per board (ap_boards in info.json; one from before that has the C6 ones)
-  const TAG_FILES = Object.entries(TAG_MODELS).map(([name, m]) => [`tag-${m.build}-ota`, `Tag firmware for the ${modelName(name)}`]);
+  const TAG_FILES = Object.entries(TAG_MODELS).filter(([, m]) => m.radio !== "ble")
+    .map(([name, m]) => [`tag-${m.build}-ota`, `Tag firmware for the ${modelName(name)}`]);
   const apBoards = (info) => info?.ap_boards || [
     { file: "ap-openesl", target: "esp32c6", display: false },
     { file: "ap-openesl-lcd", target: "esp32c6", display: true },
@@ -1506,7 +1507,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
   const pageData = {};
   let pageInfo = null;    // firmware/info.json
   async function loadPageTagImages(info) {
-    for (const k of Object.values(TAG_MODELS).map((m) => `tag-${m.build}`)) {
+    for (const k of Object.values(TAG_MODELS).filter((m) => m.radio !== "ble").map((m) => `tag-${m.build}`)) {
       if (!info?.ota?.[k]) continue;
       try {
         const r = await fetch(`${firmwareBase}firmware/${k}-ota.bin`, { cache: "no-cache" });

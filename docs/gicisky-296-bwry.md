@@ -2,7 +2,8 @@
 
 Status: the protocol is recorded from our own captures; the module, the transport adapter
 and the AP's NimBLE central are in place, and the push table (the image each tag was last
-given) is kept in NVS. The model is experimental: it has not been tried on a real AP yet.
+given) is kept in NVS. The model is supported: it has been tried with the BLE AP on two units
+(the demo cards below).
 
 ## The tag
 
@@ -105,6 +106,27 @@ disconnect
   0–59 and rows 236–295. A raw framebuffer with values 0, 1, 2 and 3 in the four logical
   quadrants showed black, white, yellow and red in those quadrants.
 
+## The demo cards
+
+<table>
+  <tr>
+    <td align="center"><img src="images/gallery/openesl-bwry-1.png" alt="An openESL demo card on tag NEMR92852188: a red band with openESL and a yellow demo badge, the tag's name and address, and the four colour swatches" width="296"><br><sub>NEMR92852188 (FF:FF:92:85:21:88)</sub></td>
+    <td align="center"><img src="images/gallery/openesl-bwry-2.png" alt="An openESL demo card on tag NEMR92835821: a red band with openESL and a yellow demo badge, the tag's name and address, and the four colour swatches" width="296"><br><sub>NEMR92835821 (FF:FF:92:83:58:21)</sub></td>
+  </tr>
+</table>
+
+The two tags on our desk show these cards, each with its own BLE name and address: a red
+band with the openESL name, a yellow demo badge and a yellow block, black text, and the
+four colours along the bottom. They are the images the tags were sent, drawn by
+[`tools/gallery/render_bwry.py`](../tools/gallery/render_bwry.py) and also used in the
+README gallery.
+
+The AP draws all four colours: the layout compiler takes `red`, `red_invert`, `yellow`
+and `yellow_invert`, the renderer has a black, red and yellow plane, and the push task
+packs them with `esl_gicisky_pack_planes` (the tag's logical 2-bit image). The cards
+above were sent as that 2-bit image through the same FEF1/FEF2 sequence; a layout with
+the same colours goes through the AP by itself ([ble-tags.md](ble-tags.md)).
+
 ## The AP build
 
 The BLE AP is a separate firmware choice: `python ap/build.py --ble c6-supermini` (after
@@ -114,11 +136,14 @@ writes `ap/out/openesl-ap-ble.bin`. It runs WiFi and the BLE central; 802.15.4 i
 
 The AP adds a Gicisky tag the scan hears (`CONFIG_ESL_BLE_AUTO_ADD`) or the MAC in
 `CONFIG_ESL_BLE_TAG_MAC`. The tag appears in the API and the dashboard as model
-`2.9-bwry` (code 4, experimental). Set its content as for any tag, for example
-`PUT /api/tags/<mac>` with the built-in `price` layout; the push task draws it, packs it
-with `esl_gicisky_pack_bw_red` and sends it. `ap/main/ble.c` asks for an ATT MTU of at
+`2.9-bwry` (code 4). Set its content as for any tag, for example
+`PUT /api/tags/<mac>` with the built-in `price` layout; the push task draws it, packs the
+black, red and yellow planes with `esl_gicisky_pack_planes` and sends it. `ap/main/ble.c` asks for an ATT MTU of at
 least 247, discovers `FEF1`/`FEF2` by UUID, enables notifications on `FEF1`, writes the
 244-byte chunks and waits for each `05 00 <n>`.
+
+An example layout file for the model is [`tag/designs/layouts/2.9-bwry.json`](../tag/designs/layouts/2.9-bwry.json)
+(the 2.9" layouts with red bands); upload it with `PUT /api/layouts/2.9-bwry`.
 
 ## What is not known
 
@@ -126,7 +151,7 @@ least 247, discovers `FEF1`/`FEF2` by UUID, enables notifications on `FEF1`, wri
   the five zero bytes and the meaning are not known. The bytes were the same for all the
   pictures we sent.
 - What `f4`, `25` and the final `08` in the notifications mean.
-- Why our unit reports model `0x2E`; we do not know how the maker numbers the BWRY
+- Why our units report model `0x2E`; we do not know how the maker numbers the BWRY
   variant.
 - Whether the tag accepts other chunk sizes, partial updates or several images.
 - What the `…1912` service and the writable `FEF3` do.
@@ -134,15 +159,12 @@ least 247, discovers `FEF1`/`FEF2` by UUID, enables notifications on `FEF1`, wri
 - The exact retry and timeout rules; we saw one retry of chunk 0 and one repeated
   acknowledgement.
 - The meaning of the battery and voltage bytes in the manufacturer data.
-- The tag has not been tried with the AP on hardware yet: the MTU exchange, the
-  notifications and the refresh timing are unverified.
+- The MTU exchange, the notifications and the refresh timing worked on our two units;
+  other units are not tried.
 - Pairing in the web page is to do; the scan can add a tag, `CONFIG_ESL_BLE_TAG_MAC`
   names one, and the push table (the image id each tag shows) is kept in NVS.
 
 ## Next
 
-- Try the BLE AP with a real tag (`python ap/build.py --ble c6-supermini`, then
-  `ap/out/openesl-ap-ble.bin`), and fix what the MTU, the notifications or the refresh
-  timing need.
-- Pairing in the web page.
-- The renderer needs a yellow plane, as noted in [ble-tags.md](ble-tags.md).
+- Pairing in the web page, so a tag can be added and chosen there.
+- Try more units and other AP boards (C5, S3) with the BLE build.

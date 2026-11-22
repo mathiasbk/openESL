@@ -1,22 +1,22 @@
 {
   "format": "esl-layouts",
   "version": 1,
-  "model": "2.9",
-  "description": "Example layouts for the SoluM 2.9\" (296 x 128). Upload with PUT /api/layouts/2.9.",
+  "model": "2.9-bwry",
+  "description": "Example layouts for the Gicisky/PICKSMART 2.9\" black/white/red/yellow (296 x 128): the 2.9\" ones with the bands in red. Upload with PUT /api/layouts/2.9-bwry. The panel also has yellow, which the AP renderer does not draw yet.",
   "layouts": [
     {
       "name": "shelf",
-      "description": "Name in a black band, highlighted price, a note and the unit price",
+      "description": "Name in a red band, price on a yellow block, a note and the unit price",
       "fields": ["name", "price", "unit", "info"],
       "elements": [
-        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 30, "color": "black" },
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 30, "color": "red" },
         { "type": "text", "field": "name", "x": 4, "y": 0, "w": 288, "h": 30,
           "fonts": ["medium", "small"], "align": "center", "valign": "middle", "lines": 1, "color": "white" },
         { "type": "text", "field": "info", "x": 5, "y": 34, "w": 112, "h": 51,
           "fonts": ["small"], "lines": 3 },
-        { "type": "text", "field": "price", "x": 120, "y": 32, "w": 171, "h": 74,
-          "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1,
-          "color": "highlight" },
+        { "type": "rect", "x": 118, "y": 32, "w": 174, "h": 74, "color": "yellow" },
+        { "type": "text", "field": "price", "x": 122, "y": 34, "w": 166, "h": 70,
+          "fonts": ["large", "mid", "medium"], "align": "right", "valign": "bottom", "lines": 1 },
         { "type": "text", "field": "unit", "x": 5, "y": 108, "w": 286, "h": 17,
           "fonts": ["small"], "lines": 1 }
       ]
@@ -39,11 +39,11 @@
     },
     {
       "name": "vare",
-      "description": "Product label: brand in a black band, name, article number and EAN, price inc. VAT",
+      "description": "Product label: brand in a red band, name, article number and EAN, price inc. VAT",
       "fields": ["brand", "name", "info", "price"],
       "_sample": ["Kramp", "Spann sort 12 l", "1626-160602/439 8713331002910", "17,25"],
       "elements": [
-        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "black" },
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "red" },
         { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24,
           "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
         { "type": "text", "field": "name", "x": 5, "y": 28, "w": 150, "h": 52,
@@ -62,7 +62,7 @@
       "fields": ["brand", "name", "note", "price"],
       "_sample": ["Kärcher", "Lakkstål 16 ltr", "inkl. mva 3910,36", "3128,29"],
       "elements": [
-        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "black" },
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "red" },
         { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24,
           "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
         { "type": "text", "field": "name", "x": 5, "y": 28, "w": 150, "h": 96,
@@ -81,7 +81,7 @@
       "fields": ["brand", "name", "ean", "price"],
       "_sample": ["Kramp", "Spann sort 12 l", "8713331002910", "17,25"],
       "elements": [
-        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 20, "color": "black" },
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 20, "color": "red" },
         { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 190, "h": 20,
           "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
         { "type": "text", "text": "inkl. mva", "x": 200, "y": 0, "w": 90, "h": 20,
@@ -103,7 +103,7 @@
       "fields": ["brand", "name", "info", "price", "price_ex"],
       "_sample": ["Kärcher", "Lakkstål 16 ltr", "1.512-404.0", "3910,36", "3128,29"],
       "elements": [
-        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "black" },
+        { "type": "rect", "x": 0, "y": 0, "w": 296, "h": 24, "color": "red" },
         { "type": "text", "field": "brand", "x": 6, "y": 0, "w": 284, "h": 24,
           "fonts": ["small"], "valign": "middle", "lines": 1, "color": "white" },
         { "type": "text", "field": "name", "x": 5, "y": 28, "w": 150, "h": 72,

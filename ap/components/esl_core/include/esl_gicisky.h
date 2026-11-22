@@ -11,16 +11,16 @@
  * by the caller.
  *
  * The AP's renderer draws 1 bit per pixel in screen coordinates: the black plane, then
- * the red plane on a model with red (esl_render.h). The tag's framebuffer is 2 bits per
- * pixel, rotated 90 degrees counter-clockwise, with black=0, white=1, yellow=2 and
- * red=3. Yellow has no plane in the renderer yet (docs/ble-tags.md); the 2-bit packer
- * takes the logical image a renderer with yellow would give.
+ * the red plane on a model with red, then the yellow plane on a model with yellow
+ * (esl_render.h). The tag's framebuffer is 2 bits per pixel, rotated 90 degrees
+ * counter-clockwise, with black=0, white=1, yellow=2 and red=3.
  */
 
 #define ESL_GICISKY_WIDTH       296u
 #define ESL_GICISKY_HEIGHT      128u
 #define ESL_GICISKY_COL_BYTES   16u                          /* ESL_RENDER_COL_BYTES(128) */
 #define ESL_GICISKY_PLANES_SIZE (ESL_GICISKY_WIDTH * ESL_GICISKY_COL_BYTES * 2u) /* 9472 */
+#define ESL_GICISKY_PLANES3_SIZE (ESL_GICISKY_WIDTH * ESL_GICISKY_COL_BYTES * 3u) /* 14208 */
 #define ESL_GICISKY_FB_SIZE     (ESL_GICISKY_WIDTH * ESL_GICISKY_HEIGHT / 4u)    /* 9472 */
 #define ESL_GICISKY_CHUNK       240u
 #define ESL_GICISKY_CHUNKS      ((ESL_GICISKY_FB_SIZE + ESL_GICISKY_CHUNK - 1u) / ESL_GICISKY_CHUNK) /* 40 */
@@ -34,9 +34,14 @@
 
 /* Packs the AP's raw image (planes, ESL_GICISKY_PLANES_SIZE bytes: the black plane, then
  * the red plane) into the tag's framebuffer (fb, ESL_GICISKY_FB_SIZE bytes). A red pixel
- * is red; a black pixel is black; every other pixel is white. Yellow is not produced by
- * this renderer. Returns false on a bad size or a NULL pointer. */
+ * is red; a black pixel is black; every other pixel is white. Returns false on a bad size
+ * or a NULL pointer. */
 bool esl_gicisky_pack_bw_red(const uint8_t *planes, size_t len, uint8_t *fb);
+
+/* Packs 1, 2 or 3 AP image planes (black, then red, then yellow; each
+ * ESL_GICISKY_WIDTH * ESL_GICISKY_COL_BYTES bytes) into the tag's framebuffer. A red
+ * pixel is red, else a yellow one yellow, else black, else white. */
+bool esl_gicisky_pack_planes(const uint8_t *planes, size_t len, uint8_t *fb);
 
 /* Packs a logical 2-bit image (296 x 128, row-major, four pixels per byte, MSB first,
  * values above) into the tag's framebuffer. For a renderer that draws yellow too.

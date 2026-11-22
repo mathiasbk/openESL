@@ -1,10 +1,10 @@
-# Bluetooth tags (in progress)
+# Bluetooth tags
 
 Bluetooth (BLE) price tags are sold cheaply under several brands. Unlike the SoluM tags
 they keep their maker's firmware: openESL does not flash them, it speaks their protocol.
 The protocol for one tag family is recorded in [gicisky-296-bwry.md](gicisky-296-bwry.md);
-an experimental AP build speaks it. This page is the plan and records what is already
-built.
+a separate AP build speaks it. This page records what is built and what is still to
+do.
 
 ## How they differ from the 802.15.4 tags
 
@@ -22,7 +22,7 @@ are. What is new is how the picture gets to the tag.
 
 | Tag | Panel | Radio | Protocol |
 |---|---|---|---|
-| Gicisky / PICKSMART 2.9" BWRY (sold under several names; ours advertises as `NEMR…`) | 296 × 128, black/white/red/yellow | BLE | [gicisky-296-bwry.md](gicisky-296-bwry.md) |
+| Gicisky / PICKSMART 2.9" BWRY (sold under several names; our units advertise as `NEMR…`) | 296 × 128, black/white/red/yellow | BLE | [gicisky-296-bwry.md](gicisky-296-bwry.md) |
 
 ## Parts
 
@@ -46,19 +46,19 @@ are. What is new is how the picture gets to the tag.
    `esl_push_seen`, and the transport `send`, which connects, hands the picture to the
    tag's protocol module and disconnects. The transport adapter `esl_ble.c` is built and
    tested on the PC; the NimBLE backend and the scan are in `ap/main/ble.c`, built with
-   `python ap/build.py --ble <board>` (experimental). Tags are added by the scan or
-   `CONFIG_ESL_BLE_TAG_MAC`; pairing in the web page, and keeping the push table (the
-   image id each tag shows) in NVS, are to do. The blob for it is in `esl_persist.c`, not
-   wired yet.
+   `python ap/build.py --ble <board>` and tried on two units. Tags are
+   added by the scan or `CONFIG_ESL_BLE_TAG_MAC`; the push table (the image id each tag
+   shows) is kept in NVS, so a restart does not send an image again. Pairing in the web
+   page is to do.
 4. **Protocol modules:** one per tag family, turning a raw picture (the black plane, then
-   the red plane) into the maker's commands. The Gicisky 2.9" BWRY protocol is recorded
-   and its module is `esl_gicisky.c`, used by `ap/main/ble.c`.
+   the red plane, then the yellow plane, or a logical 2-bit image) into the maker's commands. The Gicisky 2.9"
+   BWRY protocol is recorded and its module is `esl_gicisky.c`, used by `ap/main/ble.c`.
 5. **Models:** `shared/models.json` already has `radio` and `protocol` fields; a
    Bluetooth tag becomes a model with `radio: "ble"` and its maker's protocol. The
-   Gicisky 2.9" BWRY is `gicisky-29-bwry` (experimental).
-6. **Yellow** (to do): some of these tags are black/white/red/yellow. The AP draws the
-   picture, so yellow needs a plane in the renderer and the designer, not in any tag
-   firmware. The Gicisky 2.9-inch BWRY is one of them.
+   Gicisky 2.9" BWRY is `gicisky-29-bwry`.
+6. **Yellow**: some of these tags are black/white/red/yellow. The AP now draws a third
+   plane, so its layouts and designer take `yellow` and `yellow_invert`; the Gicisky
+   packer takes the black, red and yellow planes (`esl_gicisky_pack_planes`).
 
 ## Which AP
 

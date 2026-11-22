@@ -20,27 +20,34 @@ const font_t *esl_font_get(uint8_t id);
 typedef struct {
     uint16_t w, h;
     uint8_t col_bytes;
-    bool has_red;
+    bool has_red, has_yellow;
     uint8_t margin;    /* left and right of the built-in layouts */
 } rd_model_t;
 
-bool esl_render_model(uint8_t model, uint16_t *w, uint16_t *h, bool *has_red)
+bool esl_render_model_colors(uint8_t model, uint16_t *w, uint16_t *h, bool *has_red, bool *has_yellow)
 {
-#define X(code, name, id, mw, mh, red) \
-    if (model == (code)) {             \
-        *w = (mw);                     \
-        *h = (mh);                     \
-        *has_red = (red) != 0;         \
-        return true;                   \
+#define X(code, name, id, mw, mh, red, yellow) \
+    if (model == (code)) {                     \
+        *w = (mw);                             \
+        *h = (mh);                             \
+        *has_red = (red) != 0;                 \
+        *has_yellow = (yellow) != 0;           \
+        return true;                           \
     }
     ESL_MODEL_LIST(X)
 #undef X
     return false;
 }
 
+bool esl_render_model(uint8_t model, uint16_t *w, uint16_t *h, bool *has_red)
+{
+    bool has_yellow;
+    return esl_render_model_colors(model, w, h, has_red, &has_yellow);
+}
+
 static bool model_get(uint8_t model, rd_model_t *m)
 {
-    if (!esl_render_model(model, &m->w, &m->h, &m->has_red))
+    if (!esl_render_model_colors(model, &m->w, &m->h, &m->has_red, &m->has_yellow))
         return false;
     m->col_bytes = (uint8_t)ESL_RENDER_COL_BYTES(m->h);
     m->margin = m->w >= 200 ? 6 : 5;
@@ -52,7 +59,7 @@ size_t esl_render_size(uint8_t model)
     rd_model_t m;
     if (!model_get(model, &m))
         return 0;
-    return (size_t)m.w * m.col_bytes * (m.has_red ? 2 : 1);
+    return (size_t)m.w * m.col_bytes * (1u + (m.has_red ? 1u : 0u) + (m.has_yellow ? 1u : 0u));
 }
 
 /* ---- the scene ------------------------------------------------------------- */
@@ -69,6 +76,7 @@ size_t esl_render_size(uint8_t model)
 #define RD_BLACK 0
 #define RD_WHITE 1
 #define RD_RED   2
+#define RD_YELLOW 3
 
 typedef struct {
     const uint8_t *text;
@@ -304,28 +312,39 @@ static void add_icon(rd_scene_t *s, const uint8_t *data, uint16_t x, uint16_t y,
 
 /* ---- one column (tag/src/draw.c) ------------------------------------------------ */
 
-static void ink(uint8_t *black, uint8_t *red, uint16_t idx, uint8_t m, uint8_t color)
+typedef struct {
+    uint8_t *black, *red, *yellow;
+} rd_canvas_t;
+
+static void ink(rd_canvas_t *cv, uint16_t idx, uint8_t m, uint8_t color)
 {
     if (color == RD_WHITE) {
-        black[idx] &= (uint8_t)~m;
-        red[idx] &= (uint8_t)~m;
+        cv->black[idx] &= (uint8_t)~m;
+        cv->red[idx] &= (uint8_t)~m;
+        cv->yellow[idx] &= (uint8_t)~m;
     } else if (color == RD_RED) {
-        red[idx] |= m;
-        black[idx] &= (uint8_t)~m;
+        cv->red[idx] |= m;
+        cv->black[idx] &= (uint8_t)~m;
+        cv->yellow[idx] &= (uint8_t)~m;
+    } else if (color == RD_YELLOW) {
+        cv->yellow[idx] |= m;
+        cv->black[idx] &= (uint8_t)~m;
+        cv->red[idx] &= (uint8_t)~m;
     } else {
-        black[idx] |= m;
-        red[idx] &= (uint8_t)~m;
+        cv->black[idx] |= m;
+        cv->red[idx] &= (uint8_t)~m;
+        cv->yellow[idx] &= (uint8_t)~m;
     }
 }
 
-static void fill_span(uint8_t *black, uint8_t *red, uint16_t y0, uint16_t y1, uint8_t color)
+static void fill_span(rd_canvas_t *cv, uint16_t y0, uint16_t y1, uint8_t color)
 {
     uint16_t i = y0 >> 3, last = y1 >> 3;
     uint8_t m = (uint8_t)(0xFF >> (y0 & 7));
     for (;;) {
         if (i == last)
             m &= (uint8_t)(0xFF << (7 - (y1 & 7)));
-        ink(black, red, i, m, color);
+        ink(cv, i, m, color);
         if (i == last)
             break;
         i++;
@@ -333,7 +352,7 @@ static void fill_span(uint8_t *black, uint8_t *red, uint16_t y0, uint16_t y1, ui
     }
 }
 
-static void blit_column(const rd_model_t *mo, uint8_t *black, uint8_t *red, const uint8_t *src, uint8_t nbytes,
+static void blit_column(const rd_model_t *mo, rd_canvas_t *cv, const uint8_t *src, uint8_t nbytes,
                         uint16_t y, uint8_t color)
 {
     uint8_t shift = y & 7;
@@ -344,10 +363,10 @@ static void blit_column(const rd_model_t *mo, uint8_t *black, uint8_t *red, cons
         v = src[b];
         if (!v)
             continue;
-        ink(black, red, idx, (uint8_t)(v >> shift), color);
+        ink(cv, idx, (uint8_t)(v >> shift), color);
         lo = shift ? (uint8_t)(v << (8 - shift)) : 0;
         if (lo && idx + 1 < mo->col_bytes)
-            ink(black, red, (uint16_t)(idx + 1), lo, color);
+            ink(cv, (uint16_t)(idx + 1), lo, color);
     }
 }
 
@@ -382,7 +401,7 @@ static bool rect_span(uint16_t x0, uint16_t x1, uint16_t y0, uint16_t y1, uint8_
     return true;
 }
 
-static void draw_rect(const rd_model_t *mo, const rd_rect_t *r, uint16_t x, uint8_t *black, uint8_t *red)
+static void draw_rect(const rd_model_t *mo, const rd_rect_t *r, uint16_t x, rd_canvas_t *cv)
 {
     uint16_t t, b, it, ib, last = (uint16_t)(mo->h - 1);
     uint8_t ri;
@@ -399,13 +418,13 @@ static void draw_rect(const rd_model_t *mo, const rd_rect_t *r, uint16_t x, uint
         if (rect_span((uint16_t)(r->x0 + r->border), (uint16_t)(r->x1 - r->border), (uint16_t)(r->y0 + r->border),
                       (uint16_t)(r->y1 - r->border), ri, x, &it, &ib)) {
             if (it > t)
-                fill_span(black, red, t, (uint16_t)(it - 1 < b ? it - 1 : b), r->color);
+                fill_span(cv, t, (uint16_t)(it - 1 < b ? it - 1 : b), r->color);
             if (ib < b)
-                fill_span(black, red, (uint16_t)(ib + 1), b, r->color);
+                fill_span(cv, (uint16_t)(ib + 1), b, r->color);
             return;
         }
     }
-    fill_span(black, red, t, b, r->color);
+    fill_span(cv, t, b, r->color);
 }
 
 /* Is the centre of pixel (x, y) at most w / 2 from the segment (ax, ay)-(bx, by)? In whole
@@ -435,14 +454,14 @@ static bool line_hit(const rd_line_t *l, int32_t x, int32_t y)
     return seg_near(l->ax, l->ay, l->bx, l->by, x, y, l->w);
 }
 
-static void draw_line(const rd_line_t *l, uint16_t x, uint8_t *black, uint8_t *red)
+static void draw_line(const rd_line_t *l, uint16_t x, rd_canvas_t *cv)
 {
     int16_t y, top = -1, bottom = -1;
 
     if ((int16_t)x < l->x0 || (int16_t)x > l->x1 || l->y0 > l->y1)
         return;
     if (l->straight) {
-        fill_span(black, red, (uint16_t)l->y0, (uint16_t)l->y1, l->color);
+        fill_span(cv, (uint16_t)l->y0, (uint16_t)l->y1, l->color);
         return;
     }
     /* the pixels of a line in one column are one run (the shape is convex) */
@@ -456,7 +475,7 @@ static void draw_line(const rd_line_t *l, uint16_t x, uint8_t *black, uint8_t *r
         }
     }
     if (top >= 0)
-        fill_span(black, red, (uint16_t)top, (uint16_t)bottom, l->color);
+        fill_span(cv, (uint16_t)top, (uint16_t)bottom, l->color);
 }
 
 /* Is the centre of pixel (x, y) in the ellipse with doubled semi-axes a and b (the box's
@@ -516,7 +535,7 @@ static void seg_rows(uint8_t *m, int32_t ax, int32_t ay, int32_t bx, int32_t by,
 /* An ellipse or polygon in column x. Worked out per column, not per pixel: an ellipse from its
  * top row (it is the same mirrored), a polygon from where its edges cross the column and the
  * rows near each edge. The same pixels as the definition in shared/proto.h. */
-static void draw_shape(const rd_model_t *mo, const rd_shape_t *sh, uint16_t x, uint8_t *black, uint8_t *red)
+static void draw_shape(const rd_model_t *mo, const rd_shape_t *sh, uint16_t x, rd_canvas_t *cv)
 {
     if (x < sh->x0 || x > sh->x1 || sh->y1 >= mo->h)
         return;
@@ -528,10 +547,10 @@ static void draw_shape(const rd_model_t *mo, const rd_shape_t *sh, uint16_t x, u
         /* a border: not inside the ellipse border pixels in from the box on every side */
         in = bd && a > 2 * bd && b > 2 * bd ? ellipse_top(sh, dx, a - 2 * bd, b - 2 * bd, top, true) : bottom + 1;
         if (in > (sh->y0 + sh->y1) / 2) {
-            fill_span(black, red, (uint16_t)top, (uint16_t)bottom, sh->color);
+            fill_span(cv, (uint16_t)top, (uint16_t)bottom, sh->color);
         } else if (in > top) {
-            fill_span(black, red, (uint16_t)top, (uint16_t)(in - 1), sh->color);
-            fill_span(black, red, (uint16_t)(sh->y0 + sh->y1 - in + 1), (uint16_t)bottom, sh->color);
+            fill_span(cv, (uint16_t)top, (uint16_t)(in - 1), sh->color);
+            fill_span(cv, (uint16_t)(sh->y0 + sh->y1 - in + 1), (uint16_t)bottom, sh->color);
         }
         return;
     }
@@ -561,7 +580,7 @@ static void draw_shape(const rd_model_t *mo, const rd_shape_t *sh, uint16_t x, u
     for (k = 0; k < mo->col_bytes; k++) {
         uint8_t m = (uint8_t)(edge[k] | (sh->border ? ins[k] & band[k] : ins[k]));
         if (m)
-            ink(black, red, (uint16_t)k, m, sh->color);
+            ink(cv, (uint16_t)k, m, sh->color);
     }
 }
 
@@ -570,7 +589,7 @@ static uint8_t run_char(const rd_run_t *r, uint8_t i)
     return i < r->len ? r->text[i] : FONT_ELLIPSIS;
 }
 
-static void draw_run(const rd_model_t *mo, rd_run_t *r, uint16_t x, uint8_t *black, uint8_t *red)
+static void draw_run(const rd_model_t *mo, rd_run_t *r, uint16_t x, rd_canvas_t *cv)
 {
     const font_t *f;
     uint8_t n = (uint8_t)(r->len + r->ellipsis);
@@ -589,14 +608,14 @@ static void draw_run(const rd_model_t *mo, rd_run_t *r, uint16_t x, uint8_t *bla
         r->cx += w;
         r->ci++;
     }
-    blit_column(mo, black, red, font_column(f, ch, (uint8_t)(x - r->cx)), f->bytes_per_col, r->y, r->color);
+    blit_column(mo, cv, font_column(f, ch, (uint8_t)(x - r->cx)), f->bytes_per_col, r->y, r->color);
 }
 
 /* Pixel y of a column, if it is on the screen */
-static void ink_px(const rd_model_t *mo, uint8_t *black, uint8_t *red, int32_t y, uint8_t color)
+static void ink_px(const rd_model_t *mo, rd_canvas_t *cv, int32_t y, uint8_t color)
 {
     if (y >= 0 && y < mo->h)
-        ink(black, red, (uint16_t)(y >> 3), (uint8_t)(0x80 >> (y & 7)), color);
+        ink(cv, (uint16_t)(y >> 3), (uint8_t)(0x80 >> (y & 7)), color);
 }
 
 /* ---- charts ---- */
@@ -621,7 +640,7 @@ static int32_t chart_row(const rd_chart_t *c, uint16_t col)
     return ya + (num >= 0 ? (2 * num + den) / (2 * den) : -((-2 * num + den) / (2 * den)));
 }
 
-static void draw_chart(const rd_model_t *mo, const rd_chart_t *c, uint16_t x, uint8_t *black, uint8_t *red)
+static void draw_chart(const rd_model_t *mo, const rd_chart_t *c, uint16_t x, rd_canvas_t *cv)
 {
     if (x < c->x0 || x >= c->x0 + c->w)
         return;
@@ -656,14 +675,14 @@ static void draw_chart(const rd_model_t *mo, const rd_chart_t *c, uint16_t x, ui
         int32_t from = y + c->lw / 2 + 1;
         if (!(c->opts & ESL_LE_CHART_LIGHT)) {
             if (from <= c->y1)
-                fill_span(black, red, (uint16_t)from, c->y1, c->color);
+                fill_span(cv, (uint16_t)from, c->y1, c->color);
         } else {
             for (int32_t r = from; r <= c->y1; r++)
                 if (((uint32_t)r + x) % 2 == 0)
-                    ink_px(mo, black, red, r, c->color);
+                    ink_px(mo, cv, r, c->color);
         }
     }
-    fill_span(black, red, (uint16_t)lo, (uint16_t)hi, c->color);
+    fill_span(cv, (uint16_t)lo, (uint16_t)hi, c->color);
 }
 
 /* Numbers apart by spaces or ';' (shared/proto.h ESL_LE_CHART) as whole numbers times
@@ -743,7 +762,7 @@ static void add_chart(rd_scene_t *s, uint16_t x, uint16_t y, uint16_t w, uint16_
 
 /* Column x of a turned run. At 90 and 270 degrees a screen column is one row of every glyph,
  * at 180 one glyph column upside down. */
-static void draw_run_rot(const rd_model_t *mo, const rd_run_t *r, uint16_t x, uint8_t *black, uint8_t *red)
+static void draw_run_rot(const rd_model_t *mo, const rd_run_t *r, uint16_t x, rd_canvas_t *cv)
 {
     const font_t *f = esl_font_get(r->font);
     uint8_t n = (uint8_t)(r->len + r->ellipsis), i, ch = 0, w = 0, c;
@@ -766,7 +785,7 @@ static void draw_run_rot(const rd_model_t *mo, const rd_run_t *r, uint16_t x, ui
         col = font_column(f, ch, (uint8_t)(at - u));
         for (row = 0; row < f->height; row++)
             if (col[row >> 3] & (0x80 >> (row & 7)))
-                ink_px(mo, black, red, (int32_t)r->by1 - r->y - row, r->color);
+                ink_px(mo, cv, (int32_t)r->by1 - r->y - row, r->color);
         return;
     }
 
@@ -784,7 +803,7 @@ static void draw_run_rot(const rd_model_t *mo, const rd_run_t *r, uint16_t x, ui
             for (c = 0; c < w; c++) {
                 int32_t at = (int32_t)r->x + u + c;
                 if (font_column(f, ch, c)[b] & m)
-                    ink_px(mo, black, red, r->rot == 1 ? (int32_t)r->by0 + at : (int32_t)r->by1 - at, r->color);
+                    ink_px(mo, cv, r->rot == 1 ? (int32_t)r->by0 + at : (int32_t)r->by1 - at, r->color);
             }
         }
     }
@@ -800,30 +819,31 @@ static void draw_begin(rd_scene_t *s)
 }
 
 /* Column x into black and red (col_bytes each); x must increase by 1 per call after draw_begin */
-static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
+static void draw_column(rd_scene_t *s, uint16_t x, rd_canvas_t *cv)
 {
     const rd_model_t *mo = &s->m;
     uint8_t i;
 
-    memset(black, 0, mo->col_bytes);
-    memset(red, 0, mo->col_bytes);
+    memset(cv->black, 0, mo->col_bytes);
+    memset(cv->red, 0, mo->col_bytes);
+    memset(cv->yellow, 0, mo->col_bytes);
 
     for (i = 0; i < s->nrects; i++)
-        draw_rect(mo, &s->rect[i], x, black, red);
+        draw_rect(mo, &s->rect[i], x, cv);
 
     for (i = 0; i < s->nshapes; i++)
-        draw_shape(mo, &s->shape[i], x, black, red);
+        draw_shape(mo, &s->shape[i], x, cv);
 
     for (i = 0; i < s->nlines; i++)
-        draw_line(&s->line[i], x, black, red);
+        draw_line(&s->line[i], x, cv);
 
     for (i = 0; i < s->ncharts; i++)
-        draw_chart(mo, &s->chart[i], x, black, red);
+        draw_chart(mo, &s->chart[i], x, cv);
 
     for (i = 0; i < s->nicons; i++) {
         const rd_icon_t *ic = &s->icon[i];
         if (x >= ic->x && x < ic->x + ic->w)
-            blit_column(mo, black, red, ic->data + (size_t)(x - ic->x) * ic->col_bytes, ic->col_bytes, ic->y,
+            blit_column(mo, cv, ic->data + (size_t)(x - ic->x) * ic->col_bytes, ic->col_bytes, ic->y,
                         ic->color);
     }
 
@@ -831,7 +851,7 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
         const rd_bars_t *b = &s->bars;
         uint16_t m = (uint16_t)((x - b->x0) / b->mw);
         if (m < b->nmod && (b->bits[m >> 3] & (0x80 >> (m & 7))))
-            fill_span(black, red, b->y0, b->y1, RD_BLACK);
+            fill_span(cv, b->y0, b->y1, RD_BLACK);
     }
 
     if (s->nqr && x >= s->qr.x0 && x < s->qr.x0 + (s->qr.size + 2 * ESL_QR_QUIET) * s->qr.m) {
@@ -839,7 +859,7 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
         unsigned col = (unsigned)(x - q->x0) / q->m, r, top;
         uint16_t y0 = (uint16_t)(q->y0 + ESL_QR_QUIET * q->m);
         /* the quiet zone and the light modules are white, whatever is under them */
-        fill_span(black, red, q->y0, (uint16_t)(q->y0 + (q->size + 2 * ESL_QR_QUIET) * q->m - 1), RD_WHITE);
+        fill_span(cv, q->y0, (uint16_t)(q->y0 + (q->size + 2 * ESL_QR_QUIET) * q->m - 1), RD_WHITE);
         col = col < ESL_QR_QUIET || col >= q->size + ESL_QR_QUIET ? q->size : col - ESL_QR_QUIET; /* past the code: none */
         for (r = 0; col < q->size && r < q->size; r = top) {
             /* a run of dark modules down this column is one span */
@@ -848,20 +868,21 @@ static void draw_column(rd_scene_t *s, uint16_t x, uint8_t *black, uint8_t *red)
                 continue;
             while (top < q->size && esl_qr_module(q->bits, q->size, col, top))
                 top++;
-            fill_span(black, red, (uint16_t)(y0 + r * q->m), (uint16_t)(y0 + top * q->m - 1), RD_BLACK);
+            fill_span(cv, (uint16_t)(y0 + r * q->m), (uint16_t)(y0 + top * q->m - 1), RD_BLACK);
         }
     }
 
     for (i = 0; i < s->nruns; i++) {
         if (s->run[i].rot)
-            draw_run_rot(mo, &s->run[i], x, black, red);
+            draw_run_rot(mo, &s->run[i], x, cv);
         else
-            draw_run(mo, &s->run[i], x, black, red);
+            draw_run(mo, &s->run[i], x, cv);
     }
 
     if (mo->h % 8) {
-        black[mo->col_bytes - 1] &= (uint8_t)(0xFF << (8 - mo->h % 8));
-        red[mo->col_bytes - 1] &= (uint8_t)(0xFF << (8 - mo->h % 8));
+        cv->black[mo->col_bytes - 1] &= (uint8_t)(0xFF << (8 - mo->h % 8));
+        cv->red[mo->col_bytes - 1] &= (uint8_t)(0xFF << (8 - mo->h % 8));
+        cv->yellow[mo->col_bytes - 1] &= (uint8_t)(0xFF << (8 - mo->h % 8));
     }
 }
 
@@ -1015,9 +1036,10 @@ static uint8_t max_descent(const rd_elem_t *e)
     return d;
 }
 
-#define COLOR_INVERT     0x80
-#define COLOR_RED_INVERT 0x81
-#define COLOR_NONE       0xFF
+#define COLOR_INVERT        0x80
+#define COLOR_RED_INVERT    0x81
+#define COLOR_YELLOW_INVERT 0x82
+#define COLOR_NONE          0xFF
 
 static uint8_t resolve_color(uint8_t c, uint8_t flags)
 {
@@ -1028,6 +1050,8 @@ static uint8_t resolve_color(uint8_t c, uint8_t flags)
     case ESL_LE_FRAME:      return (flags & ESL_CF_FRAME) ? RD_BLACK : COLOR_NONE;
     case ESL_LE_RED:        return RD_RED;
     case ESL_LE_RED_INVERT: return COLOR_RED_INVERT;
+    case ESL_LE_YELLOW:     return RD_YELLOW;
+    case ESL_LE_YELLOW_INVERT: return COLOR_YELLOW_INVERT;
     default:                return RD_BLACK;
     }
 }
@@ -1099,12 +1123,14 @@ static void place_text(rd_scene_t *s, const rd_elem_t *se, const uint8_t *t, uin
         e = &turned;
     }
 
-    if (color == COLOR_INVERT || color == COLOR_RED_INVERT) {
+    if (color == COLOR_INVERT || color == COLOR_RED_INVERT || color == COLOR_YELLOW_INVERT) {
         pad = RD_INVERT_PAD;
         if (e->w <= 2 * pad || e->h <= 2 * pad)
             return;
         if (color == COLOR_RED_INVERT)
             box = RD_RED;
+        else if (color == COLOR_YELLOW_INVERT)
+            box = RD_YELLOW;
         color = RD_WHITE;
     }
     x = (uint16_t)(e->x + pad);
@@ -1453,6 +1479,8 @@ static void apply_list(rd_scene_t *s, const rd_file_t *fl, const rd_elem_t *e, c
             color = e->kind == ESL_LE_TEXT ? color : RD_BLACK;
         else if (color == COLOR_RED_INVERT)
             color = e->kind == ESL_LE_TEXT ? color : RD_RED;
+        else if (color == COLOR_YELLOW_INVERT)
+            color = e->kind == ESL_LE_TEXT ? color : RD_YELLOW;
         if (color != COLOR_NONE && e->w && e->h) {
             if (e->kind == ESL_LE_RECT) {
                 if (add_rect(s, e->x, e->y, (uint16_t)(e->x + e->w - 1), (uint16_t)(e->y + e->h - 1), color)) {
@@ -1612,7 +1640,8 @@ bool esl_render_number_cut(uint8_t model, const esl_layout_bin_t *file, const es
 
 size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content_t *c, uint8_t *out, size_t cap)
 {
-    uint8_t black[32], red[32];
+    uint8_t black[32], red[32], yellow[32];
+    rd_canvas_t cv = {black, red, yellow};
     size_t size, plane;
     uint16_t x;
 
@@ -1623,10 +1652,12 @@ size_t esl_render(uint8_t model, const esl_layout_bin_t *file, const esl_content
     plane = (size_t)scene.m.w * scene.m.col_bytes;
     draw_begin(&scene);
     for (x = 0; x < scene.m.w; x++) {
-        draw_column(&scene, x, black, red);
+        draw_column(&scene, x, &cv);
         memcpy(out + (size_t)x * scene.m.col_bytes, black, scene.m.col_bytes);
         if (scene.m.has_red)
             memcpy(out + plane + (size_t)x * scene.m.col_bytes, red, scene.m.col_bytes);
+        if (scene.m.has_yellow)
+            memcpy(out + 2 * plane + (size_t)x * scene.m.col_bytes, yellow, scene.m.col_bytes);
     }
     return size;
 }

@@ -5,6 +5,7 @@
    backend. The protocol itself is covered by test_gicisky. */
 
 static uint8_t planes[ESL_GICISKY_PLANES_SIZE];
+static uint8_t planes3[ESL_GICISKY_PLANES3_SIZE];
 static uint8_t fb[ESL_GICISKY_FB_SIZE];
 
 static struct {
@@ -137,6 +138,13 @@ static void test_ble_send(void)
     CHECK_INT(fake.connects, 0);
     CHECK_INT(esl_ble_send(&b, 0x1234, 0, planes, sizeof planes - 1, &info), ESL_PUSH_AWAY);
     CHECK_INT(fake.connects, 0);
+
+    /* the BWRY's three planes (black, red, yellow) are taken too */
+    reset_fake();
+    CHECK_INT(esl_ble_send(&b, 0x1234, 0, planes3, sizeof planes3, &info), ESL_PUSH_SENT);
+    CHECK_INT(fake.connects, 1);
+    CHECK_INT(fake.data_writes, ESL_GICISKY_CHUNKS);
+    CHECK_INT(esl_ble_send(&b, 0x1234, 0, planes3, sizeof planes3 - 1, &info), ESL_PUSH_AWAY);
 
     /* info is optional */
     reset_fake();

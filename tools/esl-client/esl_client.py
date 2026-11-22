@@ -97,7 +97,7 @@ MODEL_BY_CODE = {1: "2.9", 2: "1.54", 3: "2.9-bwr", 4: "2.9-bwry"}
 # Model code in byte 6 of the MAC
 MODEL_MAC_CODE = {"2.9": 0x3B, "1.54": 0x34, "2.9-bwr": 0x3C}
 # Not tried on a real tag yet (status experimental)
-MODEL_EXPERIMENTAL = {"2.9-bwr", "2.9-bwry"}
+MODEL_EXPERIMENTAL = {"2.9-bwr"}
 # END models
 
 

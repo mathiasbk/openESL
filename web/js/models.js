@@ -3,6 +3,7 @@
 // The tag models, keyed by the name the AP's API uses ("2.9", "1.54").
 //   code      model byte in POLL and in tag firmware images
 //   build     -DMODEL=<build>; the renderer is wasm/render-<build>.js, the firmware tag-<build>.bin
+//   radio     "802.15.4" (has openESL tag firmware) or "ble" (keeps its own; no flasher)
 //   macCode   byte 6 of the MAC on a tag of this model
 //   photo     a picture of the tag under web/ for the flasher's model picker, or null
 //   sameAs    the model whose layout file this one uses (same screen), or null
@@ -28,6 +29,13 @@ export const MODELS = {
     vendor: "SoluM", chip: "zbs243", radio: "802.15.4", protocol: "openesl", image: "openesl-raw",
     width: 296, height: 128, colors: ["black", "white", "red"], macCode: 0x3c, status: "experimental",
     sameAs: null, short: "2.9\" red",
+    photo: null,
+  },
+  "2.9-bwry": {
+    code: 4, build: "294", id: "gicisky-29-bwry", label: "Gicisky/PICKSMART 2.9\" black/white/red/yellow", product: "PICKSMART 2.9 BWRY",
+    vendor: "Gicisky", chip: "unknown", radio: "ble", protocol: "gicisky", image: "gicisky-2bpp",
+    width: 296, height: 128, colors: ["black", "white", "red", "yellow"], macCode: null, status: "supported",
+    sameAs: null, short: "2.9\" BWRY",
     photo: null,
   },
 };

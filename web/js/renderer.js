@@ -3,7 +3,7 @@
 //
 //   const r = await loadRenderer("2.9");        // or "1.54"
 //   r.loadLayouts(jsonText)  -> { ok, error, version, size, bin }
-//   r.render(layout, flags, fields) -> { ok, error, pixels (Uint8Array, 1 = black, 2 = red),
+//   r.render(layout, flags, fields) -> { ok, error, pixels (Uint8Array, 1 = black, 2 = red, 3 = yellow),
 //                                       refused (why the AP would refuse these fields, if it would) }
 //   r.setLimits(apLimits)    the limits of the AP the page talks to ("limits" from GET /api/layouts),
 //                            or null for the default board's; r.limits then has them

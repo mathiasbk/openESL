@@ -5,6 +5,7 @@
    fake transport that records the writes and answers the notifications. */
 
 static uint8_t planes[ESL_GICISKY_PLANES_SIZE];
+static uint8_t planes3[ESL_GICISKY_PLANES3_SIZE];
 static uint8_t logical[ESL_GICISKY_FB_SIZE];
 static uint8_t fb[ESL_GICISKY_FB_SIZE];
 
@@ -68,6 +69,21 @@ static void test_gicisky_pack(void)
     CHECK(!esl_gicisky_pack_bw_red(NULL, sizeof planes, fb));
     CHECK(!esl_gicisky_pack_bw_red(planes, sizeof planes - 1, fb));
     CHECK(!esl_gicisky_pack_bw_red(planes, sizeof planes, NULL));
+
+    /* Three planes: the yellow plane is the third, and wins over black. */
+    memset(planes3, 0, sizeof planes3);
+    CHECK(esl_gicisky_pack_planes(planes3, sizeof planes3, fb));
+    for (size_t i = 0; i < sizeof fb; i++)
+        CHECK_INT(fb[i], 0x55);
+    memset(planes3 + 2 * ESL_GICISKY_WIDTH * ESL_GICISKY_COL_BYTES, 0xff,
+           ESL_GICISKY_WIDTH * ESL_GICISKY_COL_BYTES);
+    CHECK(esl_gicisky_pack_planes(planes3, sizeof planes3, fb));
+    for (size_t i = 0; i < sizeof fb; i++)
+        CHECK_INT(fb[i], 0xaa);
+    CHECK_INT(pixel(fb, 0, 0), ESL_GICISKY_YELLOW);
+    CHECK(!esl_gicisky_pack_planes(planes3, sizeof planes3 - 1, fb));
+    CHECK(!esl_gicisky_pack_planes(NULL, sizeof planes3, fb));
+    CHECK(!esl_gicisky_pack_planes(planes3, sizeof planes3, NULL));
 }
 
 static void test_gicisky_logical(void)

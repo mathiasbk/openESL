@@ -11,4 +11,6 @@ Three things: labels, an access point (AP), and a jig to flash each label once.
 
 You only need the jig once per label. After that, labels get new firmware over the air ([Updating labels](Updating-labels)).
 
+Bluetooth tags are the exception: they keep the maker's firmware and are not flashed. They use a separate BLE AP build; see [the Gicisky 2.9" BWRY](Gicisky-2.9-BWRY).
+
 **No hardware yet?** The [simulator](https://github.com/mathiasbk/openESL/blob/master/sim/README.md) runs the label firmware and the AP together on a PC, so you can try the API first.

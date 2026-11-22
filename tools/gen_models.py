@@ -195,11 +195,11 @@ def gen_shared_h(ms):
         out.append("#define ESL_MODEL_%s_W %d" % (m["build"], m["width"]))
         out.append("#define ESL_MODEL_%s_H %d" % (m["build"], m["height"]))
     out += ["",
-            "/* X(code, name in the API, id, width, height, has_red) for each model, in code order */",
+            "/* X(code, name in the API, id, width, height, has_red, has_yellow) for each model, in code order */",
             "#define ESL_MODEL_LIST(X) \\"]
     for m in ms:
-        out.append("    X(%d, %s, %s, %d, %d, %d) \\" % (m["code"], c_str(m["name"]), c_str(m["id"]), m["width"],
-                                                     m["height"], int(m["has_red"])))
+        out.append("    X(%d, %s, %s, %d, %d, %d, %d) \\" % (m["code"], c_str(m["name"]), c_str(m["id"]), m["width"],
+                                                     m["height"], int(m["has_red"]), int(m["has_yellow"])))
     out += ["",
             "/* X(code, code of the model whose layout file it uses) for each model with same_as: a tag of",
             " * that model is drawn with the other model's file (esl_model_layout_model) */",
@@ -230,6 +230,7 @@ def gen_tag_h(ms):
                 "#define MODEL_CODE       %d" % m["code"],
                 "#define MODEL_NAME       %s" % c_str(m["name"]),
                 "#define MODEL_HAS_RED    %d" % int(m["has_red"]),
+                "#define MODEL_HAS_YELLOW %d" % int(m["has_yellow"]),
                 "#define DRAW_W           %d" % m["width"],
                 "#define DRAW_H           %d" % m["height"],
                 "#define MODEL_PANEL_H    %s" % c_str("panels/" + m["panel"] + ".h"),
@@ -247,12 +248,12 @@ def gen_tag_h(ms):
 
 
 def gen_js(ms):
-    ms = [m for m in ms if m["radio"] != "ble"]
     out = ["// %s" % HEADER,
            "//",
            "// The tag models, keyed by the name the AP's API uses (\"2.9\", \"1.54\").",
            "//   code      model byte in POLL and in tag firmware images",
            "//   build     -DMODEL=<build>; the renderer is wasm/render-<build>.js, the firmware tag-<build>.bin",
+           "//   radio     \"802.15.4\" (has openESL tag firmware) or \"ble\" (keeps its own; no flasher)",
            "//   macCode   byte 6 of the MAC on a tag of this model",
            "//   photo     a picture of the tag under web/ for the flasher's model picker, or null",
            "//   sameAs    the model whose layout file this one uses (same screen), or null",
@@ -265,8 +266,9 @@ def gen_js(ms):
             m["code"], c_str(m["build"]), c_str(m["id"]), c_str(m["label"]), c_str(m["product"])))
         out.append("    vendor: %s, chip: %s, radio: %s, protocol: %s, image: %s," % (
             c_str(m["vendor"]), c_str(m["chip"]), c_str(m["radio"]), c_str(m["protocol"]), c_str(m["image"])))
-        out.append("    width: %d, height: %d, colors: %s, macCode: 0x%02x, status: %s," % (
-            m["width"], m["height"], json.dumps(m["colors"]), m["mac_code"], c_str(m["status"])))
+        mac = "0x%02x" % m["mac_code"] if "mac_code" in m else "null"
+        out.append("    width: %d, height: %d, colors: %s, macCode: %s, status: %s," % (
+            m["width"], m["height"], json.dumps(m["colors"]), mac, c_str(m["status"])))
         out.append("    sameAs: %s, short: %s," % (c_str(m["same_as"]) if "same_as" in m else "null",
                                                c_str(m.get("short", m["name"] + '"'))))
         p = m.get("photo")

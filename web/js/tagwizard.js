@@ -23,7 +23,7 @@ const hasSerial = () => "serial" in navigator;
 export function initTagWizard(info, store, { onBackup = () => {}, exportBackups = () => {} } = {}) {
   const $ = (id) => document.getElementById(id);
   const body = $("tw-body");
-  const names = Object.keys(MODELS);
+  const names = Object.keys(MODELS).filter((n) => MODELS[n].radio !== "ble");
 
   const st = {
     step: 0,

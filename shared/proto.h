@@ -447,6 +447,8 @@
 #define ESL_LE_FRAME         4      /* black if ESL_CF_FRAME, else not drawn */
 #define ESL_LE_RED           5      /* red text or a red rectangle; only models with red (has_red) */
 #define ESL_LE_RED_INVERT    6      /* white text in a red box (text only); only models with red */
+#define ESL_LE_YELLOW        7      /* yellow text or a yellow rectangle; only models with yellow (has_yellow) */
+#define ESL_LE_YELLOW_INVERT 8      /* white text in a yellow box (text only); only models with yellow */
 
 #define ESL_FONT_SMALL       0      /* 17 px, Latin-1 */
 #define ESL_FONT_MEDIUM      1      /* 24 px, Latin-1 */

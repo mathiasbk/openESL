@@ -1,7 +1,7 @@
 // "A picture" in the Send form (js/sendpic.js): placing, toning, dithering, packing, sending.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { placement, dragTo, turnedSize, tone, quantize, packRaw, picturePlan, sendPictures, inks, WHITE, BLACK, RED } from "../js/sendpic.js";
+import { placement, dragTo, turnedSize, tone, quantize, packRaw, picturePlan, sendPictures, inks, WHITE, BLACK, RED, YELLOW } from "../js/sendpic.js";
 import { decodeTagImage } from "../js/dashdata.js";
 import { MODELS } from "../js/models.js";
 
@@ -55,13 +55,16 @@ test("tone: transparency over white, brightness and contrast", () => {
   assert.deepEqual([...d], [255, 255, 255, 255, 127, 127, 127, 255]);
 });
 
-test("nearest colour: black and white by brightness, red only where the model has it", () => {
+test("nearest colour: black and white by brightness, red and yellow only where the model has them", () => {
   const w = 4, h = 1;
   const rgba = rgbaOf(w, h, (x) => [[10, 10, 10], [240, 240, 240], [230, 20, 20], [30, 30, 220]][x]);
   assert.deepEqual([...quantize(rgba, w, h, { dither: false })], [BLACK, WHITE, BLACK, BLACK]);
   assert.deepEqual([...quantize(rgba, w, h, { red: true, dither: false })], [BLACK, WHITE, RED, BLACK]);
   assert.deepEqual(inks(["black", "white"]), [WHITE, BLACK]);
   assert.deepEqual(inks(["black", "white", "red"]), [WHITE, BLACK, RED]);
+  assert.deepEqual(inks(["black", "white", "red", "yellow"]), [WHITE, BLACK, RED, YELLOW]);
+  const y = rgbaOf(4, 1, (x) => [[255, 255, 0], [255, 210, 0], [255, 255, 255], [0, 0, 0]][x]);
+  assert.deepEqual([...quantize(y, 4, 1, { red: true, yellow: true, dither: false })], [YELLOW, YELLOW, WHITE, BLACK]);
 });
 
 test("dithering keeps the grey: about half the pixels of 50 % grey are black", () => {
@@ -76,13 +79,14 @@ test("dithering keeps the grey: about half the pixels of 50 % grey are black", (
   assert.ok(quantize(bw, w, h).every((v, i) => v === (i % w < 32 ? BLACK : WHITE)));
 });
 
-test("the raw image decodes back to the same pixels (both models, and red)", () => {
+test("the raw image decodes back to the same pixels (every model, red and yellow)", () => {
   for (const [name, m] of Object.entries(MODELS)) {
     const { width: w, height: h } = m;
     const px = Uint8Array.from({ length: w * h }, (_, i) => ((i * 7919) >> 3) % 3 === 0 ? BLACK : WHITE);
-    const raw = packRaw(px, w, h);
-    assert.equal(raw.length, w * Math.ceil(h / 8), name);
-    const back = decodeTagImage({ width: w, height: h, red: false, data: Buffer.from(raw).toString("base64") });
+    const red = m.colors.includes("red"), yellow = m.colors.includes("yellow");
+    const raw = packRaw(px, w, h, red, yellow);
+    assert.equal(raw.length, w * Math.ceil(h / 8) * (1 + (red ? 1 : 0) + (yellow ? 1 : 0)), name);
+    const back = decodeTagImage({ width: w, height: h, red, yellow, data: Buffer.from(raw).toString("base64") });
     assert.deepEqual(back.pixels, px, name);
   }
   // the 2.9": 4736 bytes, as the API wants it
@@ -90,7 +94,11 @@ test("the raw image decodes back to the same pixels (both models, and red)", () 
   const px = Uint8Array.from({ length: 30 * 13 }, (_, i) => i % 3);
   const raw = packRaw(px, 30, 13, true);
   assert.equal(raw.length, 2 * 30 * 2);
-  assert.deepEqual(decodeTagImage({ width: 30, height: 13, red: true, data: Buffer.from(raw).toString("base64") }).pixels, px);
+  assert.deepEqual(decodeTagImage({ width: 30, height: 13, red: true, yellow: false, data: Buffer.from(raw).toString("base64") }).pixels, px);
+  const py = Uint8Array.from({ length: 30 * 13 }, (_, i) => [WHITE, BLACK, RED, YELLOW][i % 4]);
+  const rawy = packRaw(py, 30, 13, true, true);
+  assert.equal(rawy.length, 3 * 30 * 2);
+  assert.deepEqual(decodeTagImage({ width: 30, height: 13, red: true, yellow: true, data: Buffer.from(rawy).toString("base64") }).pixels, py);
   // top-left pixel is bit 7 of byte 0; the pixel below it bit 6
   const one = new Uint8Array(4 * 9);
   one[0] = BLACK;

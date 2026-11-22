@@ -130,7 +130,7 @@ def example_layouts():
     Design tab offers as templates, as web/build.py copies them for the web page"""
     sys.path.insert(0, os.path.join(ROOT, "shared"))
     import models
-    for m in models.flashable():
+    for m in models.load():
         if "same_as" not in m:  # it uses the file of the model it names (the editor opens that one)
             yield m["name"], os.path.join(ROOT, "tag", "designs", "layouts", m["name"] + ".json")
 
@@ -148,7 +148,7 @@ def renderer_paths(wasm):
     sys.path.insert(0, os.path.join(ROOT, "shared"))
     import models
     return [(f"/ui/wasm/render-{m['build']}{ext}", mime, os.path.join(wasm, "render-" + m["build"] + ext))
-            for m in models.flashable() for ext, mime in ((".js", "text/javascript"), (".wasm", "application/wasm"))]
+            for m in models.load() for ext, mime in ((".js", "text/javascript"), (".wasm", "application/wasm"))]
 
 
 def renderer_files(wasm):

@@ -7,7 +7,7 @@
 // limits.icons icons and limits.shapes ellipses, polygons and charts together (and
 // limits.charts charts).
 
-const INVERTED = new Set(["invert", "highlight", "red_invert"]);
+const INVERTED = new Set(["invert", "highlight", "red_invert", "yellow_invert"]);
 
 const NONE = { runs: 0, rects: 0, barcodes: 0, lines: 0, icons: 0, qrs: 0, shapes: 0, charts: 0 };
 
