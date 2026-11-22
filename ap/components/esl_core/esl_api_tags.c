@@ -529,7 +529,7 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
     esl_sb_printf(out, "{\"mac\":\"%s\",", m);
     /* A tag not heard since this boot, from NVS: what it said last, and when
      * (wall clock) if both that and the time now are known */
-    bool known = t->seen || t->fw; /* fw 0: nothing stored from a POLL */
+    bool known = t->seen || t->fw || t->stock; /* fw 0: nothing stored from a POLL */
     uint64_t ago;
     if (fingerprint)
         esl_sb_printf(out, "%u,%" PRIu64 ",%" PRIu32 ",%d,", (unsigned)t->seen, t->last_seen_ms, t->seen_unix,
@@ -551,6 +551,8 @@ static void write_tag(const esl_api_t *api, esl_sb_t *out, const esl_tag_t *t, u
         esl_sb_printf(out, "\"model\":\"%s\",", model);
     else
         esl_sb_puts(out, "\"model\":null,");
+    if (t->stock)
+        esl_sb_puts(out, "\"stock\":true,");
     esl_sb_printf(out, "\"draw_failed\":%s,", (t->seen && (t->poll_flags & ESL_POLL_FLAG_DRAW_FAILED)) ? "true" : "false");
     esl_sb_printf(out, "\"content_id\":%" PRIu32 ",", t->has_content ? t->content_id : 0);
     if (t->seen) {

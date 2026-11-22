@@ -1,7 +1,7 @@
 /*
  * hal_zbs243.c - the hardware layer for ZBS243 (SEM9110).
  *
- * Register facts are from Dmitry Grinberg's ZBS243 reverse engineering, as used in
+ * Register facts are from Dmitry Grinberg's public ZBS243 notes, as used in
  * atc1441's ZBS_Flasher examples and the OpenEPaperLink tag firmware (see zbs243.h
  * and docs/sources.md). The code itself is written for this project.
  *

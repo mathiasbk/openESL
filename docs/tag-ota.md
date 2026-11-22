@@ -46,7 +46,7 @@ Two copies of the firmware do not fit in the chip (2 × 40 KB > 61 KB), so the n
 | SPI 0xB0000 | image slot A: the screen image drawn by the AP (protocol.md "Image transfer", `tag/src/image.h`): 16-byte header at 0xB0000, written last, the image from 0xB0100 |
 | SPI 0xC0000 | image slot B, same layout (#391): a new image goes into the slot not shown, so the old one stays until the new one is whole; the header's sequence number says which is newer. Firmware before #391 uses slot A only |
 
-The slots are well clear of the data the stock firmware left in sectors 0 and 1. The layout is in `tag/src/otaslot.h`.
+The slots are well clear of the factory data in sectors 0 and 1. The layout is in `tag/src/otaslot.h`.
 
 ## Bootloader
 

@@ -5,7 +5,7 @@
 - **Python** (`tag/tools/build.py`) builds the firmware and packs `.ihx` into `.bin` for the flasher.
 - **Flasher:** [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher) by atc1441 on a D1 mini (`read`, `write`, `mac -m`), with pogo pins to the tag's debug pads.
 - **Debugging:** UART output from the tag (pad 4 to the flasher) and a logic analyser.
-- **8051 disassembler:** Ghidra (supports the 8051) for studying a backup of the tag's original SoluM firmware.
+- **Register reference:** the community's public notes on the ZBS243 and the OpenEPaperLink tag firmware (see Credits in the main README); each fact used is listed in [sources.md](sources.md).
 
 ## What is known and what must be found out
 
@@ -14,10 +14,10 @@
 | The 8051 core (instructions, standard SFRs, interrupts) | Yes, the Intel MCS-51 documentation | Read the documentation |
 | The SSD16xx display controller (commands, init, OTP LUT) | Yes, datasheet from Solomon Systech | Read the datasheet. Confirm which controller it is (often printed on the FPC cable, otherwise by reading the status/ID register) |
 | Which ZBS243 pins go to the display, EEPROM, battery | Partly, from community research (see Credits in the main README) | Measure with a multimeter from the chip pin to the FPC connector. Note in [sources.md](sources.md) |
-| ZBS243-specific registers: clock, GPIO direction, UART, timer, SPI | Partly, from community research (see Credits in the main README) | Public write-ups, experiments, and study of a backup of the original firmware |
+| ZBS243-specific registers: clock, GPIO direction, UART, timer, SPI | Partly, from community research (see Credits in the main README) | Public write-ups and experiments on the tag |
 | Radio registers (channel, transmit, receive, RSSI) | Partly, as above | As above. **This is the largest uncertainty in the project.** |
 | Deep sleep and wake-up with timer | Partly, as above | As above, plus measuring current draw |
-| Where the MAC is stored in flash | Yes (`mac -m` in the flasher, a flash dump) | Dump the info page with the flasher and locate the bytes |
+| Where the MAC is stored in flash | Yes (`mac -m` in the flasher) | Read the info page with the flasher and locate the bytes |
 
 ## Simplifications for version 1
 - **SPI to the display can be bit-banged** with GPIO. Then you only need to know the GPIO registers to get the display running. The display is slow anyway, so speed does not matter.
@@ -43,18 +43,18 @@
 | `main` | State machine: start-up → start-up screen → loop {wake, POLL, handle, sleep} | Everything |
 
 ## Display 2.9": 296×128, black/white
-- Both tags are black/white only; there is no red. Emphasis is done in black/white, as the stock SoluM firmware does: an inverted field (white text on a black box, e.g. the price) and a black frame.
+- Both tags are black/white only; there is no red. Emphasis is done in black/white, as SoluM's own labels do: an inverted field (white text on a black box, e.g. the price) and a black frame.
 - The display controller has its own image memory (4736 bytes for the black/white plane). The ZBS243 has too little RAM for a whole image, so the image from the AP is streamed from the SPI flash one column at a time (16 bytes), and `draw` makes the status screens the same way.
 - A full update takes a few seconds and draws a few mA. That is why the tag only draws when the AP sends a new image (requirement T5).
 - The display must be put into deep sleep after drawing, or it will drain the battery.
 
 ## Multiple tag sizes: 2.9" and 1.54" (requirements G6, T19)
-- The 1.54" (ST-GM16XX2) is 200×200, black/white only (reported from hardware inspection). The display controller and pins are confirmed in phase 0 in the same way as for the 2.9", and noted in [sources.md](sources.md). Like the 2.9" it has no red, so only the black/white plane is sent.
+- The 1.54" (ST-GM16XX2) is 200×200, black/white only (measured on hardware). The display controller and pins are confirmed on hardware, and noted in [sources.md](sources.md). Like the 2.9" it has no red, so only the black/white plane is sent.
 - Everything that depends on the display is collected in one model description (`shared/models.json`, `tag/src/model.h`): width, height, column height in bytes, controller type, init sequence. `epd`, `draw` and `image` read the values from there and have no fixed numbers for 296×128.
 - One firmware build per model from the same code, selected with a build option (e.g. `MODEL=29` / `MODEL=154`). The model is reported to the AP in POLL (requirement T18).
 
 ## Tag identity: MAC, model and barcode
-- The stock firmware keeps 6 bytes at flash 0xFC06–0xFC0B. Printed as 12 hex digits, they are the number under the Code 128 barcode on the label: tag 0000020663463415 has `020663461013` (barcode decoded from a photo, 2026-10-16; its first 8 digits are in the MAC, the last 4 are inferred and not yet checked against a backup).
+- The tag keeps 6 bytes at flash 0xFC06–0xFC0B. Printed as 12 hex digits, they are the number under the Code 128 barcode on the label: tag 0000020663463415 has `020663461013` (barcode decoded from a photo, 2026-10-16; its first 8 digits are in the MAC, the last 4 are inferred and not yet checked).
 - The flashers (`tools/flash-tui`, the Flash tag page) build the MAC from those bytes the same way as ZBS_Flasher: `00 00`, the first 4 bytes, the model code (0x3B = 2.9", 0x34 = 1.54"), and 0x10 with the XOR of the nibbles of bytes 2–7 in the low nibble. They write it to info page 0x10–0x17 before the main flash (and with it the stock bytes) is erased. They also show the barcode, log it (`flash_log.csv`) and keep it with the backup.
 - So the MAC follows from the label and the model alone: `esl_client.py mac <12 digits> [--model 2.9|1.54]`, or the rule in the API description (`docs/openapi.yaml`, "Which tag is which"). A client that links products to tags by scanning the label does not need the flash log.
 - The model is also reported by the tag itself in POLL and shown as `model` in `GET /api/tags`.

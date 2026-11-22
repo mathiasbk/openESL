@@ -2296,12 +2296,13 @@ components:
         rssi: { type: [integer, "null"], description: "Signal strength of the last poll, dBm" }
         fw: { type: [integer, "null"], minimum: 0, description: "The tag firmware version, fw_ver from its poll (100 = 0.1.0)" }
         model: { type: [string, "null"], enum: ["2.9", "1.54", "2.9-bwr", null], description: "null until the tag has polled, and for firmware that does not send it" }
+        stock: { type: boolean, description: "The tag speaks SoluM's stock-firmware protocol; its fw is 0 because those frames carry no version" }
         draw_failed: { type: boolean, description: The tag said in its last poll that its last drawing failed }
         content_id: { type: integer, minimum: 0, maximum: 4294967295, description: "The content set for the tag; 0: none (a new tag)" }
         shown_content_id: { type: [integer, "null"], minimum: 0, maximum: 4294967295, description: "The content whose image the tag reported in its last poll, 0 for another image (see `image`); null: not seen since the AP started" }
         pending: { type: boolean, description: "The tag does not show `content_id` yet" }
         expect_s: { type: integer, minimum: 0, maximum: 3600, description: "Only while night mode is set: how long the tag may sleep after its last poll, the night interval when it was told that (see `night` in ApConfig)" }
-        poll_s: { type: [integer, "null"], minimum: 0, maximum: 3600, description: "The interval the AP sends this tag; null: the tag's built-in one" }
+        poll_s: { type: [integer, "null"], minimum: 0, maximum: 3600, description: "The interval the AP sends this tag; null: the tag's built-in one. For a stock tag: the interval it has shown between its polls (60 s until it has polled twice)" }
         config: { $ref: "#/components/schemas/TagCfg" }
         radio: { type: integer, minimum: 0, maximum: 3, description: "The radio over WiFi that serves it (`radio` in `radios`), 0 also when none has heard it since the AP started; only when the AP knows more than one radio" }
         config_pending: { type: boolean, description: A tag that understands settings has not confirmed the current ones (always false for older firmware) }

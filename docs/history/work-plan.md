@@ -115,14 +115,14 @@ What is done and what is not, per phase. The details of each phase follow below.
 
 ## Phase 0: Preparation
 - Install and pin the SDCC and ESP-IDF versions.
-- Back up (`read`) the original SoluM firmware on 2–3 tags before flashing anything else. It is the basis for the register study, and lets you restore the tags.
+- Back up (`read`) the original SoluM firmware on 2–3 tags before flashing anything else, so the tags can be restored.
 - Confirm the battery type and capacity, and calculate the power budget (requirement T6).
 - Confirm the display controller and download the datasheet.
 - Use a multimeter to find which ZBS243 pins go to the display's FPC (CS, DC, RST, BUSY, SCK, MOSI, power), and note them in [sources.md](../sources.md).
 - Build and flash a firmware that is just an endless loop. Confirm that the flasher writes and that the tag does not start in a previous firmware.
 
 ## Phase 1: Signs of life
-- Find out how UART TX is set up (study the SoluM backup in Ghidra: which SFRs are written early in start-up?). Alternative: bit-bang UART on a known GPIO and measure with the logic analyser.
+- Find out how UART TX is set up (which SFRs are written early in start-up?). Alternative: bit-bang UART on a known GPIO and measure with the logic analyser.
 - Find the clock setup and make a calibrated delay function (verify with the logic analyser).
 - Find GPIO direction and output. Confirm by toggling a pin you can measure.
 - **Checkpoint:** if you have no UART or toggling pin after 8 evenings, stop and consider the options in [risks.md](risks.md).

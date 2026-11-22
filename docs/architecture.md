@@ -42,10 +42,13 @@ Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawin
 - The tag keeps the last image in its SPI flash (requirement T12), so a restart shows it again and costs no new download.
 
 ### Two tag sizes: 2.9" and 1.54" (requirement G6)
-- SoluM 2.9" (ST-GM29XX2, 296×128, black/white) and SoluM 1.54" (ST-GM16XX2, 200×200, black/white) are both supported by the same AP, the same radio protocol, the same API and the same code.
+- SoluM 2.9" (ST-GM29XX2, 296×128, black/white) and SoluM 1.54" (ST-GM16XX2, 200×200, black/white) are both supported by the same AP, the same openESL radio protocol, the same API and the same code.
 - Tag: display driver and resolution are parameterised per model. One firmware is built per size from the same source code (build option, e.g. `make fw MODEL=154`).
 - AP: stores the model per tag, selects layout file and text limits by model, and draws the screen in the model's size. The model comes from the tag (field in POLL, requirement T18).
-- The 1.54" display controller was confirmed in phase 0. Neither tag has red.
+- The 1.54" display controller is confirmed on hardware. Neither tag has red.
+
+### Tags still on the vendor's firmware (a second protocol)
+- Some SoluM labels in the field still run the vendor's own firmware and never speak the openESL protocol. The AP can answer them too: `esl_solum_stock` recognises their frames and replies in the vendor's own image format, so the store, the layouts, the drawing, the API and the dashboard are unchanged. It is off by default (`ESL_SOLUM_STOCK_TAGS`) and never writes to a tag, only answers the frames a tag sends. Such a tag uses the vendor's own PAN and channel, so the AP is set to match. This is one vendor's protocol: another brand's factory firmware needs its own handler next to it ([ap/README.md](../ap/README.md), "SoluM stock-firmware tags").
 
 ### The tag initiates all communication
 - The tag has its radio off almost all the time. It can only receive for the few milliseconds after it has sent something itself.

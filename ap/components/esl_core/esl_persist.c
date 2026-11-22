@@ -106,12 +106,14 @@ size_t esl_persist_seen_encode(uint64_t mac, const esl_seen_t *s, uint8_t *out)
     out[o++] = (uint8_t)s->rssi;
     for (int i = 0; i < 4; i++)
         out[o++] = (uint8_t)(s->unix_s >> (8 * i));
+    out[o++] = s->stock ? 1 : 0;
     return o;
 }
 
 bool esl_persist_seen_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_seen_t *s)
 {
-    if (len != ESL_PERSIST_SEEN_LEN || in[0] != ESL_PERSIST_SEEN_VER)
+    if (!((len == ESL_PERSIST_SEEN_LEN && in[0] == ESL_PERSIST_SEEN_VER) ||
+          (len == ESL_PERSIST_SEEN_LEN_V1 && in[0] == 1)))
         return false;
     uint64_t m = 0;
     for (int i = 8; i >= 1; i--)
@@ -122,5 +124,6 @@ bool esl_persist_seen_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_s
     s->battery_mv = (uint16_t)(in[12] | (in[13] << 8));
     s->rssi = (int8_t)in[14];
     s->unix_s = (uint32_t)in[15] | ((uint32_t)in[16] << 8) | ((uint32_t)in[17] << 16) | ((uint32_t)in[18] << 24);
+    s->stock = len >= ESL_PERSIST_SEEN_LEN && in[19] != 0;
     return true;
 }
