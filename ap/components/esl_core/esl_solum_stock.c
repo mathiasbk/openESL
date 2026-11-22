@@ -509,6 +509,8 @@ unsigned esl_solum_stock_handle(esl_solum_stock_t *sk, esl_store_t *st, esl_layo
 
     /* It is here: add it to the table and note what it said, so it is listed like any
        other tag (its content, if any, is checked against its model's layout file). */
+    if (f.msg == ESL_SOLUM_STOCK_MSG_POLL)
+        esl_store_note_stock_poll(st, f.mac, now_ms);
     esl_store_note_seen(st, f.mac, esl_solum_stock_model_to_esl(f.model), 0, rssi, now_ms);
     esl_store_check_tag(st, ls, f.mac);
 

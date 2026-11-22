@@ -573,7 +573,7 @@ void test_persist(void)
     {
         /* what the AP last heard from a tag */
         uint8_t sb[ESL_PERSIST_SEEN_LEN];
-        esl_seen_t a = {ESL_MODEL_154, 0x0401, 2950, -61, 0xF0E0D0C0u}, b;
+        esl_seen_t a = {ESL_MODEL_154, 0x0401, 2950, -61, 0xF0E0D0C0u, true}, b;
         uint64_t smac;
         CHECK_INT(esl_persist_seen_encode(0x1122334455667788ull, &a, sb), ESL_PERSIST_SEEN_LEN);
         CHECK(esl_persist_seen_decode(sb, sizeof(sb), &smac, &b));
@@ -583,6 +583,7 @@ void test_persist(void)
         CHECK_INT(b.battery_mv, 2950);
         CHECK_INT(b.rssi, -61);
         CHECK(b.unix_s == 0xF0E0D0C0u);
+        CHECK(b.stock);
         CHECK(!esl_persist_seen_decode(sb, sizeof(sb) - 1, &smac, &b));
         sb[0] = 9;
         CHECK(!esl_persist_seen_decode(sb, sizeof(sb), &smac, &b));

@@ -490,7 +490,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
       const seen = lastCheckin(tag);
       const lateCls = next?.late ? (state.level === "bad" ? "state-bad" : "state-busy") : "";
       const battery = fmtBattery(tag.battery_mv);
-      const fw = cell(fmtTagFw(tag.fw), "opt fw");
+      const fw = cell(tag.stock ? "Stock" : fmtTagFw(tag.fw), "opt fw");
       tr.append(st, mac,
         cell(tag.model ? modelLabel(tag.model) : "–", "opt"),
         cell(seen.text, "opt", seen.at),
@@ -500,7 +500,7 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
         fw);
       // Firmware for it: how far it is, or a button that gives it the page's newer firmware
       const up = tagUpdate(tag, pageImgs, last.tagfw);
-      let fwText = fmtTagFw(tag.fw);
+      let fwText = tag.stock ? "Stock" : fmtTagFw(tag.fw);
       if (up) {
         if (up.updating) {
           fw.append(" \u2192 " + up.updating + " ", progressBar(up));

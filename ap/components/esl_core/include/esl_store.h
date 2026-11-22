@@ -102,6 +102,7 @@ typedef struct {
     bool content_unfit : 1;   /* its content does not fit its model's layout file (esl_store_check_layout,
                                  RAM only): ESL_CERR_UNFIT */
     bool content_check : 1;   /* its content or model changed since that was last checked (esl_store_check_tag) */
+    bool stock : 1;           /* the last frame was SoluM stock firmware, not openESL */
     uint8_t radio : 2;        /* several radios over the network: the one that serves it (esl_store_set_tag_radio,
                                  RAM only), 0 = the one on the AP's channel */
     uint8_t model;            /* ESL_MODEL_*, from the last POLL */
@@ -144,6 +145,8 @@ typedef struct {
     uint16_t fw_failed;       /* a version it rejected or rolled back (ESL_POLL_F_FWFAIL), not offered again */
     uint16_t fw_got_ver;      /* the image it is fetching (RAM only), 0 = none */
     uint16_t fw_got;          /* bytes of it up to the end of the last FW block it got */
+    uint16_t stock_poll_s;    /* the interval a stock tag has shown between its POLLs (RAM only) */
+    uint32_t stock_last_poll_ms; /* its previous stock POLL, for stock_poll_s */
 } esl_tag_t;
 
 /* Milliseconds since the tag was last heard. A POLL handled after the caller read
@@ -351,6 +354,10 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
  * true when the tag has a row. */
 bool esl_store_note_seen(esl_store_t *st, uint64_t mac, uint8_t model, uint16_t battery_mv, int8_t rssi,
                          uint64_t now_ms);
+
+/* Notes the time of a SoluM stock POLL, so GET /api/tags can show the interval it
+ * actually uses (the stock protocol has no CONFIG and no interval of ours). */
+void esl_store_note_stock_poll(esl_store_t *st, uint64_t mac, uint64_t now_ms);
 
 typedef struct {
     bool changed;

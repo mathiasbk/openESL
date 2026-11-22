@@ -386,7 +386,7 @@ static void test_store_seen(void)
     esl_store_t st2 = {0};
     esl_store_free(&st2);
     esl_store_init(&st2, CAP, &ops, 0);
-    esl_seen_t rec = {ESL_MODEL_154, 0x0401, 2600, -88, 1792000000};
+    esl_seen_t rec = {ESL_MODEL_154, 0x0401, 2600, -88, 1792000000, false};
     CHECK(esl_store_restore_seen(&st2, 2, 0xB2, &rec));
     CHECK(!esl_store_restore_seen(&st2, 2, 0xC3, &rec)); /* slot holds another tag */
     CHECK(!esl_store_restore_seen(&st2, CAP, 0xC3, &rec));
@@ -434,10 +434,12 @@ static void test_store_note_seen(void)
     CHECK(g.rec.unix_s == 1792000000u);
     CHECK(esl_store_get(&st, 0xD1, &t));
     CHECK(t.seen && t.model == ESL_MODEL_154 && t.rssi == -55 && t.polls == 1);
+    CHECK(t.stock && g.rec.stock);
     CHECK(t.last_seen_ms == 1000);
 
     /* the same tag again: nothing written at once, and the (unknown) battery is kept */
     g.clock = 1792000060;
+    esl_store_note_stock_poll(&st, 0xD1, 60000);
     CHECK(esl_store_note_seen(&st, 0xD1, ESL_MODEL_154, 0, -60, 61000));
     CHECK_INT(g.writes, 1);
     CHECK(esl_store_get(&st, 0xD1, &t));

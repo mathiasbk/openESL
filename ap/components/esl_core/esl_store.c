@@ -226,6 +226,8 @@ static uint16_t night_poll(const esl_store_t *st, uint16_t v, uint32_t unix_s)
 /* The tag's interval without the night (0 = it keeps its own) */
 static uint16_t tag_day_poll_s(const esl_store_t *st, const esl_tag_t *t)
 {
+    if (t->stock)
+        return t->stock_poll_s ? t->stock_poll_s : ESL_TAG_BUILTIN_POLL_S;
     uint16_t v = t->cfg.poll_s ? t->cfg.poll_s : st->next_poll_s;
     /* A tag keeps the last next_poll_s it got when a reply has 0, and an image tag may
        last have got ESL_IMAGE_BUSY_S, a tag fetching blocks ESL_BLOCKS_POLL_S, a tag in
@@ -360,6 +362,8 @@ void esl_tag_effective_cfg(const esl_tag_t *t, const esl_tag_cfg_t *ap, esl_tag_
     *out = t->cfg;
     if (!out->poll_s)
         out->poll_s = ap->poll_s;
+    if (t->stock)
+        out->poll_s = t->stock_poll_s ? t->stock_poll_s : ESL_TAG_BUILTIN_POLL_S;
     out->channel = ap->channel;
     out->ap_id = ap->ap_id;
 }
@@ -430,6 +434,9 @@ bool esl_store_restore_seen(esl_store_t *st, unsigned slot, uint64_t mac, const 
         t->battery_mv = s->battery_mv;
         t->rssi = s->rssi;
         t->seen_unix = s->unix_s;
+        /* Before the stock byte existed, a stock tag was stored with fw 0 and a
+           known model; keep showing it as Stock until it polls again. */
+        t->stock = s->stock || (s->fw == 0 && s->model != 0);
     }
     unlock(st);
     return t != NULL;
@@ -442,6 +449,7 @@ static void seen_record(const esl_tag_t *t, esl_seen_t *s)
     s->battery_mv = t->battery_mv;
     s->rssi = t->rssi;
     s->unix_s = t->seen_unix;
+    s->stock = t->stock;
 }
 
 unsigned esl_store_save_seen(esl_store_t *st)
@@ -705,6 +713,7 @@ size_t esl_store_on_poll(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, 
         t->battery_mv = poll->battery_mv;
         t->fw = poll->fw_ver;
         t->model = poll->model;
+        t->stock = false;
         t->rssi = rssi;
         t->poll_flags = poll->flags;
         t->cfg_capable = poll->has_cfg_ver;
@@ -746,8 +755,9 @@ bool esl_store_note_seen(esl_store_t *st, uint64_t mac, uint8_t model, uint16_t 
     }
     if (idx >= 0) {
         esl_tag_t *t = at(st, (unsigned)idx);
-        if (t->model != model) {
+        if (t->model != model || !t->stock) {
             t->model = model;
+            t->stock = true;
             t->content_check = true; /* checked against the file of the model it turns out to be */
             save = true;
         }
@@ -773,6 +783,22 @@ bool esl_store_note_seen(esl_store_t *st, uint64_t mac, uint8_t model, uint16_t 
     if (save && st->ops.persist_seen)
         st->ops.persist_seen(st->ops.ctx, (unsigned)idx, mac, &rec);
     return idx >= 0;
+}
+
+void esl_store_note_stock_poll(esl_store_t *st, uint64_t mac, uint64_t now_ms)
+{
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0) {
+        esl_tag_t *t = at(st, (unsigned)idx);
+        if (t->stock_last_poll_ms && now_ms > t->stock_last_poll_ms) {
+            uint32_t s = (uint32_t)((now_ms - t->stock_last_poll_ms) / 1000);
+            if (s >= 10 && s <= 3600)
+                t->stock_poll_s = (uint16_t)s;
+        }
+        t->stock_last_poll_ms = (uint32_t)now_ms;
+    }
+    unlock(st);
 }
 
 bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint16_t ver)
