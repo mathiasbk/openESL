@@ -72,12 +72,12 @@ def label(m):
 
 
 if __name__ == "__main__":
-    # python shared/models.py builds  -> "29 154", for Makefiles and shell scripts
+    # python shared/models.py builds  -> "29 154" (tag firmware builds, not BLE), for Makefiles and shell scripts
     # python shared/models.py names   -> one "<build> <name>" line per model ("29 2.9")
     import sys
     if sys.argv[1:] == ["builds"]:
-        print(" ".join(m["build"] for m in load()))
+        print(" ".join(m["build"] for m in flashable()))
     elif sys.argv[1:] == ["names"]:
-        print("\n".join("%s %s" % (m["build"], m["name"]) for m in load()))
+        print("\n".join("%s %s" % (m["build"], m["name"]) for m in flashable()))
     else:
         sys.exit("usage: models.py builds|names")
