@@ -108,7 +108,7 @@ test("placeholders are filled in for each tag", () => {
   assert.equal(fillLine("{weekday} {date} {time} kanal {channel} AP {ap_fw} av {tags}", v), "Lørdag 17. oktober 2026 09:05 kanal 11 AP 0.4.4 av 2");
   assert.equal(fillLine("{nope} {mac", v), "{nope} {mac", "unknown names and stray braces stay");
   const stock = infoValues(T3);
-  assert.equal(fillLine("{model} FW {fw}", stock), '1.54" FW Stock');
+  assert.equal(fillLine("{model} FW {fw}", stock), '1.54" FW OEM');
   // what is not known becomes "-" (Latin-1, so the tag draws it)
   const u = infoValues(T2, { wifi: { connected: false, ip: "1.2.3.4" } });
   assert.equal(fillLine("{ap_ip} {battery} {rssi} {fw} {seen} {wifi} {ap_fw}", u), "- - - - - - -");
