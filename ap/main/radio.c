@@ -274,8 +274,9 @@ static void __attribute__((unused)) handle_frame(const esl_link_rx_t *f)
             /* The tag's report on the job it fetched: the code says why a screen did not
                take (00 = taken), which is what one wants when bringing a tag up. */
             radio_link.stats.rx++;
-            ESP_LOGI(TAG, "solum-stock: status job %08lX msg %02X code %02X", (unsigned long)sf.job, sf.status_msg,
-                     sf.code);
+            bool shown = esl_solum_stock_status(&solum_stock, store, &sf);
+            ESP_LOGI(TAG, "solum-stock: status job %08lX msg %02X code %02X%s", (unsigned long)sf.job,
+                     sf.status_msg, sf.code, shown ? " (shown)" : "");
             return;
         }
         solum_stock_send_t s = { f, 0 };

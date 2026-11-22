@@ -801,6 +801,23 @@ void esl_store_note_stock_poll(esl_store_t *st, uint64_t mac, uint64_t now_ms)
     unlock(st);
 }
 
+bool esl_store_note_stock_shown(esl_store_t *st, uint64_t mac, uint32_t content_id)
+{
+    bool shown = false;
+    lock(st);
+    int idx = find(st, mac);
+    if (idx >= 0) {
+        esl_tag_t *t = at(st, (unsigned)idx);
+        if (t->has_content && t->content_id == content_id) {
+            t->image_id = content_id;
+            t->shown_content_id = content_id;
+            shown = true;
+        }
+    }
+    unlock(st);
+    return shown;
+}
+
 bool esl_store_fw_offer(esl_store_t *st, uint64_t mac, const esl_poll_t *poll, uint16_t ver)
 {
     bool offer = false;

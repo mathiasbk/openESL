@@ -168,3 +168,7 @@ typedef bool (*esl_solum_stock_send_fn)(void *ctx, const uint8_t *psdu, size_t l
 unsigned esl_solum_stock_handle(esl_solum_stock_t *sk, esl_store_t *st, esl_layouts_t *ls, uint16_t pan,
                           const uint8_t *psdu, size_t psdu_len, int8_t rssi, uint64_t now_ms,
                           esl_solum_stock_send_fn send, void *ctx);
+
+/* A STATUS with code 0 says the tag took the job: mark that job's content as shown
+ * in the store. Returns false for an old job, another tag, or a failure code. */
+bool esl_solum_stock_status(esl_solum_stock_t *sk, esl_store_t *st, const esl_solum_stock_frame_t *f);

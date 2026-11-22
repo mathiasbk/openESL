@@ -489,6 +489,18 @@ static unsigned send_none(esl_solum_stock_t *sk, uint16_t pan, uint64_t mac, uin
     return send && send(ctx, tx, n) ? 1u : 0u;
 }
 
+bool esl_solum_stock_status(esl_solum_stock_t *sk, esl_store_t *st, const esl_solum_stock_frame_t *f)
+{
+    if (!f || f->msg != ESL_SOLUM_STOCK_MSG_STATUS || f->code != 0 || !f->job)
+        return false;
+    for (int i = 0; i < ESL_SOLUM_STOCK_TAGS; i++) {
+        esl_solum_stock_tag_t *t = &sk->tag[i];
+        if (t->used && t->mac == f->mac && t->job == f->job)
+            return esl_store_note_stock_shown(st, f->mac, t->content_id);
+    }
+    return false;
+}
+
 unsigned esl_solum_stock_handle(esl_solum_stock_t *sk, esl_store_t *st, esl_layouts_t *ls, uint16_t pan,
                           const uint8_t *psdu, size_t psdu_len, int8_t rssi, uint64_t now_ms,
                           esl_solum_stock_send_fn send, void *ctx)

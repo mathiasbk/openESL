@@ -359,6 +359,10 @@ bool esl_store_note_seen(esl_store_t *st, uint64_t mac, uint8_t model, uint16_t 
  * actually uses (the stock protocol has no CONFIG and no interval of ours). */
 void esl_store_note_stock_poll(esl_store_t *st, uint64_t mac, uint64_t now_ms);
 
+/* The stock tag reported that it took the job for content_id (STATUS code 0): mark
+ * that content as shown, so it is no longer "new content waiting". */
+bool esl_store_note_stock_shown(esl_store_t *st, uint64_t mac, uint32_t content_id);
+
 typedef struct {
     bool changed;
     bool pending; /* the tag understands CONFIG and has not confirmed these settings yet */

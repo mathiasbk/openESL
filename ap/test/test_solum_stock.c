@@ -475,6 +475,18 @@ static void test_solum_stock_handle(void)
     uint32_t job = (uint32_t)stream[4] << 24 | stream[5] << 16 | stream[6] << 8 | stream[7];
     CHECK(job != 0 && job != 0xFFFFFFFF);
 
+    /* its STATUS code 0 says the job was taken: no longer "new content waiting" */
+    esl_solum_stock_frame_t sf = {0};
+    sf.msg = ESL_SOLUM_STOCK_MSG_STATUS;
+    sf.mac = TAG;
+    sf.job = job;
+    sf.code = 0;
+    CHECK(esl_solum_stock_status(&sk, &st, &sf));
+    CHECK(esl_store_get(&st, TAG, &t));
+    CHECK(!esl_tag_pending(&t));
+    sf.code = 1;
+    CHECK(!esl_solum_stock_status(&sk, &st, &sf));
+
     /* the same content again, now with the job: nothing new (DE) */
     n = tag_poll(rx, 0x1234, job, ESL_SOLUM_STOCK_MODEL_154);
     memset(&b, 0, sizeof b);
