@@ -538,11 +538,13 @@ unsigned esl_solum_stock_handle(esl_solum_stock_t *sk, esl_store_t *st, esl_layo
     if (!model || !t || !esl_store_get(st, f.mac, &stt) || !stt.has_content)
         return send_none(sk, pan, f.mac, f.job, send, ctx);
 
-    /* the tag holds a complete job we last gave it: nothing new. A job whose
-       burst was cut off is sent again on its next POLL, since the tag keeps
-       asking with the same number. */
-    if (t->job && t->complete && t->job == f.job && t->content_id == stt.content_id)
+    /* the tag holds a complete job we last gave it: nothing new. Asking with the
+       job is the only acknowledgement a stock tag gives when its F4 status is lost;
+       mark the content shown here too. A job whose burst was cut off is sent again. */
+    if (t->job && t->complete && t->job == f.job && t->content_id == stt.content_id) {
+        esl_store_note_stock_shown(st, f.mac, t->content_id);
         return send_none(sk, pan, f.mac, f.job, send, ctx);
+    }
 
     t->model = model;
     if (!t->job || t->content_id != stt.content_id)

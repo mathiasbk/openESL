@@ -212,8 +212,11 @@ static bool solum_stock_send(void *ctx, const uint8_t *psdu, size_t len)
        within its own window, not the window of the AA frame that started the burst. */
     esl_link_rx_t req = *s->req;
     req.rx_us = esp_timer_get_time();
+    /* A stock tag does not acknowledge every fragment like an openESL reply.
+       The frame is still on the air when the driver reports no ACK, so keep the
+       burst going; the tag's next POLL with the job says whether it has it. */
     if (radio_link.send(&radio_link, tx, len + ESL_FCS_LEN, &req) != 0)
-        return false;
+        solum_stock.dropped++;
     s->sent++;
     return true;
 }
