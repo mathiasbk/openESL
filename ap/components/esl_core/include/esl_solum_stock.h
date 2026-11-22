@@ -138,6 +138,7 @@ typedef struct {
     uint8_t model;         /* ESL_MODEL_* */
     uint32_t content_id;   /* the content the last job was built from */
     uint32_t job;          /* the job number of the last image sent (0 = none) */
+    bool complete;         /* every fragment of that job went out */
     uint64_t sent_ms;
 } esl_solum_stock_tag_t;
 
