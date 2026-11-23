@@ -4,7 +4,8 @@
 
 <p align="center">
   Open firmware for SoluM e-paper shelf labels and an ESP32-C6 access point.<br>
-  Put prices and text on the labels from any software, with one HTTP request.
+  Put prices and text on the labels from any software, with one HTTP request.<br>
+  SoluM labels on their original firmware work too, with no flashing (experimental).
 </p>
 
 <p align="center">
@@ -31,7 +32,8 @@
 
 ## Features
 
-- **SoluM e-paper labels** on the ZBS243 chip, 2.9" and 1.54" (and the 2.9" with red, experimental). More makers and models are welcome.
+- **No flashing needed (experimental).** A SoluM 1.54" or 2.9" label that still runs the firmware it came with can be used as it is: put a battery in, and an AP built with the SoluM option draws its screen and sends it in SoluM's own format. No jig, no pogo pins, and the label is never changed. [Labels without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing)
+- **SoluM e-paper labels** on the ZBS243 chip, 2.9" and 1.54" (and the 2.9" with red, experimental), flashed once with OpenESL's own firmware for over-the-air updates, settings and battery readings. More makers and models are welcome.
 - **A plain HTTP API** on the access point, protected by a token, for scripts, web shops and home automation ([Home Assistant integration](https://github.com/mathiasbk/openesl-homeassistant), [OpenAPI](docs/openapi.yaml)).
 - **Your own layouts**, drawn in the browser with a pixel-exact preview: text and your own fonts, barcodes, QR codes, pictures, dates and scheduled prices.
 - **A dashboard** on the AP with every label's screen, signal, battery and firmware, and a webhook when something needs attention.
@@ -79,8 +81,7 @@ More, with barcodes and signs, on the [web page](https://mathiasbk.github.io/ope
   | [Linux AP](https://github.com/mathiasbk/openESL/wiki/Linux-AP): a Raspberry Pi or PC with an ESP32-C6 on USB, plus C6 radios over WiFi | depends on the computer | experimental |
 
   Every one of them is set up from the Flash AP tab of the web page.
-- A small **flasher** board (for example a Wemos D1 mini) and a pogo-pin jig for the test pads behind the battery: [Building the flasher](https://github.com/mathiasbk/openESL/wiki/Building-the-flasher).
-- A desktop browser with Web Serial for flashing: Chrome, Edge, or Firefox 151 or newer.
+- To flash labels with OpenESL: a small **flasher** board (for example a Wemos D1 mini) and a pogo-pin jig for the test pads behind the battery ([Building the flasher](https://github.com/mathiasbk/openESL/wiki/Building-the-flasher)), and a desktop browser with Web Serial: Chrome, Edge, or Firefox 151 or newer. Labels used [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing) need none of this, but an ESP32-C6 or C5 AP you build yourself with the SoluM option.
 
 The whole list, with links, is on [What you need](https://github.com/mathiasbk/openESL/wiki/What-you-need).
 
@@ -94,14 +95,14 @@ The whole list, with links, is on [What you need](https://github.com/mathiasbk/o
 | SoluM | SoluM 2.9" black/white/red | ST-GR29000 | 296 × 128 | black/white/red | ZBS243 | 802.15.4 | Experimental |
 <!-- END models -->
 
-The list is made from [shared/models.json](shared/models.json). **Have a label that is not on the list?** [Suggest it in an issue](https://github.com/mathiasbk/openESL/issues/new?template=hardware.yml) with photos of the board and what is written on the chip and display, or see [Adding hardware](https://github.com/mathiasbk/openESL/wiki/Adding-hardware).
+The list is made from [shared/models.json](shared/models.json). The SoluM 1.54" and 2.9" also work [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing), on their original firmware (experimental: black and white, no battery reading, no firmware updates; tried on the 1.54"). **Have a label that is not on the list?** [Suggest it in an issue](https://github.com/mathiasbk/openESL/issues/new?template=hardware.yml) with photos of the board and what is written on the chip and display, or see [Adding hardware](https://github.com/mathiasbk/openESL/wiki/Adding-hardware).
 
 ## Getting started
 
 Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. The step-by-step guide is [Getting started](https://github.com/mathiasbk/openESL/wiki/Getting-started) in the wiki. Already running OpenEPaperLink? See [Coming from OpenEPaperLink](https://github.com/mathiasbk/openESL/wiki/Coming-from-OpenEPaperLink).
 
 1. **Flash the access point** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, and give it your WiFi and an API token.
-2. **Flash the labels** in the jig on the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab. Each label backs up its original firmware first.
+2. **Flash the labels** in the jig on the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab. Each label backs up its original firmware first. Or skip this step: [Labels without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing) shows how an AP can drive SoluM labels on their original firmware.
 3. **Design your layouts** on the [Design](https://mathiasbk.github.io/openESL/#design) tab, or use the built-in `price` and `text` layouts.
 4. **Send content** from your own software:
 
@@ -155,7 +156,13 @@ The AP keeps a few text fields per label and draws each label's screen from them
 
 ## Status
 
-OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points; the ESP32-C5, the S3 with C6 radios over WiFi and the Linux AP are experimental. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions). What comes next is on the [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
+OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points; the ESP32-C5, the S3 with C6 radios over WiFi and the Linux AP are experimental. Labels [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing) are experimental: a SoluM 1.54" on its original firmware has shown a picture sent in SoluM's format; the 2.9" has not been tried yet. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions). What comes next is on the [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
+
+Bluetooth labels are in progress: a Gicisky/PICKSMART 2.9" with black, white, red and yellow, driven by an ESP32-C6 with no flashing either. It is not in a release yet ([Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap)).
+
+<p align="center">
+  <img src="docs/images/tag-ble-29-bwry.jpg" alt="A 2.9-inch Bluetooth label showing an OpenESL test screen in black, white, red and yellow" width="480">
+</p>
 
 ## For developers
 
@@ -179,7 +186,7 @@ Help is welcome, most of all with hardware we have not tried yet: other labels (
 
 ## A clean implementation
 
-OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font, the QR encoder after Project Nayuki). Where each hardware fact comes from is listed in [docs/sources.md](docs/sources.md).
+OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and flashed labels use its own radio protocol. For labels on their original firmware the AP speaks the maker's protocol, from our own measurements, not from other firmware ([docs/sources.md](docs/sources.md)). Third-party code is only used where its licence allows it (ESP-IDF, the Inter font, the QR encoder after Project Nayuki). Where each hardware fact comes from is listed in [docs/sources.md](docs/sources.md).
 
 ## Credits
 

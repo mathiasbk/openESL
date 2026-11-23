@@ -18,6 +18,8 @@ When a flashed label gets its battery back, it shows its start screen with its M
 
 Details: [Flashing labels](Flashing-labels).
 
+No jig? A SoluM 1.54" or 2.9" on its original firmware can be used without flashing, with an AP built for it: [Labels without flashing](Labels-without-flashing) (experimental).
+
 ## 3. Pick or design a layout
 
 The AP comes with the layouts `price` and `text`. To make your own, draw it on the [Design](https://mathiasbk.github.io/openESL/#design) tab and press **Send to your AP…**: choose **USB cable** if the AP is plugged into your computer, or **WiFi** to open the AP's own page and save it there.

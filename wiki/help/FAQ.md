@@ -18,6 +18,8 @@ Problems and fixes are on [Troubleshooting](Troubleshooting).
 
 **I use OpenEPaperLink. Can I switch?** Yes, label by label, with both running side by side. The labels are flashed once in the jig, and the original firmware is backed up first. See [Coming from OpenEPaperLink](Coming-from-OpenEPaperLink).
 
+**Do I have to flash the labels?** No, not for SoluM 1.54" and 2.9" labels that still run their original firmware: an AP built with the SoluM option drives them as they are (experimental). Flashing gives you over-the-air updates, battery readings and settings. See [Labels without flashing](Labels-without-flashing).
+
 **Can I use labels from other makers?** Not yet, but the project is built to grow there. See [Adding hardware](Adding-hardware).
 
 
