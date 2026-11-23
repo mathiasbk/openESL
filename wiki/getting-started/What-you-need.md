@@ -1,6 +1,6 @@
 # What you need
 
-Three things: labels, an access point (AP), and a jig to flash each label once.
+Three things: labels, an access point (AP), and a jig to flash each label once. Or only two: SoluM labels on their original firmware can be used [without flashing](Labels-without-flashing) (experimental), with an AP you build with the SoluM option.
 
 | Part | What to get | More |
 |---|---|---|
