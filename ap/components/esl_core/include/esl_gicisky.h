@@ -6,7 +6,7 @@
 /* Gicisky / PICKSMART 2.9-inch BWRY tag (docs/gicisky-296-bwry.md).
  *
  * The tag keeps the maker's firmware; the AP packs a picture into its framebuffer and
- * sends it over BLE. The model is experimental (shared/models.json, id gicisky-29-bwry);
+ * sends it over BLE. The model is gicisky-29-bwry in shared/models.json;
  * the AP's NimBLE central in ap/main/ble.c uses this module, with the transport supplied
  * by the caller.
  *

@@ -9,8 +9,7 @@
  * into the tag's framebuffer, run esl_gicisky_send, disconnect.
  *
  * The BLE central itself is the backend: connect, write, wait, disconnect and info. The
- * AP's NimBLE implementation in ap/main/ble.c fills it in; the host tests use a fake. The
- * model is experimental (shared/models.json).
+ * AP's NimBLE implementation in ap/main/ble.c fills it in; the host tests use a fake.
  *
  * esl_ble_send matches esl_push_out_t.send: give an esl_ble_t as its ctx. */
 
