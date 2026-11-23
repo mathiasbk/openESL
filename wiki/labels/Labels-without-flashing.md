@@ -4,13 +4,15 @@
 
 This is the quickest way to try OpenESL with a box of second-hand labels: you need no flashing hardware at all, and the label is never changed. The AP only answers the frames the label sends; it never writes to the label's memory.
 
+**How far it has been tried:** a SoluM 1.54" on its original firmware showed a picture in SoluM's format, sent from a test program on an ESP32-C6. The AP firmware with the SoluM option builds and its protocol code is tested on a PC, but it has not been run against a label yet, so the steps under [Adding a label](#adding-a-label) are how it is meant to work. A report helps a lot (see the end of this page).
+
 ## Flashed or as it is?
 
 | | Label as it came (original firmware) | Label flashed with OpenESL |
 |---|---|---|
 | **Getting started** | Put a battery in | Once in the [jig](Flashing-jig), with a backup of the original firmware first |
 | **What you need** | An AP built with the SoluM option (see below) | Any [AP board](Access-point-boards) from the web page, plus a jig |
-| **Labels** | SoluM 1.54" (tried) and 2.9" (not tried yet), black and white | [Supported labels](Supported-labels), including the 2.9" red (experimental) |
+| **Labels** | SoluM 1.54" (picture format tried) and 2.9" (not tried yet), black and white | [Supported labels](Supported-labels), including the 2.9" red (experimental) |
 | **Layouts, fields, pictures, API** | the same | the same |
 | **Battery on the dashboard** | no: the original firmware does not report it | yes on the 2.9" |
 | **Poll interval** | the label's own; the AP learns it from the label's check-ins | set by the AP, also night mode |
@@ -23,11 +25,11 @@ You can still flash such a label later, if you want what only OpenESL's own firm
 
 | Label | As it came |
 |---|---|
-| [SoluM 1.54"](SoluM-1.54-ST-GM16XX2) (ST-GM16XX2, 200 × 200) | tried: a label on its original firmware showed a picture sent in this format |
+| [SoluM 1.54"](SoluM-1.54-ST-GM16XX2) (ST-GM16XX2, 200 × 200) | picture format tried: a label on its original firmware showed a picture sent in this format from a C6 test program; not yet with the AP firmware |
 | [SoluM 2.9"](SoluM-2.9-ST-GM29XX2) (ST-GM29XX2, 296 × 128) | in the firmware, not tried on a label yet |
 | Other SoluM labels, and other makers | no |
 
-Only black and white is drawn on these labels. Tried so far: labels that are not attached to a working SoluM gateway (for example from a shop whose system was taken down), which look for a gateway on their own when they get a battery. A label still attached to a SoluM gateway in a shop belongs to that system; leave it there.
+Only black and white is drawn on these labels. This is meant for labels that are not attached to a working SoluM gateway (for example from a shop whose system was taken down), which look for a gateway on their own when they get a battery. A label still attached to a SoluM gateway in a shop belongs to that system; leave it there.
 
 ## What you need
 
@@ -54,12 +56,12 @@ These labels look for their gateway on SoluM's own network: radio channel **20**
 
 ## Adding a label
 
-1. Put a battery in the label, near the AP. Within a minute or so it finds the AP and turns up on the [Dashboard](Dashboard), with **OEM** in the firmware column. Its address is the one the label sends on the radio.
+1. Put a battery in the label, near the AP. It should find the AP and turn up on the [Dashboard](Dashboard), with **OEM** in the firmware column. Its address is the one the label sends on the radio.
 2. Send it content as to any other label, for example with the [HTTP API](HTTP-API):
 
    ```bash
    curl -X PUT http://openesl.local/api/tags/<MAC> \
-     -H "Authorization: Bearer $TOKEN" \
+     -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
      -d '{"layout": "text", "fields": ["Hello", "no flashing"]}'
    ```
 

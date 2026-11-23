@@ -12,10 +12,10 @@ What OpenESL wants to get better at, roughly in order. Nothing here has a date: 
   The image format, the AP's drawing and the designer already have a red plane; what is new for each model is its entry in `shared/models.json`, the panel settings in the label firmware, and testing on a real label. The larger screens also need fewer round trips for their bigger images ([#180](https://github.com/mathiasbk/openESL/issues/180)). Have one of these, or another label? See [Adding hardware](Adding-hardware).
 - **Several radios in one place, tried on hardware:** one S3 AP keeps the labels and the API, and up to four wireless C6 radios cover more rooms. The firmware is in 0.10.0 but has not run with several C6 boards yet; still to do are a C6 on its own as the main AP, and picking the radio that hears a label best ([#259](https://github.com/mathiasbk/openESL/issues/259)).
 
-- **Bluetooth labels, with yellow.** A Gicisky/PICKSMART 2.9" with black, white, red and yellow, driven over Bluetooth LE by an ESP32-C6, with no flashing: two labels already show pictures from it, and it comes in a release once it is reviewed ([#476](https://github.com/mathiasbk/openESL/pull/476)).
+- **Bluetooth labels, with yellow.** A Gicisky/PICKSMART 2.9" with black, white, red and yellow, driven over Bluetooth LE by an ESP32-C6, with no flashing: two labels already show a four-colour test screen from it; yellow from layouts and the designer is still to do, and it comes in a release once it is reviewed ([#476](https://github.com/mathiasbk/openESL/pull/476)).
 
   <p align="center"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-ble-29-bwry.jpg" alt="A 2.9-inch Bluetooth label showing an OpenESL test screen in black, white, red and yellow" width="420"></p>
-- **Labels without flashing, tried on more labels:** the AP can already answer SoluM labels on their original firmware (experimental, [Labels without flashing](Labels-without-flashing)); still to do are a try on the 2.9", the option in the ready-made firmware on the Flash AP tab, and the S3 + C6 and Linux APs.
+- **Labels without flashing, tried on more labels:** the AP can already answer SoluM labels on their original firmware (experimental, [Labels without flashing](Labels-without-flashing)); still to do are a run of the AP firmware against a label, a try on the 2.9", the option in the ready-made firmware on the Flash AP tab, and the S3 + C6 and Linux APs.
 
 ## Later
 
