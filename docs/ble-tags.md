@@ -50,16 +50,16 @@ are. What is new is how the picture gets to the tag.
    `esl_push_seen`, and the transport `send`, which connects, hands the picture to the
    tag's protocol module and disconnects. The transport adapter `esl_ble.c` is built and
    tested on the PC; the NimBLE backend and the scan are in `ap/main/ble.c`, built with
-   `python ap/build.py --ble <board>` and tried on two units. Tags are
-   added by the scan or `CONFIG_ESL_BLE_TAG_MAC`; the push table (the image id each tag
-   shows) is kept in NVS, so a restart does not send an image again. Pairing in the web
-   page is to do.
+   `python ap/build.py --ble <board>` and tried on two units. Tags are added by the scan or
+   `CONFIG_ESL_BLE_TAG_MAC`; pairing in the web page is to do. The push table (the image
+   id each tag shows) is saved in NVS (`esl_persist.c`'s blob) after each send, so a
+   restart does not send an image again.
 4. **Protocol modules:** one per tag family, turning a raw picture (the black plane, then
    the red plane, then the yellow plane, or a logical 2-bit image) into the maker's commands. The Gicisky 2.9"
    BWRY protocol is recorded and its module is `esl_gicisky.c`, used by `ap/main/ble.c`.
 5. **Models:** `shared/models.json` already has `radio` and `protocol` fields; a
    Bluetooth tag becomes a model with `radio: "ble"` and its maker's protocol. The
-   Gicisky 2.9" BWRY is `gicisky-29-bwry`.
+   Gicisky 2.9" BWRY is `gicisky-29-bwry`, `2.9-bwry` in the API.
 6. **Yellow**: some of these tags are black/white/red/yellow. The AP now draws a third
    plane, so its layouts and designer take `yellow` and `yellow_invert`; the Gicisky
    packer takes the black, red and yellow planes (`esl_gicisky_pack_planes`).

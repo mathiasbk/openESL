@@ -2,8 +2,8 @@
 
 Status: the protocol is recorded from our own captures; the module, the transport adapter
 and the AP's NimBLE central are in place, and the push table (the image each tag was last
-given) is kept in NVS. The model is supported: it has been tried with the BLE AP on two units
-(the demo cards below).
+given) is saved in NVS after each send. The model is supported: it has been tried with the
+BLE AP on two units (the demo cards below).
 
 ## The tag
 
@@ -165,10 +165,12 @@ An example layout file for the model is [`tag/designs/layouts/2.9-bwry.json`](..
 - The meaning of the battery and voltage bytes in the manufacturer data.
 - The MTU exchange, the notifications and the refresh timing worked on our two units;
   other units are not tried.
-- Pairing in the web page is to do; the scan can add a tag, `CONFIG_ESL_BLE_TAG_MAC`
-  names one, and the push table (the image id each tag shows) is kept in NVS.
+- Pairing in the web page is to do; the scan can add a tag and `CONFIG_ESL_BLE_TAG_MAC`
+  names one. The push table (the image id each tag shows) is saved in NVS after each
+  send, so a restart does not send the same picture again (not yet checked on hardware).
 
 ## Next
 
 - Pairing in the web page, so a tag can be added and chosen there.
+- The battery reading (the AP reports 0, "cannot measure", for now).
 - Try more units and other AP boards (C5, S3) with the BLE build.
