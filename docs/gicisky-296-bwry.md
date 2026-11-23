@@ -113,6 +113,10 @@ disconnect
     <td align="center"><img src="images/gallery/openesl-bwry-1.png" alt="An openESL demo card on tag NEMR92852188: a red band with openESL and a yellow demo badge, the tag's name and address, and the four colour swatches" width="296"><br><sub>NEMR92852188 (FF:FF:92:85:21:88)</sub></td>
     <td align="center"><img src="images/gallery/openesl-bwry-2.png" alt="An openESL demo card on tag NEMR92835821: a red band with openESL and a yellow demo badge, the tag's name and address, and the four colour swatches" width="296"><br><sub>NEMR92835821 (FF:FF:92:83:58:21)</sub></td>
   </tr>
+  <tr>
+    <td align="center"><img src="images/tag-29-bwry-2188.jpg" alt="Tag NEMR92852188 on a desk, showing the demo card in black, white, red and yellow" width="296"><br><sub>On the tag</sub></td>
+    <td align="center"><img src="images/tag-29-bwry-5821.jpg" alt="Tag NEMR92835821 on a desk, showing its demo card in black, white, red and yellow" width="296"><br><sub>On the tag</sub></td>
+  </tr>
 </table>
 
 The two tags on our desk show these cards, each with its own BLE name and address: a red

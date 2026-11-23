@@ -99,6 +99,11 @@ The whole list, with links, is on [What you need](https://github.com/mathiasbk/o
 | Gicisky | Gicisky/PICKSMART 2.9" black/white/red/yellow | PICKSMART 2.9 BWRY | 296 × 128 | black/white/red/yellow | unknown | ble | Supported |
 <!-- END models -->
 
+<p align="center">
+  <img src="docs/images/tag-29-bwry-2188.jpg" alt="The Gicisky 2.9-inch black/white/red/yellow Bluetooth tag showing the openESL demo card in all four colours" width="420"><br>
+  <sub>The Gicisky 2.9" BWRY over Bluetooth, with the demo card the BLE AP sent it</sub>
+</p>
+
 The list is made from [shared/models.json](shared/models.json). **Have a label that is not on the list?** [Suggest it in an issue](https://github.com/mathiasbk/openESL/issues/new?template=hardware.yml) with photos of the board and what is written on the chip and display, or see [Adding hardware](https://github.com/mathiasbk/openESL/wiki/Adding-hardware).
 
 ## Getting started

@@ -24,6 +24,10 @@ are. What is new is how the picture gets to the tag.
 |---|---|---|---|
 | Gicisky / PICKSMART 2.9" BWRY (sold under several names; our units advertise as `NEMR…`) | 296 × 128, black/white/red/yellow | BLE | [gicisky-296-bwry.md](gicisky-296-bwry.md) |
 
+<p align="center">
+  <img src="images/tag-29-bwry-2188.jpg" alt="A Gicisky 2.9-inch black/white/red/yellow tag showing the openESL demo card in all four colours, sent by the BLE AP" width="420">
+</p>
+
 ## Parts
 
 1. **Learning a tag's protocol:** [`tools/ble-probe`](../tools/ble-probe/README.md) reads a

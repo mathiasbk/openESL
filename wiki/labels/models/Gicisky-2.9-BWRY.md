@@ -6,6 +6,14 @@
 
 The 2.9" with four colours. The same hardware is sold under several names; our units advertise as `NEMR…` (the serial number) and have the GATT name `PICKSMART`.
 
+<p align="center">
+  <img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-29-bwry-2188.jpg" alt="The Gicisky 2.9-inch black/white/red/yellow tag NEMR92852188 showing the openESL demo card in all four colours" width="420">
+  &nbsp;
+  <img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-29-bwry-5821.jpg" alt="The second unit, NEMR92835821, showing the same demo card with its own name and address" width="420">
+</p>
+
+The two units on the desk, each showing the demo card the BLE AP sent it. Below are the same cards as they were drawn.
+
 <table>
   <tr>
     <td align="center" valign="top"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/gallery/openesl-bwry-1.png" alt="An openESL demo card on the 2.9-inch black/white/red/yellow tag NEMR92852188" width="296"><br><sub>NEMR92852188 (FF:FF:92:85:21:88)</sub></td>

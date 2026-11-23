@@ -18,12 +18,12 @@ These keep the maker's firmware: openESL speaks their Bluetooth protocol instead
 
 <table>
   <tr>
-    <td align="center" valign="top"><a href="Gicisky-2.9-BWRY"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/gallery/openesl-bwry-1.png" alt="An openESL demo card on the 2.9-inch black/white/red/yellow tag NEMR92852188" width="296"></a><br><sub><a href="Gicisky-2.9-BWRY">Gicisky / PICKSMART 2.9" BWRY</a><br>296 × 128 · black/white/red/yellow · Bluetooth LE</sub></td>
-    <td align="center" valign="top"><a href="Gicisky-2.9-BWRY"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/gallery/openesl-bwry-2.png" alt="An openESL demo card on the 2.9-inch black/white/red/yellow tag NEMR92835821" width="296"></a><br><sub>the second unit, NEMR92835821<br>FF:FF:92:83:58:21</sub></td>
+    <td align="center" valign="top"><a href="Gicisky-2.9-BWRY"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-29-bwry-2188.jpg" alt="The Gicisky 2.9-inch black/white/red/yellow tag NEMR92852188 showing the openESL demo card" width="296"></a><br><sub><a href="Gicisky-2.9-BWRY">Gicisky / PICKSMART 2.9" BWRY</a><br>296 × 128 · black/white/red/yellow · Bluetooth LE</sub></td>
+    <td align="center" valign="top"><a href="Gicisky-2.9-BWRY"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-29-bwry-5821.jpg" alt="The second Gicisky 2.9-inch tag, NEMR92835821, showing the same demo card" width="296"></a><br><sub>the second unit, NEMR92835821<br>FF:FF:92:83:58:21</sub></td>
   </tr>
 </table>
 
-The two cards are the images the tags were sent: red, yellow, black and white in one screen, each with its own tag name and address. The page tells how to build the BLE AP and send content.
+The photos show the two units with the demo card the BLE AP sent them: red, yellow, black and white in one screen, each with its own tag name and address. The page tells how to build the BLE AP and send content.
 
 ## Which one?
 
