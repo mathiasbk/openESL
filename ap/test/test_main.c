@@ -17,6 +17,8 @@ void test_radio(void);
 void test_rcache(void);
 void test_rhost(void);
 void test_push(void);
+void test_gicisky(void);
+void test_ble(void);
 void test_nlink(void);
 void test_wifi(void);
 void test_screen(void);
@@ -54,6 +56,8 @@ static const struct {
     {"rcache", test_rcache},
     {"rhost", test_rhost},
     {"push", test_push},
+    {"gicisky", test_gicisky},
+    {"ble", test_ble},
     {"nlink", test_nlink},
     {"wifi", test_wifi},
     {"screen", test_screen},

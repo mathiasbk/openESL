@@ -127,7 +127,7 @@ def step_wiki():
 def step_tag():
     need_host_cc()
     # once per model: the image slot, the download and the drawing depend on the screen and on red
-    for m in models.load():
+    for m in models.flashable():
         run([PY, "tag/tools/build.py", "test"],
             env={"HOST_CFLAGS": (os.environ.get("HOST_CFLAGS", "") + " -DMODEL=" + m["build"]).strip()})
 
@@ -154,7 +154,7 @@ def step_tag_fw():
     version = subprocess.run([sdcc, "--version"], capture_output=True, text=True).stdout
     if " %s " % SDCC_VERSION not in version:
         raise Skip("SDCC %s needed, found: %s" % (SDCC_VERSION, version.splitlines()[0] if version else "?"))
-    for m in models.load():
+    for m in models.flashable():
         run([PY, "tag/tools/build.py", "fw"], env={"MODEL": m["build"]})
         copy_out("tag/build/%s/openesl.bin" % models.fw_dir(m), "tag-%s.bin" % m["build"])
         copy_out("tag/build/%s/openesl-ota.bin" % models.fw_dir(m), "tag-%s-ota.bin" % m["build"])
@@ -260,7 +260,7 @@ def step_web():
     run([node, "--test"] + tests)
     run([PY, "-m", "unittest", "discover", "-s", "web/test", "-p", "test_*.py"])   # web/build.py's firmware names
     boards = [json.load(open(p))["artifact"] + ".bin" for p in glob.glob(os.path.join(ROOT, "ap", "boards", "*", "board.json"))]
-    fw = [os.path.join(OUT, f) for f in ["tag-%s.bin" % m["build"] for m in models.load()] + sorted(boards)]
+    fw = [os.path.join(OUT, f) for f in ["tag-%s.bin" % m["build"] for m in models.flashable()] + sorted(boards)]
     if all(os.path.isfile(f) for f in fw):
         run([PY, "web/build.py", "--firmware"] + fw)     # web/dist/ is then the page as CI publishes it
 

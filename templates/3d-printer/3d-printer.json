@@ -63,5 +63,7 @@
       },
       "note": "20 spaces in bar fill the frame"
     }
+  ,
+    "2.9-bwry": {"same_as": "2.9"}
   }
 }

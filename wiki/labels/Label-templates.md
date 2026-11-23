@@ -65,14 +65,14 @@ A template is one JSON file, `templates/<category>/<id>.json`, and a pull reques
 | `layout` | a layout exactly as in a layout file ([docs/protocol.md, part 3](https://github.com/mathiasbk/openESL/blob/master/docs/protocol.md)), with `_sample`: one sample text per field |
 | `icons` | optional: the pictures the layout uses, as in a layout file. The designer adds them to the file, renamed if the file has another picture by that name |
 | `note` | optional: something about this model only, such as "31 spaces in bar fill the frame" |
-| `same_as` | instead of `layout`: use another model's variant, for a model with the same width and height and at least the same colours (the 2.9" with red can use the 2.9" variant) |
+| `same_as` | instead of `layout`: use another model's variant, for a model with the same width and height and at least the same colours (the 2.9" with red or yellow can use the 2.9" variant) |
 
 Rules the build checks (`python web/build.py`, which runs [web/templates.mjs](https://github.com/mathiasbk/openESL/blob/master/web/templates.mjs); CI fails on any of them):
 
 - the keys above and no others, the category exists, the id is unique and matches the file;
 - every variant's layout has exactly the template's fields in the same order, the same layout name, and a sample text for every field;
 - every variant compiles with the AP's own compiler on its own, within the limits of the smallest AP (an ESP32-C6), and draws its sample text without the AP refusing it;
-- a variant only uses colours its model has (`red` only on a model with red);
+- a variant only uses colours its model has (`red` only on a model with red, `yellow` only on a model with yellow);
 - `same_as` only points at a model with the same screen size, whose colours this model has too;
 - a template with the same layout name as one in the example files (`tag/designs/layouts/<model>.json`) has the same fields and elements, so the two do not drift apart.
 

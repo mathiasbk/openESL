@@ -589,6 +589,23 @@ void test_persist(void)
         CHECK(!esl_persist_seen_decode(sb, sizeof(sb), &smac, &b));
     }
 
+    {
+        /* one tag the AP sends to itself: the table and the image it was last given */
+        uint8_t pb[ESL_PERSIST_PUSH_LEN];
+        uint64_t pmac;
+        uint8_t model;
+        uint32_t shown;
+        CHECK_INT(esl_persist_push_encode(0x1122334455667788ull, ESL_MODEL_294, 0xF0E0D0C0u, pb),
+                  ESL_PERSIST_PUSH_LEN);
+        CHECK(esl_persist_push_decode(pb, sizeof(pb), &pmac, &model, &shown));
+        CHECK(pmac == 0x1122334455667788ull);
+        CHECK_INT(model, ESL_MODEL_294);
+        CHECK(shown == 0xF0E0D0C0u);
+        CHECK(!esl_persist_push_decode(pb, sizeof(pb) - 1, &pmac, &model, &shown));
+        pb[0] = 9;
+        CHECK(!esl_persist_push_decode(pb, sizeof(pb), &pmac, &model, &shown));
+    }
+
     esl_content_t c, d;
     uint8_t blob[ESL_PERSIST_BLOB_MAX];
     uint64_t mac;

@@ -73,7 +73,7 @@ test("six tags, one new, one with a low battery", async () => {
   }
   // the designer's shortcuts, as ApClient has them
   assert.equal((await ap.tags()).tags.length, 6);
-  assert.equal((await ap.layouts()).layouts.length, 3);
+  assert.equal((await ap.layouts()).layouts.length, 4);
   // the dashboard's own reading of the list
   assert.equal(mergeTagList(null, r, new Map()).tags.length, 6);
   const h = await ap.call("GET", "/api/health");
@@ -153,7 +153,7 @@ test("scheduled content is set when its time comes", async () => {
 test("layout files: upload, a new version, and removal holds back the tags that used it", async () => {
   const ap = demo();
   const list = await ap.call("GET", "/api/layouts");
-  assert.equal(list.layouts.length, 3);
+  assert.equal(list.layouts.length, 4);
   const e29 = list.layouts.find((l) => l.model === "2.9");
   assert.ok(e29.version && e29.layouts.includes("shelf"));
   assert.ok(list.limits.textBytes > 0);

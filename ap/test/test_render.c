@@ -297,6 +297,66 @@ static void test_red(void)
     CHECK(ink(blk, PLANE) > 50);
 }
 
+/* The 2.9" BWRY (Gicisky): three planes, black then red then yellow, with no
+   pixel in more than one */
+static void test_yellow(void)
+{
+    static const char file[] =
+        "{\"format\":\"esl-layouts\",\"version\":1,\"model\":\"2.9-bwry\",\"layouts\":[{\"name\":\"y\","
+        "\"fields\":[\"a\",\"b\"],\"elements\":["
+        "{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":296,\"h\":20,\"color\":\"red\"},"
+        "{\"type\":\"rect\",\"x\":0,\"y\":30,\"w\":296,\"h\":40,\"color\":\"yellow\"},"
+        "{\"type\":\"text\",\"field\":\"a\",\"x\":0,\"y\":30,\"w\":296,\"h\":40,\"fonts\":[\"medium\"],\"align\":\"center\",\"valign\":\"middle\",\"lines\":1,\"color\":\"yellow_invert\"},"
+        "{\"type\":\"text\",\"field\":\"b\",\"x\":0,\"y\":80,\"w\":296,\"h\":40,\"fonts\":[\"medium\"]}]}]}";
+    enum { PLANE = 296 * 16 };
+    static uint8_t img[3 * PLANE];
+    static esl_layout_bin_t bin;
+    char err[ESL_LAYOUT_ERR_MAX];
+    esl_content_t c;
+    uint16_t w, h;
+    bool red, yellow;
+
+    CHECK(esl_render_model_colors(ESL_MODEL_294, &w, &h, &red, &yellow) && w == 296 && h == 128 && red && yellow);
+    CHECK(esl_render_size(ESL_MODEL_294) == 3 * PLANE);
+    CHECK(esl_layout_compile(file, sizeof(file) - 1, ESL_MODEL_294, &bin, err, sizeof(err)));
+    static esl_layout_bin_t other;
+    CHECK(!esl_layout_compile(file, sizeof(file) - 1, ESL_MODEL_293, &other, err, sizeof(err)));
+    CHECK(!esl_layout_compile(file, sizeof(file) - 1, ESL_MODEL_29, &other, err, sizeof(err)));
+
+    esl_content_init_named(&c, "y", 1, 0);
+    esl_content_add_field(&c, (const uint8_t *)"YELLOW", 6);
+    esl_content_add_field(&c, (const uint8_t *)"49,90", 5);
+    CHECK(esl_render(ESL_MODEL_294, &bin, &c, img, sizeof(img)) == 3 * PLANE);
+    CHECK(esl_render(ESL_MODEL_294, &bin, &c, img, 3 * PLANE - 1) == 0);
+
+    const uint8_t *blk = img, *rd = img + PLANE, *ye = img + 2 * PLANE;
+    bool overlap = false, red_band = true, yellow_block = false, white_in_yellow = false;
+    for (size_t i = 0; i < PLANE; i++) {
+        unsigned bits = 0;
+        bits += (blk[i] & rd[i]) != 0;
+        bits += (blk[i] & ye[i]) != 0;
+        bits += (rd[i] & ye[i]) != 0;
+        if (bits)
+            overlap = true;
+    }
+    CHECK(!overlap);
+    size_t yellow_px = 0, red_px = 0;
+    for (unsigned x = 0; x < 296; x++)
+        for (unsigned y = 0; y < 128; y++) {
+            bool b = px(blk, x, y), r = px(rd, x, y), j = px(ye, x, y);
+            if (y < 20 && !r)
+                red_band = false;
+            if (y >= 30 && y < 70 && j)
+                yellow_block = true;
+            if (y >= 30 && y < 70 && !j && !b && !r)
+                white_in_yellow = true;
+            yellow_px += j;
+            red_px += r;
+        }
+    CHECK(red_band && yellow_block && white_in_yellow);
+    CHECK(yellow_px > 100 && red_px > 100);
+}
+
 /* Ellipses and polygons, pixel by pixel */
 static void test_ellipse_polygon(void)
 {
@@ -572,4 +632,5 @@ void test_render(void)
 
     test_shapes();
     test_red();
+    test_yellow();
 }

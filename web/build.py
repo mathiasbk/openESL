@@ -62,7 +62,7 @@ AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
 AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c", "esl_text.c",
               "esl_render.c", "esl_qr.c", "esl_barcode.c", "esl_clock.c", "esl_font.c"]
 TAG_SOURCES = ["src/font.c", "src/barcode.c"] + tag_build.FONTS     # what esl_render.c draws with
-MODELS = [m["build"] for m in tag_build.models.load()]     # -DMODEL=<build>
+MODELS = [m["build"] for m in tag_build.models.load()]          # -DMODEL=<build>
 STATIC = ["index.html", "api.html", "css", "js", "img"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
@@ -135,13 +135,19 @@ def renderer_inputs():
     return sorted(set(os.path.normpath(f) for f in files))
 
 
+def model_flags(model):
+    m = tag_build.models.by_build(model)
+    return ["-DMODEL=%s" % model, "-DDRAW_W=%d" % m["width"], "-DDRAW_H=%d" % m["height"],
+            "-DMODEL_CODE=%d" % m["code"]]
+
+
 def build_wasm(model, out=os.path.join(DIST, "wasm")):
     emcc = os.environ.get("EMCC", "emcc")
     if not shutil.which(emcc):
         sys.exit("emcc not found. Install Emscripten (https://emscripten.org) and source emsdk_env.sh.")
     os.makedirs(out, exist_ok=True)
     js = os.path.join(out, "render-%s.js" % model)
-    tag_build.run([emcc, "-std=c11", "-Wall", "-O2", "-DMODEL=%s" % model] + limit_caps() + includes() + sources() + [
+    tag_build.run([emcc, "-std=c11", "-Wall", "-O2"] + model_flags(model) + limit_caps() + includes() + sources() + [
         "-o", js,
         "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=web,node",
         "-sEXPORT_NAME=createRenderer", "-sALLOW_MEMORY_GROWTH=1", "-sFILESYSTEM=0",
@@ -156,7 +162,7 @@ def build_native(model):
     out = os.path.join(tag_build.BUILD, "web-%s" % model)
     os.makedirs(out, exist_ok=True)
     exe = os.path.join(out, "web_render" + (".exe" if os.name == "nt" else ""))
-    tag_build.run(cc + ["-std=c11", "-Wall", "-Wextra", "-O1", "-DMODEL=%s" % model] + limit_caps() + includes(True) +
+    tag_build.run(cc + ["-std=c11", "-Wall", "-Wextra", "-O1"] + model_flags(model) + limit_caps() + includes(True) +
                   sources() + [os.path.join(HERE, "wasm", "native", "main.c"), "-o", exe])
     return exe
 

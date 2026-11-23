@@ -3,7 +3,7 @@
 </h1>
 
 <p align="center">
-  Open firmware for SoluM e-paper shelf labels and an ESP32-C6 access point.<br>
+  Open firmware for SoluM e-paper shelf labels and an ESP32-C6 access point, with support for Bluetooth price tags.<br>
   Put prices and text on the labels from any software, with one HTTP request.<br>
   SoluM labels on their original firmware can work too, with no flashing (experimental).
 </p>
@@ -44,7 +44,7 @@
 
 ## What you can make
 
-Every picture here is the screen of a simulated tag: the access point drew it and the tag firmware showed it, with the same code that runs on real hardware ([tools/gallery/render_gallery.py](tools/gallery/render_gallery.py) renders them). Start from one of the [templates](templates/README.md), draw your own layout with text, fonts, boxes, lines, icons, barcodes and QR codes in the [label designer](https://mathiasbk.github.io/openESL/#design), or send a photo and let the AP dither it. All the text is made up.
+Every picture here is a tag's screen. The 802.15.4 pictures are simulated: the access point drew them and the tag firmware showed them, with the same code that runs on real hardware ([tools/gallery/render_gallery.py](tools/gallery/render_gallery.py) renders them). The two Gicisky 2.9" cards are drawn in the tag's own four colours, one per tag ([tools/gallery/render_bwry.py](tools/gallery/render_bwry.py) draws them). Start from one of the [templates](templates/README.md), draw your own layout with text, fonts, boxes, lines, icons, barcodes and QR codes in the [label designer](https://mathiasbk.github.io/openESL/#design), or send a photo and let the AP dither it. All the example text is made up.
 
 <table>
   <tr>
@@ -62,6 +62,10 @@ Every picture here is the screen of a simulated tag: the access point drew it an
   <tr>
     <td align="center" valign="top"><img src="docs/images/gallery/shelf-red.png" alt="A shelf label with the product name on a red bar and a big price" width="340"><br><sub>Red, on the 2.9" black/white/red</sub></td>
     <td align="center" valign="top"><img src="docs/images/gallery/opening-hours.png" alt="Opening hours for weekdays, Saturday and Sunday" width="156"><br><sub>Opening hours</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><img src="docs/images/gallery/openesl-bwry-1.png" alt="An openESL demo card on the Gicisky 2.9-inch black/white/red/yellow tag NEMR92852188: a red band with openESL and a yellow demo badge, the tag's name and address, and the four colour swatches" width="340"><br><sub>openESL demo card, tag NEMR92852188</sub></td>
+    <td align="center" valign="top"><img src="docs/images/gallery/openesl-bwry-2.png" alt="An openESL demo card on the Gicisky 2.9-inch black/white/red/yellow tag NEMR92835821: a red band with openESL and a yellow demo badge, the tag's name and address, and the four colour swatches" width="340"><br><sub>openESL demo card, tag NEMR92835821</sub></td>
   </tr>
 </table>
 
@@ -93,7 +97,13 @@ The whole list, with links, is on [What you need](https://github.com/mathiasbk/o
 | SoluM | SoluM 2.9" black/white | ST-GM29XX2 | 296 × 128 | black/white | ZBS243 | 802.15.4 | Supported |
 | SoluM | SoluM 1.54" black/white | ST-GM16XX2 | 200 × 200 | black/white | ZBS243 | 802.15.4 | Supported |
 | SoluM | SoluM 2.9" black/white/red | ST-GR29000 | 296 × 128 | black/white/red | ZBS243 | 802.15.4 | Experimental |
+| Gicisky | Gicisky/PICKSMART 2.9" black/white/red/yellow | PICKSMART 2.9 BWRY | 296 × 128 | black/white/red/yellow | unknown | ble | Supported |
 <!-- END models -->
+
+<p align="center">
+  <img src="docs/images/tag-29-bwry-2188.jpg" alt="The Gicisky 2.9-inch black/white/red/yellow Bluetooth tag showing the openESL demo card in all four colours" width="420"><br>
+  <sub>The Gicisky 2.9" BWRY over Bluetooth, with the demo card the BLE AP sent it</sub>
+</p>
 
 The list is made from [shared/models.json](shared/models.json). The SoluM 1.54" and 2.9" also work [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing), on their original firmware (experimental: black and white, no battery reading, no firmware updates; the picture format tried on a 1.54"). **Have a label that is not on the list?** [Suggest it in an issue](https://github.com/mathiasbk/openESL/issues/new?template=hardware.yml) with photos of the board and what is written on the chip and display, or see [Adding hardware](https://github.com/mathiasbk/openESL/wiki/Adding-hardware).
 
@@ -121,7 +131,7 @@ The label shows it at its next check-in.
 For the real firmware, the [simulator](sim/README.md) runs the label firmware and the AP together on a PC (Linux or macOS, with a C compiler and make):
 
 ```bash
-make -C sim                                                # builds every label model and runs the tests
+make -C sim                                                # builds every SoluM label model and runs the tests
 sim/build/154/esl-sim serve --speed 60 --png /tmp/screen.png  # a simulated AP with one label, 60 times faster than real time
 ```
 
@@ -158,11 +168,7 @@ The AP keeps a few text fields per label and draws each label's screen from them
 
 OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points; the ESP32-C5, the S3 with C6 radios over WiFi and the Linux AP are experimental. Labels [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing) are experimental: a SoluM 1.54" on its original firmware has shown a picture sent in SoluM's format from a test program, but the AP firmware has not been run against a label yet, and the 2.9" has not been tried. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions). What comes next is on the [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
 
-Bluetooth labels are in progress: a Gicisky/PICKSMART 2.9" with black, white, red and yellow, driven by an ESP32-C6 with no flashing either. It is not in a release yet ([Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap)).
-
-<p align="center">
-  <img src="docs/images/tag-ble-29-bwry.jpg" alt="A 2.9-inch Bluetooth label showing an OpenESL test screen in black, white, red and yellow" width="480">
-</p>
+The Gicisky 2.9" BWRY Bluetooth tag is supported with a separate BLE AP build, tried on an ESP32-C6; it keeps its own firmware.
 
 ## For developers
 

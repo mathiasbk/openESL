@@ -25,6 +25,7 @@ typedef struct {
     /* the fixed texts of the whole file, in Latin-1, each once */
     uint8_t model;
     bool has_red;         /* the model draws red: red and red_invert are allowed */
+    bool has_yellow;      /* the model draws yellow: yellow and yellow_invert are allowed */
     uint8_t ntext;
     uint8_t tlen[ESL_LBIN_TEXT_MAX];
     uint8_t (*text)[ESL_LBIN_TEXT_LEN_MAX]; /* ESL_LBIN_TEXT_MAX of them, malloc'd */
@@ -160,9 +161,10 @@ static const char *const align_names[] = {"left", "center", "right", NULL};
 static const uint8_t align_opts[] = {ESL_LE_LEFT, ESL_LE_CENTER, ESL_LE_RIGHT};
 static const char *const valign_names[] = {"top", "middle", "bottom", NULL};
 static const uint8_t valign_opts[] = {0, ESL_LE_MIDDLE, ESL_LE_BOTTOM};
-static const char *const color_names[] = {"black", "white", "invert", "highlight", "frame", "red", "red_invert", NULL};
+static const char *const color_names[] = {"black", "white", "invert", "highlight", "frame", "red", "red_invert",
+                                         "yellow", "yellow_invert", NULL};
 static const uint8_t color_codes[] = {ESL_LE_BLACK, ESL_LE_WHITE, ESL_LE_INVERT, ESL_LE_PRICE_HL, ESL_LE_FRAME,
-                                      ESL_LE_RED, ESL_LE_RED_INVERT};
+                                      ESL_LE_RED, ESL_LE_RED_INVERT, ESL_LE_YELLOW, ESL_LE_YELLOW_INVERT};
 
 typedef struct {
     uint8_t nfields;
@@ -435,8 +437,8 @@ static bool shape_element(cc_t *c, int e, lay_t *lay, uint8_t *out, bool polygon
         /* only in the web page's renderer, set to the limits of an AP that does not report any:
            firmware from before ellipses and polygons, which would refuse the file */
         return fail(c, "the AP's firmware is too old for ellipses and polygons (needs 0.11.0)");
-    if (color != ESL_LE_BLACK && color != ESL_LE_WHITE && color != ESL_LE_RED)
-        return fail(c, "a%s can be black, white or red", polygon ? " polygon" : "n ellipse");
+    if (color != ESL_LE_BLACK && color != ESL_LE_WHITE && color != ESL_LE_RED && color != ESL_LE_YELLOW)
+        return fail(c, "a%s can be black, white, red or yellow", polygon ? " polygon" : "n ellipse");
     if (!opt_uint(c, e, "border", 0, half > 255 ? 255 : half, 0, &border))
         return false;
     out[ESL_LE_OFF_BORDER] = (uint8_t)border;
@@ -479,8 +481,8 @@ static bool chart_element(cc_t *c, int e, lay_t *lay, uint8_t *out, uint8_t colo
     if (!esl_limits.shapes)
         /* only in the web page's renderer, for an AP from before charts (as for ellipses) */
         return fail(c, "the AP's firmware is too old for charts (needs 0.11.0)");
-    if (color != ESL_LE_BLACK && color != ESL_LE_RED)
-        return fail(c, "a chart can be black or red");
+    if (color != ESL_LE_BLACK && color != ESL_LE_RED && color != ESL_LE_YELLOW)
+        return fail(c, "a chart can be black, red or yellow");
     int f = esl_json_obj_get(c->js, c->tok, e, "field");
     if (f < 0)
         return fail(c, "a chart element needs a field: the numbers it draws");
@@ -620,17 +622,21 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
     int col = esl_json_obj_get(c->js, c->tok, e, "color");
     int ci = col < 0 ? 0 : pick(c, col, color_names);
     if (ci < 0)
-        return fail(c, "color must be black, white, invert, highlight or frame%s",
-                    c->has_red ? ", or red or red_invert" : "");
+        return fail(c, "color must be black, white, invert, highlight or frame%s%s",
+                    c->has_red ? ", or red or red_invert" : "",
+                    c->has_yellow ? ", or yellow or yellow_invert" : "");
     uint8_t color = color_codes[ci];
     if ((color == ESL_LE_RED || color == ESL_LE_RED_INVERT) && !c->has_red)
-        return fail(c, "the %s is a black/white model: red and red_invert need a model with red",
+        return fail(c, "the %s is a model without red: red and red_invert need a model with red",
+                    esl_model_name(c->model));
+    if ((color == ESL_LE_YELLOW || color == ESL_LE_YELLOW_INVERT) && !c->has_yellow)
+        return fail(c, "the %s is a model without yellow: yellow and yellow_invert need a model with yellow",
                     esl_model_name(c->model));
     out[ESL_LE_OFF_COLOR] = color;
 
     if (line || is_icon) {
-        if (color != ESL_LE_BLACK && color != ESL_LE_WHITE && color != ESL_LE_RED)
-            return fail(c, "a%s can be black, white or red", line ? " line" : "n icon");
+        if (color != ESL_LE_BLACK && color != ESL_LE_WHITE && color != ESL_LE_RED && color != ESL_LE_YELLOW)
+            return fail(c, "a%s can be black, white, red or yellow", line ? " line" : "n icon");
         if (is_icon) {
             if (by_field) {
                 out[ESL_LE_OFF_FIELD] = (uint8_t)(ESL_LE_ICON_FIELD | icon_field);
@@ -658,8 +664,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
 
     if (!text && !barcode && !qr) {
         unsigned radius, border, half = (w < h ? w : h) / 2;
-        if (color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL || color == ESL_LE_RED_INVERT)
-            return fail(c, "a rect can be black, white, red or frame");
+        if (color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL || color == ESL_LE_RED_INVERT || color == ESL_LE_YELLOW_INVERT)
+            return fail(c, "a rect can be black, white, red, yellow or frame");
         if (!opt_uint(c, e, "radius", 0, half > 255 ? 255 : half, 0, &radius))
             return false;
         if (!opt_uint(c, e, "border", 0, half > 255 ? 255 : half, 0, &border))
@@ -764,7 +770,8 @@ static bool element(cc_t *c, int e, lay_t *lay, uint8_t *out)
         h = t;
     }
 
-    bool inverted = color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL || color == ESL_LE_RED_INVERT;
+    bool inverted = color == ESL_LE_INVERT || color == ESL_LE_PRICE_HL || color == ESL_LE_RED_INVERT ||
+                    color == ESL_LE_YELLOW_INVERT;
     unsigned pad = inverted ? 2 * ESL_INVERT_PAD : 0;
     if (h < min_h + pad || w <= pad)
         return fail(c, "the box (%ux%u%s) is too small for its smallest font (%u px high%s)", rot & 1 ? h : w,
@@ -1004,6 +1011,7 @@ bool esl_layout_compile(const char *json, size_t len, uint8_t model, esl_layout_
         return fail(&c, "unknown model");
     c.model = model;
     c.has_red = esl_model_has_red(model);
+    c.has_yellow = esl_model_has_yellow(model);
     if (len == 0 || len > esl_limits.json_bytes)
         return fail(&c, "the file must be 1 to %d bytes", esl_limits.json_bytes);
 

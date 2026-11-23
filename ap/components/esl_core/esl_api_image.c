@@ -26,10 +26,10 @@ static int tag_image(const esl_api_t *api, uint64_t mac, esl_sb_t *out)
 {
     esl_tag_t t;
     uint16_t w, h;
-    bool red;
+    bool red, yellow;
     if (!esl_store_get(api->store, mac, &t))
         return api_error(out, 404, "unknown tag");
-    if (!t.model || !esl_render_model(t.model, &w, &h, &red))
+    if (!t.model || !esl_render_model_colors(t.model, &w, &h, &red, &yellow))
         return api_error(out, 404, "the tag's model is not known yet");
     esl_content_t c;
     if (!t.has_content || !esl_store_get_content(api->store, mac, &c))
@@ -50,9 +50,10 @@ static int tag_image(const esl_api_t *api, uint64_t mac, esl_sb_t *out)
     char m[17];
     esl_mac_format(mac, m);
     esl_sb_printf(out,
-                  "{\"mac\":\"%s\",\"model\":\"%s\",\"width\":%u,\"height\":%u,\"red\":%s,\"content_id\":%" PRIu32
-                  ",\"image_id\":%" PRIu32 ",\"data\":\"",
-                  m, esl_model_name(t.model), (unsigned)w, (unsigned)h, red ? "true" : "false", t.content_id,
+                  "{\"mac\":\"%s\",\"model\":\"%s\",\"width\":%u,\"height\":%u,\"red\":%s,\"yellow\":%s,"
+                  "\"content_id\":%" PRIu32 ",\"image_id\":%" PRIu32 ",\"data\":\"",
+                  m, esl_model_name(t.model), (unsigned)w, (unsigned)h, red ? "true" : "false",
+                  yellow ? "true" : "false", t.content_id,
                   id ? id : 1);
     sb_base64(out, img, n);
     esl_sb_puts(out, "\"}");
@@ -114,9 +115,9 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
     int status = 200;
     if (err) {
         uint16_t w = 0, h = 0;
-        bool red;
+        bool red, yellow;
         char msg[MSG_MAX];
-        esl_render_model(t.model, &w, &h, &red);
+        esl_render_model_colors(t.model, &w, &h, &red, &yellow);
         switch (err) {
         case ESL_PIC_ERR_READ:
             status = api_error(out, 400, "the body ended early");
@@ -136,7 +137,7 @@ static int put_image(const esl_api_t *api, uint64_t mac, const char *uri, size_t
             status = api_error(out, 422, msg);
             break;
         case ESL_PIC_ERR_BOTH:
-            status = api_error(out, 400, "a raw image with a pixel set in both the black and the red plane");
+            status = api_error(out, 400, "a raw image with a pixel set in more than one colour plane");
             break;
         default:
             status = api_error(out, 503, "no memory for the picture");

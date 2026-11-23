@@ -1,0 +1,11 @@
+# OpenESL Bluetooth AP partition table (4 MB flash: the ESP32-C6FH4 on the C6 Super
+# Mini). A Bluetooth AP sends to tags that keep their maker's firmware, so it has no
+# 802.15.4 tag firmware partition and gives the room to two 1.75 MB app slots: the BLE
+# image is about 1.6 MB, over the 1.5 MB the normal AP table has. NVS keeps the tag
+# content and the layout files (464 KB).
+# Name,   Type, SubType, Offset,  Size
+nvs,      data, nvs,     0x9000,  0x74000
+phy_init, data, phy,     0x7D000, 0x1000
+otadata,  data, ota,     0x7E000, 0x2000
+ota_0,    app,  ota_0,   0x80000, 0x1C0000
+ota_1,    app,  ota_1,   0x240000, 0x1C0000

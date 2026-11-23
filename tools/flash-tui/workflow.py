@@ -46,7 +46,7 @@ import models  # noqa: E402  (the model registry, shared/models.json)
 MODELS = {
     m["build"]: {"name": models.label(m), "size": "%dx%d" % (m["width"], m["height"]), "mac_code": m["mac_code"],
                  "firmware": os.path.join(ROOT, "tag", "build", models.fw_dir(m), "openesl.bin")}
-    for m in models.load()
+    for m in models.flashable()
 }
 MAC_CODE_TO_MODEL = {m["mac_code"]: k for k, m in MODELS.items()}
 

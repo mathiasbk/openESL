@@ -16,10 +16,17 @@
       "image": "openesl-raw",
       "width": 296,
       "height": 128,
-      "colors": ["black", "white"],
+      "colors": [
+        "black",
+        "white"
+      ],
       "mac_code": "0x3B",
       "panel": "ssd16xx-29",
-      "photo": {"file": "img/tag-29.jpg", "width": 529, "height": 280},
+      "photo": {
+        "file": "img/tag-29.jpg",
+        "width": 529,
+        "height": 280
+      },
       "status": "supported"
     },
     {
@@ -37,10 +44,17 @@
       "image": "openesl-raw",
       "width": 200,
       "height": 200,
-      "colors": ["black", "white"],
+      "colors": [
+        "black",
+        "white"
+      ],
       "mac_code": "0x34",
       "panel": "ssd16xx-154",
-      "photo": {"file": "img/tag-154.jpg", "width": 245, "height": 280},
+      "photo": {
+        "file": "img/tag-154.jpg",
+        "width": 245,
+        "height": 280
+      },
       "status": "supported"
     },
     {
@@ -59,10 +73,37 @@
       "image": "openesl-raw",
       "width": 296,
       "height": 128,
-      "colors": ["black", "white", "red"],
+      "colors": [
+        "black",
+        "white",
+        "red"
+      ],
       "mac_code": "0x3C",
       "panel": "ssd16xx-29-bwr",
       "status": "experimental"
+    },
+    {
+      "code": 4,
+      "build": "294",
+      "name": "2.9-bwry",
+      "short": "2.9\" BWRY",
+      "id": "gicisky-29-bwry",
+      "vendor": "Gicisky",
+      "label": "Gicisky/PICKSMART 2.9\" black/white/red/yellow",
+      "product": "PICKSMART 2.9 BWRY",
+      "chip": "unknown",
+      "radio": "ble",
+      "protocol": "gicisky",
+      "image": "gicisky-2bpp",
+      "width": 296,
+      "height": 128,
+      "colors": [
+        "black",
+        "white",
+        "red",
+        "yellow"
+      ],
+      "status": "supported"
     }
   ]
 }

@@ -322,8 +322,8 @@ static void test_errors(void)
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"colour\":\"black\"}", "unknown key \"colour\"");
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"pink\"}", "color must be");
     /* the 2.9" has no red: the AP refuses red before it looks at anything else */
-    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"red\"}", "black/white model");
-    bad_el(TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"red_invert\"}", "black/white model");
+    bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"red\"}", "model without red");
+    bad_el(TEXT_XYW ",\"h\":40,\"field\":\"a\",\"fonts\":[\"medium\"],\"color\":\"red_invert\"}", "model without red");
     CHECK(!esl_model_has_red(ESL_MODEL_29) && !esl_model_has_red(ESL_MODEL_154) && !esl_model_has_red(0));
     CHECK(esl_model_has_red(ESL_MODEL_293));
     bad_el("{\"type\":\"rect\",\"x\":0,\"y\":0,\"w\":10,\"h\":1,\"color\":\"invert\"}", "a rect can be");
@@ -475,7 +475,7 @@ static void test_shapes(void)
     CHECK(!compile_el("{\"type\":\"ellipse\",\"x\":10,\"y\":20,\"w\":31,\"h\":21,\"border\":11}"));
     CHECK(HAS(err, "border must be a whole number from 0 to 10"));
     CHECK(!compile_el("{\"type\":\"ellipse\",\"x\":0,\"y\":0,\"w\":9,\"h\":9,\"color\":\"invert\"}"));
-    CHECK(HAS(err, "an ellipse can be black, white or red"));
+    CHECK(HAS(err, "an ellipse can be black, white, red or yellow"));
     CHECK(!compile_el("{\"type\":\"ellipse\",\"x\":0,\"y\":0,\"w\":9,\"h\":9,\"radius\":2}"));
     CHECK(HAS(err, "radius is only for rect elements"));
     CHECK(!compile_el("{\"type\":\"ellipse\",\"x\":0,\"y\":0,\"w\":9,\"h\":9,\"points\":[]}"));
@@ -584,7 +584,7 @@ static void test_shapes(void)
 #define LINE "{\"type\":\"line\",\"x\":0,\"y\":0,\"w\":10,\"h\":10"
     bad_el(LINE ",\"width\":0}", "width must be a whole number from 1 to 16");
     bad_el(LINE ",\"width\":17}", "width must be a whole number from 1 to 16");
-    bad_el(LINE ",\"color\":\"invert\"}", "a line can be black, white or red");
+    bad_el(LINE ",\"color\":\"invert\"}", "a line can be black, white, red or yellow");
     bad_el(LINE ",\"color\":\"red\"}", "red and red_invert need a model with red");
     bad_el(LINE ",\"direction\":\"left\"}", "direction must be down");
     bad_el(LINE ",\"radius\":5}", "radius is only for rect elements");
@@ -652,7 +652,7 @@ static void test_shapes(void)
     CHECK(HAS(err, "past the right edge"));
     CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=\"}",
                          "{\"type\":\"icon\",\"icon\":\"dot\",\"x\":0,\"y\":0,\"color\":\"frame\"}"));
-    CHECK(HAS(err, "an icon can be black, white or red"));
+    CHECK(HAS(err, "an icon can be black, white, red or yellow"));
     CHECK(!compile_el("{\"type\":\"icon\",\"x\":0,\"y\":0}"));
     CHECK(HAS(err, "an icon element needs icon"));
     CHECK(!compile_icons("\"dot\":{\"w\":2,\"h\":2,\"data\":\"gEA=gEA=\"}", TEXT_A "}"));

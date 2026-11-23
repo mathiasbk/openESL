@@ -2,6 +2,8 @@
 
 Each label is flashed once over its test pads, in the [jig](Flashing-jig). After that it takes new firmware over the air.
 
+Bluetooth tags are the exception: they keep the maker's firmware and are not flashed. openESL speaks their Bluetooth protocol with a separate BLE AP build; see [the Gicisky 2.9" BWRY](Gicisky-2.9-BWRY).
+
 ## What you need
 
 - The jig with a D1 mini running ZBS_Flasher, plugged in by USB. [Building the flasher](Building-the-flasher) shows how to build and wire it.

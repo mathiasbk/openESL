@@ -20,7 +20,7 @@ Problems and fixes are on [Troubleshooting](Troubleshooting).
 
 **Do I have to flash the labels?** No, not for SoluM 1.54" and 2.9" labels that still run their original firmware: an AP built with the SoluM option drives them as they are (experimental). Flashing gives you over-the-air updates, battery readings and settings. See [Labels without flashing](Labels-without-flashing).
 
-**Can I use labels from other makers?** Not yet, but the project is built to grow there. See [Adding hardware](Adding-hardware).
+**Can I use labels from other makers?** Yes: the [Gicisky 2.9" BWRY Bluetooth tag](Gicisky-2.9-BWRY), with a separate BLE AP build. More makers are not supported yet; see [Adding hardware](Adding-hardware).
 
 
 ## Labels

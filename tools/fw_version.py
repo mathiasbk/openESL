@@ -77,6 +77,8 @@ def parts():
                "tag/designs/layouts", "web/wasm/web_api.c", "web/build.py", "tools/gen_models.py", NOT_DOCS] + webui_files(),
     }
     for m in models():
+        if m["radio"] == "ble":
+            continue
         # one model: the tag sources without the other models' panel headers and without the
         # generated model lists (the model's own entry in models.json is compared separately)
         ps["tag-" + m["build"]] = [
@@ -167,7 +169,7 @@ def version(part, paths=None, current=None, at=None):
 
 def main():
     if sys.argv[1:] == ["--all"]:
-        for part in ["ap", "tag"] + ["tag-" + m["build"] for m in models()]:
+        for part in ["ap", "tag"] + ["tag-" + m["build"] for m in models() if m["radio"] != "ble"]:
             print(part, version(part))
     elif len(sys.argv) == 2 and sys.argv[1] in parts():
         print(version(sys.argv[1]))
