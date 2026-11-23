@@ -1,8 +1,9 @@
 # Gicisky / PICKSMART 2.9-inch BWRY tag
 
 Status: the protocol is recorded from our own captures; the module, the transport adapter
-and the AP's NimBLE central are in place, and the push table (the image each tag was last
-given) is kept in NVS. The model is experimental: it has not been tried on a real AP yet.
+and the AP's NimBLE central are in place. Two tags got their images from a BLE AP on an
+ESP32-C6. The model is experimental: the AP draws black, white and red for it, not yellow
+yet, and the battery is not read.
 
 ## The tag
 
@@ -134,15 +135,12 @@ least 247, discovers `FEF1`/`FEF2` by UUID, enables notifications on `FEF1`, wri
 - The exact retry and timeout rules; we saw one retry of chunk 0 and one repeated
   acknowledgement.
 - The meaning of the battery and voltage bytes in the manufacturer data.
-- The tag has not been tried with the AP on hardware yet: the MTU exchange, the
-  notifications and the refresh timing are unverified.
-- Pairing in the web page is to do; the scan can add a tag, `CONFIG_ESL_BLE_TAG_MAC`
-  names one, and the push table (the image id each tag shows) is kept in NVS.
+- Pairing in the web page is to do; the scan can add a tag and `CONFIG_ESL_BLE_TAG_MAC`
+  names one. The push table (the image id each tag shows) is saved in NVS after each
+  send, so a restart does not send the same picture again (not yet checked on hardware).
 
 ## Next
 
-- Try the BLE AP with a real tag (`python ap/build.py --ble c6-supermini`, then
-  `ap/out/openesl-ap-ble.bin`), and fix what the MTU, the notifications or the refresh
-  timing need.
 - Pairing in the web page.
+- The battery reading (the AP reports 0, "cannot measure", for now).
 - The renderer needs a yellow plane, as noted in [ble-tags.md](ble-tags.md).

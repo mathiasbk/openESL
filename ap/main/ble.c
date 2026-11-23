@@ -441,6 +441,7 @@ static bool nim_connect(void *ctx, uint64_t mac)
     drain(s->setup_sem);
     drain(s->mtu_sem);
     drain(s->write_sem);
+    xQueueReset(s->notify_q); /* a late notification from the last tag must not answer this one */
     s->connected = false;
     s->conn_handle = BLE_HS_CONN_HANDLE_NONE;
     s->svc_start = s->svc_end = 0;
@@ -695,6 +696,7 @@ static void push_task(void *arg)
                          (unsigned long long)t->mac, t->fails,
                          (unsigned long long)((t->next_ms > now ? t->next_ms - now : 0) / 1000));
         }
+        push_save_dirty(&push);
         vTaskDelay(pdMS_TO_TICKS(CONFIG_ESL_BLE_ROUND_MS));
     }
 }
