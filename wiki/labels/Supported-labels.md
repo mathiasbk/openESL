@@ -12,6 +12,25 @@ The SoluM labels talk 802.15.4 to the AP, are flashed once in the [jig](Flashing
 
 The list is made from [shared/models.json](https://github.com/mathiasbk/openESL/blob/master/shared/models.json), the one place a label model is described; the [README](https://github.com/mathiasbk/openESL/blob/master/README.md#supported-tags) shows the same list, including the Bluetooth tag below.
 
+## SoluM labels: flashed, or as they came
+
+The SoluM 2.9" and 1.54" can run OpenESL's own firmware, or keep the firmware they came with. Both ways the labels get your layouts, fields, pictures and the same [HTTP API](HTTP-API). How to set up the AP for labels as they came: [Labels without flashing](Labels-without-flashing).
+
+| Label | Firmware on the label | How you start | AP | Status |
+|---|---|---|---|---|
+| [SoluM 2.9"](SoluM-2.9-ST-GM29XX2) (ST-GM29XX2) | OpenESL | Flash once in the jig | Any AP board from the web page | Supported |
+| [SoluM 2.9"](SoluM-2.9-ST-GM29XX2) (ST-GM29XX2) | Original, not flashed | Put a battery in | ESP32-C6 or C5 built with the SoluM option | Experimental, shown a layout on a real label |
+| [SoluM 1.54"](SoluM-1.54-ST-GM16XX2) (ST-GM16XX2) | OpenESL | Flash once in the jig | Any AP board from the web page | Supported |
+| [SoluM 1.54"](SoluM-1.54-ST-GM16XX2) (ST-GM16XX2) | Original, not flashed | Put a battery in | ESP32-C6 or C5 built with the SoluM option | Experimental, joins the AP; picture format tried from a test program |
+
+**Original firmware, not flashed**
+- Pros: no jig, no pogo pins, no flasher board; the label is never changed and can go back to a SoluM system as it is; the quickest way to try OpenESL with a box of second-hand labels.
+- Cons: black and white only; no battery reading; no firmware updates over the air; the label picks its own check-in time (about every 5 minutes), so new content can take a few minutes; the AP has to use SoluM's channel 20 and PAN ID, so it serves only labels on original firmware; you build the AP firmware yourself for now (ESP32-C6 or C5 only).
+
+**Flashed with OpenESL**
+- Pros: firmware updates over the air; battery reading on the 2.9"; the AP sets the check-in time (default 60 s) and night mode; works with every AP board, also the S3 + C6 and the Linux AP; the [red 2.9"](SoluM-2.9-red-ST-GR29000) (experimental).
+- Cons: each label goes in the [jig](Flashing-jig) once, which needs a flasher board and pogo pins; the original firmware is backed up first, and only that [backup](Label-backups) brings it back.
+
 ## Bluetooth tags
 
 These keep the maker's firmware: openESL speaks their Bluetooth protocol instead of flashing them, with a separate BLE AP build. They do not talk 802.15.4, and the AP's renderer draws their red and yellow too.

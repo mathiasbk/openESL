@@ -32,7 +32,7 @@
 
 ## Features
 
-- **No flashing needed (experimental).** A SoluM 1.54" or 2.9" label that still runs the firmware it came with can be used as it is: put a battery in, and an AP built with the SoluM option draws its screen and sends it in SoluM's own format. No jig, no pogo pins, and the label is never changed. [Labels without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing)
+- **No flashing needed (experimental).** A SoluM 1.54" or 2.9" label that still runs the firmware it came with can be used as it is: put a battery in, and an AP built with the SoluM option draws its screen and sends it in SoluM's own format. No jig, no pogo pins, and the label is never changed. Tried on a real 2.9" on its original firmware, which joined the AP and showed a layout. [Labels without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing)
 - **SoluM e-paper labels** on the ZBS243 chip, 2.9" and 1.54" (and the 2.9" with red, experimental), flashed once with OpenESL's own firmware for over-the-air updates, settings and battery readings. More makers and models are welcome.
 - **A plain HTTP API** on the access point, protected by a token, for scripts, web shops and home automation ([Home Assistant integration](https://github.com/mathiasbk/openesl-homeassistant), [OpenAPI](docs/openapi.yaml)).
 - **Your own layouts**, drawn in the browser with a pixel-exact preview: text and your own fonts, barcodes, QR codes, pictures, dates and scheduled prices.
@@ -105,7 +105,26 @@ The whole list, with links, is on [What you need](https://github.com/mathiasbk/o
   <sub>The Gicisky 2.9" BWRY over Bluetooth, with the demo card the BLE AP sent it</sub>
 </p>
 
-The list is made from [shared/models.json](shared/models.json). The SoluM 1.54" and 2.9" also work [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing), on their original firmware (experimental: black and white, no battery reading, no firmware updates; the picture format tried on a 1.54"). **Have a label that is not on the list?** [Suggest it in an issue](https://github.com/mathiasbk/openESL/issues/new?template=hardware.yml) with photos of the board and what is written on the chip and display, or see [Adding hardware](https://github.com/mathiasbk/openESL/wiki/Adding-hardware).
+The list is made from [shared/models.json](shared/models.json). The SoluM 1.54" and 2.9" also work [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing), on their original firmware: see below. **Have a label that is not on the list?** [Suggest it in an issue](https://github.com/mathiasbk/openESL/issues/new?template=hardware.yml) with photos of the board and what is written on the chip and display, or see [Adding hardware](https://github.com/mathiasbk/openESL/wiki/Adding-hardware).
+
+### SoluM labels: flashed, or as they came
+
+The SoluM 2.9" and 1.54" can run OpenESL's own firmware, or keep the firmware they came with. Both ways the labels get your layouts, fields, pictures and the same HTTP API.
+
+| Label | Firmware on the label | How you start | AP | Status |
+|---|---|---|---|---|
+| SoluM 2.9" (ST-GM29XX2) | OpenESL | Flash once in the jig | Any AP board from the web page | Supported |
+| SoluM 2.9" (ST-GM29XX2) | Original, not flashed | Put a battery in | ESP32-C6 or C5 built with the SoluM option | Experimental, shown a layout on a real label |
+| SoluM 1.54" (ST-GM16XX2) | OpenESL | Flash once in the jig | Any AP board from the web page | Supported |
+| SoluM 1.54" (ST-GM16XX2) | Original, not flashed | Put a battery in | ESP32-C6 or C5 built with the SoluM option | Experimental, joins the AP; picture format tried from a test program |
+
+**Original firmware, not flashed**
+- Pros: no jig, no pogo pins, no flasher board; the label is never changed and can go back to a SoluM system as it is; the quickest way to try OpenESL with a box of second-hand labels.
+- Cons: black and white only; no battery reading; no firmware updates over the air; the label picks its own check-in time (about every 5 minutes), so new content can take a few minutes; the AP has to use SoluM's channel 20 and PAN ID, so it serves only labels on original firmware; you build the AP firmware yourself for now (ESP32-C6 or C5 only).
+
+**Flashed with OpenESL**
+- Pros: firmware updates over the air; battery reading on the 2.9"; the AP sets the check-in time (default 60 s) and night mode; works with every AP board, also the S3 + C6 and the Linux AP; the red 2.9" (experimental).
+- Cons: each label goes in the jig once, which needs a flasher board and pogo pins; the original firmware is backed up first, and only that backup brings it back.
 
 ## Getting started
 
@@ -166,7 +185,7 @@ The AP keeps a few text fields per label and draws each label's screen from them
 
 ## Status
 
-OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points; the ESP32-C5, the S3 with C6 radios over WiFi and the Linux AP are experimental. Labels [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing) are experimental: a SoluM 1.54" on its original firmware has shown a picture sent in SoluM's format from a test program, but the AP firmware has not been run against a label yet, and the 2.9" has not been tried. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions). What comes next is on the [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
+OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points; the ESP32-C5, the S3 with C6 radios over WiFi and the Linux AP are experimental. Labels [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing) are experimental: a SoluM 2.9" on its original firmware joined an ESP32-C6 AP built with the SoluM option and showed a text layout, and a 1.54" has joined it and shown a picture sent in SoluM's format from a test program; the option is not in the ready-made AP firmware yet. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions). What comes next is on the [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
 
 The Gicisky 2.9" BWRY Bluetooth tag is supported with a separate BLE AP build, tried on an ESP32-C6; it keeps its own firmware.
 

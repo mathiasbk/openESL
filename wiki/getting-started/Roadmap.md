@@ -15,7 +15,7 @@ What OpenESL wants to get better at, roughly in order. Nothing here has a date: 
 - **Bluetooth labels, the next steps.** The [Gicisky/PICKSMART 2.9" BWRY](Gicisky-2.9-BWRY) works with a separate BLE AP build on an ESP32-C6, in black, white, red and yellow from layouts and the designer ([#476](https://github.com/mathiasbk/openESL/pull/476)), and comes in the next release. Still to do are adding a tag from the web page, its battery reading, and more Bluetooth labels.
 
   <p align="center"><img src="https://raw.githubusercontent.com/mathiasbk/openESL/master/docs/images/tag-ble-29-bwry.jpg" alt="A 2.9-inch Bluetooth label showing an OpenESL test screen in black, white, red and yellow" width="420"></p>
-- **Labels without flashing, tried on more labels:** the AP can already answer SoluM labels on their original firmware (experimental, [Labels without flashing](Labels-without-flashing)); still to do are a run of the AP firmware against a label, a try on the 2.9", the option in the ready-made firmware on the Flash AP tab, and the S3 + C6 and Linux APs.
+- **Labels without flashing, tried on more labels:** the AP can already answer SoluM labels on their original firmware (experimental, [Labels without flashing](Labels-without-flashing)); a 2.9" on its original firmware has shown a layout from a C6 AP. Still to do are a picture from the AP firmware on a 1.54", the option in the ready-made firmware on the Flash AP tab, and the S3 + C6 and Linux APs.
 
 ## Later
 
