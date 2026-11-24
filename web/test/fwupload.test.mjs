@@ -350,6 +350,7 @@ test("a Linux AP gets the program for its machine, never an ESP32 image", () => 
   // 0.11.0 does not say its machine: the one picked on the page
   assert.equal(linuxImageFor(linuxOta(), linuxInfo), null);
   assert.equal(linuxImageFor(linuxOta(), linuxInfo, "aarch64").size, 4864392);
+  assert.equal(linuxImageFor(linuxOta(), linuxInfo, ""), null); // nothing picked yet in the machine list
   assert.equal(linuxImageFor(linuxOta({ version: "0.12.0", arch: "x86_64" }), linuxInfo).newer, false);
   assert.equal(linuxImageFor(linuxOta({ arch: "x86_64" }), { ...linuxInfo, release: false }).newer, false); // a test page offers no update
   assert.equal(linuxImageFor(linuxOta({ arch: "x86_64" }), { version: "v0.11.0", release: true }), null); // a page from before linux_ap
