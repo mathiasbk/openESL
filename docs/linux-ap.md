@@ -144,7 +144,7 @@ The HTTP server takes 32 connections at a time (more get 503), one request each;
 `POST /api/ota` with the `openesl-ap-linux-<arch>-<version>` file of a release as the body updates the program itself (the body is the file as it is, no `offset`/`total`; it goes to disk as it arrives, up to 32 MB):
 
 ```
-curl -H "Authorization: Bearer $(cat ~/openesl/token)" --data-binary @openesl-ap-linux-armv7-0.12.0 \
+curl -H "Authorization: Bearer $(cat ~/openesl/token)" --data-binary @openesl-ap-linux-armv7-1.0.0 \
     "http://<host>/api/ota"
 ```
 

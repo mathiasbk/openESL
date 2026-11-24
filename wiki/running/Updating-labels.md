@@ -23,7 +23,7 @@ python3 esl_client.py tag-ota --to <MAC>,<MAC>     # a few more labels
 python3 esl_client.py tag-ota --model 1.54 --all   # every 1.54 label, once the first one runs it
 ```
 
-`tag-ota <file>` sends nothing unless you say who gets it: `--to` with one or more MACs (at most 64; 16 on an AP before 0.12.0), or `--all` for every label of that model at once. `--model ... --all` without a file is refused while no label runs the new version yet. `tag-ota --delete MODEL` stops the updates.
+`tag-ota <file>` sends nothing unless you say who gets it: `--to` with one or more MACs (at most 64; 16 on an AP before 1.0.0), or `--all` for every label of that model at once. `--model ... --all` without a file is refused while no label runs the new version yet. `tag-ota --delete MODEL` stops the updates.
 
 ## Good to know
 

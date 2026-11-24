@@ -11,14 +11,14 @@ The usual order:
 
 ## Skipping releases
 
-Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.12.0, for example:
+Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 1.0.0, for example:
 
-1. Backup, then the AP to 0.12.0 over the air, then **a new backup** (only a backup made on 0.11.0 holds the AP's id). It keeps `openesl.local`.
-2. An S3 with a C6 over WiFi: flash that C6 to 0.12.0 together with the S3. The C6 radio of an S3 on a cable keeps working. Flash it once more from the Flash AP tab if you want to update it over the cable from now on (0.8.2), or if it is the one with the 0.96" screen and its colours are wrong.
-3. The labels to the label firmware of the 0.12.0 release (never 0.9.0), one of each model first.
+1. Backup, then the AP to 1.0.0 over the air, then **a new backup** (only a backup made on 0.11.0 holds the AP's id). It keeps `openesl.local`.
+2. An S3 with a C6 over WiFi: flash that C6 to 1.0.0 together with the S3. The C6 radio of an S3 on a cable keeps working. Flash it once more from the Flash AP tab if you want to update it over the cable from now on (0.8.2), or if it is the one with the 0.96" screen and its colours are wrong.
+3. The labels to the label firmware of the 1.0.0 release (never 0.9.0), one of each model first.
 4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files. Change the radio channel only once every label runs 0.9.2 or newer. Use font files, turned text, more than 6 fields and several radios over WiFi only once the AP will stay on 0.10.0. Use ellipses, circles, triangles, polygons and the new data sources only once the AP will stay on 0.11.0.
 
-## From 0.11.0 to 0.12.0
+## From 0.11.0 to 1.0.0
 
 Take a backup, update the AP over the air, then roll out the new label firmware, one label of each model first. Nothing has to be set after the update, no label draws again, and a C6 radio needs nothing.
 
@@ -29,7 +29,7 @@ Take a backup, update the AP over the air, then roll out the new label firmware,
 - New and experimental, as AP firmware you build yourself: SoluM labels on their original firmware, without flashing ([Labels without flashing](Labels-without-flashing)), and the Gicisky 2.9" Bluetooth label ([Gicisky 2.9" BWRY](Gicisky-2.9-BWRY)).
 - Going back to 0.11.0: labels that only check in (no content or settings of their own) lose their last-seen time and show up again at their next check-in; a 0.11.0 AP sees at most 16 chosen labels.
 
-Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-0110-to-0120).
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-0110-to-100).
 
 ## From 0.10.0 to 0.11.0
 
