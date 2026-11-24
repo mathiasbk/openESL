@@ -1440,14 +1440,15 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     if ($("fw-src").selectedOptions[0]?.hidden) $("fw-src").value = [...$("fw-src").options].find((o) => !o.hidden)?.value ?? "file";
     $("fw-file").removeAttribute("accept");
     if (!can) return null;
-    // 0.11.0 does not say its machine: the user picks it (the AP refuses one for another machine)
+    // 0.11.0 does not say its machine: the user picks it (the AP refuses one for another machine).
+    // Nothing is picked until they do, so the button never sends a guess
     $("lx-arch-wrap").hidden = !!ota.arch;
     if (!ota.arch) $("lx-arch").value = store.get("lx.arch") || $("lx-arch").value;
     const arch = ota.arch || $("lx-arch").value;
     const img = linuxImageFor(ota, pageInfo, arch);
     const facts = [
       ["Machine", ota.arch || "not said: pick it below"],
-      ["On this page", !pageInfo ? "loading …" : img ? `${img.version}${img.size ? ` (${(img.size / 1048576).toFixed(1)} MB)` : ""}` + (pageInfo.release ? "" : ", a test build") : `no program for ${arch}`],
+      ["On this page", !pageInfo ? "loading …" : img ? `${img.version}${img.size ? ` (${(img.size / 1048576).toFixed(1)} MB)` : ""}` + (pageInfo.release ? "" : ", a test build") : arch ? `no program for ${arch}` : "pick the machine below"],
     ];
     if (ota.confirmed === false) facts.push(["Status", "the running version is on trial: an update waits until it has confirmed itself"]);
     else if (img && !img.newer && pageInfo?.release) facts.push(["Status", "this AP runs the newest release"]);
