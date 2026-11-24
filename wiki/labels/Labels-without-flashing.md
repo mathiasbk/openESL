@@ -4,7 +4,7 @@
 
 This is the quickest way to try OpenESL with a box of second-hand labels: you need no flashing hardware at all, and the label is never changed. The AP only answers the frames the label sends; it never writes to the label's memory.
 
-**How far it has been tried:** a SoluM 1.54" on its original firmware showed a picture in SoluM's format, sent from a test program on an ESP32-C6. The AP firmware with the SoluM option builds and its protocol code is tested on a PC, but it has not been run against a label yet, so the steps under [Adding a label](#adding-a-label) are how it is meant to work. A report helps a lot (see the end of this page).
+**How far it has been tried:** a SoluM 2.9" on its original firmware, never flashed, found an ESP32-C6 AP built with the SoluM option, joined it, fetched a `text` layout and showed it correctly; the label itself reported the picture as shown. A SoluM 1.54" on its original firmware joined the same AP, and earlier showed a picture in SoluM's format sent from a test program. Not tried yet: WiFi, the dashboard and the HTTP API on this AP build (the test drove the AP over its USB serial API), a second update of the same label, a picture from the AP firmware on a 1.54", and the ESP32-C5. A report helps a lot (see the end of this page).
 
 ## Flashed or as it is?
 
@@ -12,10 +12,10 @@ This is the quickest way to try OpenESL with a box of second-hand labels: you ne
 |---|---|---|
 | **Getting started** | Put a battery in | Once in the [jig](Flashing-jig), with a backup of the original firmware first |
 | **What you need** | An AP built with the SoluM option (see below) | Any [AP board](Access-point-boards) from the web page, plus a jig |
-| **Labels** | SoluM 1.54" (picture format tried) and 2.9" (not tried yet), black and white | [Supported labels](Supported-labels), including the 2.9" red (experimental) |
+| **Labels** | SoluM 2.9" (shown a layout) and 1.54" (joins the AP), black and white | [Supported labels](Supported-labels), including the 2.9" red (experimental) |
 | **Layouts, fields, pictures, API** | the same | the same |
 | **Battery on the dashboard** | no: the original firmware does not report it | yes on the 2.9" |
-| **Poll interval** | the label's own; the AP learns it from the label's check-ins | set by the AP, also night mode |
+| **Poll interval** | the label's own, about every 5 minutes on the 2.9", so new content can take a few minutes | set by the AP, also night mode |
 | **Firmware updates over the air** | no: the label keeps its own firmware | yes ([Updating labels](Updating-labels)) |
 | **Status** | experimental | supported |
 
@@ -25,8 +25,8 @@ You can still flash such a label later, if you want what only OpenESL's own firm
 
 | Label | As it came |
 |---|---|
-| [SoluM 1.54"](SoluM-1.54-ST-GM16XX2) (ST-GM16XX2, 200 × 200) | picture format tried: a label on its original firmware showed a picture sent in this format from a C6 test program; not yet with the AP firmware |
-| [SoluM 2.9"](SoluM-2.9-ST-GM29XX2) (ST-GM29XX2, 296 × 128) | in the firmware, not tried on a label yet |
+| [SoluM 2.9"](SoluM-2.9-ST-GM29XX2) (ST-GM29XX2, 296 × 128) | tried: joined a C6 AP built with the SoluM option and showed a text layout |
+| [SoluM 1.54"](SoluM-1.54-ST-GM16XX2) (ST-GM16XX2, 200 × 200) | joins the AP; the picture format was tried from a C6 test program, a picture from the AP firmware not yet |
 | Other SoluM labels, and other makers | no |
 
 Only black and white is drawn on these labels. This is meant for labels that are not attached to a working SoluM gateway (for example from a shop whose system was taken down), which look for a gateway on their own when they get a battery. A label still attached to a SoluM gateway in a shop belongs to that system; leave it there.
@@ -65,7 +65,7 @@ These labels look for their gateway on SoluM's own network: radio channel **20**
      -d '{"layout": "text", "fields": ["Hello", "no flashing"]}'
    ```
 
-3. The label gets the picture at its next check-in. When it reports that the picture took, the dashboard stops showing the content as waiting.
+3. The label gets the picture at its next check-in, which on the 2.9" came about every 5 minutes. When it reports that the picture took, the dashboard stops showing the content as waiting.
 
 If a label does not turn up, take its battery out for a minute and put it back, so it starts looking for a gateway again.
 
@@ -75,4 +75,4 @@ The AP speaks two protocols on the same radio: OpenESL's own, and SoluM's for la
 
 ## Help us test it
 
-This is new. A report helps a lot, whether it worked or not: which label (the product name on the back), which AP board, and what the dashboard and the label showed. [Open an issue](https://github.com/mathiasbk/openESL/issues/new/choose). A 2.9" label on its original firmware is the most useful report right now.
+This is new. A report helps a lot, whether it worked or not: which label (the product name on the back), which AP board, and what the dashboard and the label showed. [Open an issue](https://github.com/mathiasbk/openESL/issues/new/choose). A 1.54" getting a picture from the AP, and anything on the ESP32-C5, are the most useful reports right now.
