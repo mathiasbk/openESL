@@ -138,7 +138,7 @@ Not in it: the WiFi (its password cannot be read) and the token.
 
 ## Over the USB port
 
-- `--serial PORT` (or `OPENESL_SERIAL`) talks to the AP over its USB port instead of WiFi, with no token (Linux and macOS, see [ap/README.md](../../ap/README.md)). Opening the port does not reset the AP.
+- `--serial PORT` (or `OPENESL_SERIAL`) talks to the AP over its USB port instead of WiFi, with no token (see [ap/README.md](../../ap/README.md)). On Windows give the COM port (`--serial COM8`) and install pyserial first (`pip install pyserial`); Linux and macOS need nothing extra. Opening the port does not reset the AP.
 - `serve` listens on `http://localhost:8080` (`--port`) and passes `/api/` requests on to the AP, over the USB port or over WiFi with `--url`. It lets the web page (the API tab's "Test Request", the Dashboard, the designer) reach a real AP, which a web page cannot do by itself.
   - It only listens on localhost, and only pages from `https://mathiasbk.github.io` and `localhost` may use it (`--allow-origin` adds one).
   - Over WiFi the page's token is passed on, or `--token` when the page sends none.

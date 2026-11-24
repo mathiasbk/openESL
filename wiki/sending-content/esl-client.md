@@ -43,7 +43,7 @@ python3 esl_client.py show 00000123456789A8
 
 ## Over USB
 
-`--serial /dev/ttyACM0` talks to the AP over its USB port instead of WiFi, with no token (Linux and macOS).
+`--serial /dev/ttyACM0` talks to the AP over its USB port instead of WiFi, with no token. On Windows use the COM port (`--serial COM8`) and install pyserial first (`pip install pyserial`).
 
 ```sh
 python3 esl_client.py --serial /dev/ttyACM0 status
