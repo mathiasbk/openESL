@@ -71,7 +71,7 @@ If a label does not turn up, take its battery out for a minute and put it back, 
 
 ## How it works
 
-The AP speaks two protocols on the same radio: OpenESL's own, and SoluM's for labels on their original firmware. For such a label it draws the screen with the same code as for a flashed label and sends it in SoluM's own picture format. The details for developers are in [ap/README.md](https://github.com/mathiasbk/openESL/blob/master/ap/README.md#solum-stock-firmware-tags-a-second-protocol), and where each fact comes from is in [docs/sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/sources.md). The protocol work is our own measurements and tests, not code from other firmware.
+The AP speaks two protocols on the same radio: OpenESL's own, and SoluM's for labels on their original firmware. For such a label it draws the screen with the same code as for a flashed label and sends it in SoluM's own picture format. The details for developers are in [ap/README.md](https://github.com/mathiasbk/openESL/blob/master/ap/README.md#solum-stock-firmware-tags-a-second-protocol), and where each fact comes from is in [docs/sources.md](https://github.com/mathiasbk/openESL/blob/master/docs/sources.md). The protocol code is OpenESL's own, independent implementation, with no code from other firmware or projects.
 
 ## Help us test it
 

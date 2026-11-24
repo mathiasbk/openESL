@@ -204,7 +204,7 @@ def main():
         sys.exit("release_notes.py: no release tag to start from")
     # the versions of the commit UNTIL, whatever branch is checked out
     versions = {part: fw_version.version(part, at=until)
-                for part in ["ap", "tag"] + ["tag-" + m["build"] for m in fw_version.models()]}
+                for part in ["ap", "tag"] + [p for p in fw_version.parts() if p.startswith("tag-")]}
     # the upgrade instructions as they were at UNTIL, for the version it carries
     version = git("show", "%s:VERSION" % until).strip()
     text = git("show", "%s:%s" % (until, RELEASE_MD))

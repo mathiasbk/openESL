@@ -68,12 +68,12 @@ The usual order, unless a section says otherwise:
 
 Go straight to the newest release, in one pass: AP, then radio, then tags, with the steps of every release in between. Nothing has to pass through a release on the way. The AP keeps its layout files as JSON text and reads them again at every start, and it converts nothing it has stored, so an AP that skips a release ends up with the same data as one that took each. The tags take any image that is not their own version.
 
-From 0.5.x to 0.11.0, for example, with many tags:
+From 0.5.x to 0.12.0, for example, with many tags:
 
-1. `esl-client backup ap.json` with the 0.11.0 esl-client.
-2. The AP: `openesl-ap-<board>-v0.11.0-ota.bin` over the air, then **a new `esl-client backup`**: only a backup made on 0.11.0 holds the AP id (below). It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
-3. ESP32-S3 with a C6 over WiFi (netradio, from 0.6.0): flash the C6 to 0.11.0 together with the S3 (Flash AP tab, without "Erase"), else the AP's own tags stay "settings pending" (below). ESP32-S3 with a C6 on a cable: the C6 radio works as before, so flashing it is optional. Flashed once more over USB from the Flash AP tab, it takes later updates over the cable (0.8.2, below), and the one with a 0.96" LCD shows its colours and lines right (#168).
-4. The tags: the tag image of the 0.11.0 release, which is version 0.11.0 (not the 0.9.0 tag image, which draws faded screens, and not 0.9.1, which can pair tags). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
+1. `esl-client backup ap.json` with the 0.12.0 esl-client.
+2. The AP: `openesl-ap-<board>-v0.12.0-ota.bin` over the air, then **a new `esl-client backup`**: only a backup made on 0.11.0 or newer holds the AP id (below). It keeps `openesl.local`, since its WiFi is saved. At their next poll, every tag with a file layout gets its screen once more (layout format 2), so the radio is busy for about one poll interval. Then check `content_error` in `GET /api/tags`: content that does not fit its layout file is held back since 0.8.0 (below).
+3. ESP32-S3 with a C6 over WiFi (netradio, from 0.6.0): flash the C6 to 0.12.0 together with the S3 (Flash AP tab, without "Erase"), else the AP's own tags stay "settings pending" (below). ESP32-S3 with a C6 on a cable: the C6 radio works as before, so flashing it is optional. Flashed once more over USB from the Flash AP tab, it takes later updates over the cable (0.8.2, below), and the one with a 0.96" LCD shows its colours and lines right (#168).
+4. The tags: the tag image of the 0.12.0 release, which is version 0.12.0 (not the 0.9.0 tag image, which draws faded screens, and not 0.9.1, which can pair tags). One tag of each model, at least 10 polls, a few more chosen tags, then `to=all`. Until a tag has it, it gets image format 1 and works as before.
 5. Use the new layout elements (icons, lines, QR codes, round and open boxes) and `PUT /api/tags/{mac}/image` only once the AP will stay on 0.6.0 or newer: a 0.5.x AP refuses such layout files (below). Change the radio channel only once every tag runs 0.9.2 or newer (below). Font files, rotated text, more than 6 fields and several radios over WiFi only once the AP will stay on 0.10.0 (below). Ellipses, circles, triangles and polygons, and the data sources of 0.11.0, only once the AP will stay on 0.11.0 (below).
 
 ### Upgrading from 0.4.x to 0.5.0
@@ -125,6 +125,24 @@ The C6 over WiFi answers the tags from its own cache, so it gives the 5 s for do
 A fix for tags that stay "new content waiting" (#238). The AP drew a tag's screen while the tag waited for its reply, which can take longer than the tag listens (20 ms). With many tags waiting at once (a new AP, many new tags, a new layout file) the reply came too late every time, and those tags never got their screen. The AP now tells such a tag to come back in 2 s and draws the screen in the meantime. Tried on a C6 with a screen: 17 tags that had waited for hours had their screens within one poll interval. The fix is in the AP's own radio (a C6 AP, or an S3 with a C6 on a cable) and needs nothing on the C6; an S3 with a C6 over WiFi answers the tags from the C6's cache and works as in 0.8.0. `GET /api/tags` shows how the AP's own radio answers under `ap.replies` (`slow` counts replies later than 5 ms).
 
 `esl-client --url` takes an address without `http://` (#235), and the user guide has its own page for moving to a new AP.
+
+### Upgrading from 0.11.0 to 0.12.0
+
+Order: `esl-client backup ap.json`, the AP over the air, then the tags, one of each model first. Nothing has to be set after the update, no tag draws again, and a C6 radio (on a cable or over WiFi) needs nothing. The new features (SoluM tags on their original firmware, Bluetooth tags) are separate AP builds you make yourself and are off in the release images.
+
+The AP: update it over the air as usual. It keeps its tags, layouts, settings and name. What it stores per tag about the last poll gains one byte (a stock-firmware flag, `seen` record version 2); records from 0.11.0 are read as before. The list of tags chosen for new tag firmware now holds up to 64 tags instead of 16 (#472), and a tag that has installed the firmware gives up its place. A Linux AP can be updated from the Firmware page of its dashboard (#471), with the release's `openesl-ap-linux-<arch>` file; it is the same `POST /api/ota` as in 0.11.0. `esl-client --serial` now works on Windows with pyserial (`pip install pyserial`, `--serial COM8`, #481).
+
+The tags: tag image 0.12.0 draws on 1.54" boards with a UC-type display controller (some 2017 labels, which showed "drawing failed", #473). On every model it now drives P0.3 high only while drawing or reading the battery, and low in sleep. Roll it out one tag of each model first ([section 3](#3-rollout-to-the-tags)); a tag that misses the update keeps working on 0.11.0. Tested on hardware on 1.54" and 2.9" from 2017 and 2018; the 2.9" black/white/red was not tried with the P0.3 change. A 2017 1.54" with a UC controller in a cold room may draw with weaker contrast (only the 20-30 °C settings are sent).
+
+New, experimental and not in the release images:
+
+- **SoluM tags on their original firmware, without flashing** (#475): an ESP32-C6 or C5 AP built with `CONFIG_ESL_SOLUM_STOCK_TAGS=y`, channel 20 and PAN ID 0x1234 answers SoluM 2.9" and 1.54" labels that still run the firmware they came with. Such an AP serves only those labels, since openESL tags use another PAN ID. Tried on hardware: a 2.9" on its original firmware joined a C6 AP and showed a text layout. See the wiki page Labels without flashing.
+- **Bluetooth tags** (#476): the Gicisky/PICKSMART 2.9" black/white/red/yellow, with a separate BLE AP build on an ESP32-C6 (`python build.py --ble <board>`, docs/ble-tags.md). The BLE AP has its own partition table: going back to the normal AP from it needs a USB flash.
+
+Going back below 0.12.0:
+
+- The AP: a 0.11.0 AP does not read the version 2 `seen` records, so tags that only poll (no content and no settings of their own) are listed again at their next poll, and their last-seen time is lost; their content and settings are kept. The chosen-tags list is kept in the 0.11.0 format too, so a 0.11.0 AP sees the first 16 chosen tags at most.
+- The tags: going back to the 0.11.0 tag image is safe; a 1.54" with a UC controller then shows "drawing failed" again.
 
 ### Upgrading from 0.10.0 to 0.11.0
 
@@ -242,6 +260,10 @@ Not tried on hardware yet: the automatic rollback of the tag after 9 failed star
 ## 6. Summaries
 
 Every release has a section "Summary of X.Y.Z" here: a few sentences on what the release brings, for the top of the release notes. `tools/release_notes.py` stops with an error without it, like the upgrade instructions. The notes then list the changes, and the short upgrade instructions come last.
+
+### Summary of 0.12.0
+
+SoluM labels can now be used as they came, without flashing (experimental): an ESP32-C6 or C5 AP built with the SoluM option answers 2.9" and 1.54" labels on their original firmware in SoluM's own protocol and draws your layouts on them, so no jig is needed; a 2.9" has shown a layout this way on hardware. The first Bluetooth label, the Gicisky/PICKSMART 2.9" in black, white, red and yellow, works with a separate BLE AP build (experimental). The tag firmware now also draws on 1.54" labels with a UC-type display controller, up to 64 tags can be chosen for new tag firmware, a Linux AP can be updated from its dashboard, and `esl-client --serial` works on Windows. The update is the usual one: the AP over the air, then the tags one model at a time; nothing has to be set.
 
 ### Summary of 0.11.0
 
