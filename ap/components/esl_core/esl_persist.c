@@ -89,6 +89,7 @@ bool esl_persist_cfg_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_ta
     cfg->long_poll_s = v1 ? 0 : (uint16_t)(in[15] | (in[16] << 8));
     cfg->long_after_min = v1 ? 0 : (uint16_t)(in[17] | (in[18] << 8));
     cfg->channel = 0; /* AP-wide, not stored per tag */
+    cfg->ap_id = 0;   /* AP-wide too */
     return true;
 }
 
