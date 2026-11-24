@@ -373,6 +373,18 @@ out:
     return status;
 }
 
+/* The machine this build is for, as the release names it (openesl-ap-linux-<arch>-<version>): the
+ * dashboard offers the file for it */
+#if defined(__x86_64__)
+#define OTA_ARCH "x86_64"
+#elif defined(__aarch64__)
+#define OTA_ARCH "aarch64"
+#elif defined(__arm__)
+#define OTA_ARCH "armv7"
+#else
+#define OTA_ARCH NULL
+#endif
+
 void ota_info(char *out, size_t cap)
 {
     char prev[PATH_CAP], prevv[PATH_CAP], pv[64] = "";
@@ -386,8 +398,10 @@ void ota_info(char *out, size_t cap)
         fclose(f);
     }
     const char *why = in_container() ? "container" : !guarded() ? "unguarded" : !exe[0] ? "unknown" : NULL;
+    const char *arch = OTA_ARCH;
     int n = snprintf(out, cap, "{\"slot\":\"binary\",\"version\":\"%s\",\"slot_size\":%u,\"other_slot\":%s,",
                      OPENESL_VERSION, OTA_MAX, have_prev ? "\"prev\"" : "null");
+    n += snprintf(out + n, cap - (size_t)n, "\"arch\":%s%s%s,", arch ? "\"" : "", arch ? arch : "null", arch ? "\"" : "");
     n += snprintf(out + n, cap - (size_t)n, "\"other_version\":%s%s%s,\"confirmed\":%s,", pv[0] ? "\"" : "null",
                   pv, pv[0] ? "\"" : "", confirmed ? "true" : "false");
     snprintf(out + n, cap - (size_t)n, "\"self_update\":%s,\"self_update_blocked\":%s%s%s,\"uploading\":%s}",

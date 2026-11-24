@@ -313,7 +313,7 @@ static void test_api_schedule(void)
 static void test_api_restored_tag(void)
 {
     reset();
-    esl_seen_t rec = {ESL_MODEL_154, 0x0401, 2600, -88, T0 - 7200};
+    esl_seen_t rec = {ESL_MODEL_154, 0x0401, 2600, -88, T0 - 7200, false};
     CHECK(esl_store_restore_seen(&st, 1, 0x2, &rec));
     CHECK_INT(req("GET", "/api/tags/" MAC2, NULL, 1000), 200);
     CHECK(strstr(resp, "\"seen_s_ago\":null,\"battery_mv\":2600,\"rssi\":-88,\"fw\":1025,\"model\":\"1.54\"") != NULL);

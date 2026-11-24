@@ -2,7 +2,7 @@
  * zbs243.h - the ZBS243 (SEM9110) special function registers this HAL uses.
  *
  * Only the registers in use are listed. The addresses and bit meanings come from
- * Dmitry Grinberg's reverse engineering of the ZBS243 (dmitry.gr), as published in
+ * Dmitry Grinberg's public notes on the ZBS243 (dmitry.gr), as published in
  * his zbs243.h and carried on in atc1441's ZBS_Flasher examples and the
  * OpenEPaperLink tag firmware (Tag_FW_ZBS243). Each one used is listed in
  * docs/sources.md, with what was confirmed on our own tags.
@@ -41,6 +41,7 @@ __sfr __at (0xA9) P2INTEN;
 __sbit __at (0x80) P0_0;
 __sbit __at (0x81) P0_1;
 __sbit __at (0x82) P0_2;
+__sbit __at (0x83) P0_3;
 __sbit __at (0x90) P1_0;
 __sbit __at (0x92) P1_2;
 __sbit __at (0x97) P1_7;

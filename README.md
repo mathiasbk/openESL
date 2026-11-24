@@ -3,8 +3,9 @@
 </h1>
 
 <p align="center">
-  Open firmware for SoluM e-paper shelf labels and an ESP32-C6 access point.<br>
-  Put prices and text on the labels from any software, with one HTTP request.
+  Open firmware for SoluM e-paper shelf labels and an ESP32-C6 access point, with support for Bluetooth price tags.<br>
+  Put prices and text on the labels from any software, with one HTTP request.<br>
+  SoluM labels on their original firmware can work too, with no flashing (experimental).
 </p>
 
 <p align="center">
@@ -31,7 +32,8 @@
 
 ## Features
 
-- **SoluM e-paper labels** on the ZBS243 chip, 2.9" and 1.54" (and the 2.9" with red, experimental). More makers and models are welcome.
+- **No flashing needed (experimental).** A SoluM 1.54" or 2.9" label that still runs the firmware it came with can be used as it is: put a battery in, and an AP built with the SoluM option draws its screen and sends it in SoluM's own format. No jig, no pogo pins, and the label is never changed. Tried on a real 2.9" on its original firmware, which joined the AP and showed a layout. [Labels without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing)
+- **SoluM e-paper labels** on the ZBS243 chip, 2.9" and 1.54" (and the 2.9" with red, experimental), flashed once with OpenESL's own firmware for over-the-air updates, settings and battery readings. More makers and models are welcome.
 - **A plain HTTP API** on the access point, protected by a token, for scripts, web shops and home automation ([Home Assistant integration](https://github.com/mathiasbk/openesl-homeassistant), [OpenAPI](docs/openapi.yaml)).
 - **Your own layouts**, drawn in the browser with a pixel-exact preview: text and your own fonts, barcodes, QR codes, pictures, dates and scheduled prices.
 - **A dashboard** on the AP with every label's screen, signal, battery and firmware, and a webhook when something needs attention.
@@ -42,7 +44,7 @@
 
 ## What you can make
 
-Every picture here is the screen of a simulated tag: the access point drew it and the tag firmware showed it, with the same code that runs on real hardware ([tools/gallery/render_gallery.py](tools/gallery/render_gallery.py) renders them). Start from one of the [templates](templates/README.md), draw your own layout with text, fonts, boxes, lines, icons, barcodes and QR codes in the [label designer](https://mathiasbk.github.io/openESL/#design), or send a photo and let the AP dither it. All the text is made up.
+Every picture here is a tag's screen. The 802.15.4 pictures are simulated: the access point drew them and the tag firmware showed them, with the same code that runs on real hardware ([tools/gallery/render_gallery.py](tools/gallery/render_gallery.py) renders them). The two Gicisky 2.9" cards are drawn in the tag's own four colours, one per tag ([tools/gallery/render_bwry.py](tools/gallery/render_bwry.py) draws them). Start from one of the [templates](templates/README.md), draw your own layout with text, fonts, boxes, lines, icons, barcodes and QR codes in the [label designer](https://mathiasbk.github.io/openESL/#design), or send a photo and let the AP dither it. All the example text is made up.
 
 <table>
   <tr>
@@ -60,6 +62,10 @@ Every picture here is the screen of a simulated tag: the access point drew it an
   <tr>
     <td align="center" valign="top"><img src="docs/images/gallery/shelf-red.png" alt="A shelf label with the product name on a red bar and a big price" width="340"><br><sub>Red, on the 2.9" black/white/red</sub></td>
     <td align="center" valign="top"><img src="docs/images/gallery/opening-hours.png" alt="Opening hours for weekdays, Saturday and Sunday" width="156"><br><sub>Opening hours</sub></td>
+  </tr>
+  <tr>
+    <td align="center" valign="top"><img src="docs/images/gallery/openesl-bwry-1.png" alt="An openESL demo card on the Gicisky 2.9-inch black/white/red/yellow tag NEMR92852188: a red band with openESL and a yellow demo badge, the tag's name and address, and the four colour swatches" width="340"><br><sub>openESL demo card, tag NEMR92852188</sub></td>
+    <td align="center" valign="top"><img src="docs/images/gallery/openesl-bwry-2.png" alt="An openESL demo card on the Gicisky 2.9-inch black/white/red/yellow tag NEMR92835821: a red band with openESL and a yellow demo badge, the tag's name and address, and the four colour swatches" width="340"><br><sub>openESL demo card, tag NEMR92835821</sub></td>
   </tr>
 </table>
 
@@ -79,8 +85,7 @@ More, with barcodes and signs, on the [web page](https://mathiasbk.github.io/ope
   | [Linux AP](https://github.com/mathiasbk/openESL/wiki/Linux-AP): a Raspberry Pi or PC with an ESP32-C6 on USB, plus C6 radios over WiFi | depends on the computer | experimental |
 
   Every one of them is set up from the Flash AP tab of the web page.
-- A small **flasher** board (for example a Wemos D1 mini) and a pogo-pin jig for the test pads behind the battery: [Building the flasher](https://github.com/mathiasbk/openESL/wiki/Building-the-flasher).
-- A desktop browser with Web Serial for flashing: Chrome, Edge, or Firefox 151 or newer.
+- To flash labels with OpenESL: a small **flasher** board (for example a Wemos D1 mini) and a pogo-pin jig for the test pads behind the battery ([Building the flasher](https://github.com/mathiasbk/openESL/wiki/Building-the-flasher)), and a desktop browser with Web Serial: Chrome, Edge, or Firefox 151 or newer. Labels used [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing) need none of this, but an ESP32-C6 or C5 AP you build yourself with the SoluM option.
 
 The whole list, with links, is on [What you need](https://github.com/mathiasbk/openESL/wiki/What-you-need).
 
@@ -92,16 +97,41 @@ The whole list, with links, is on [What you need](https://github.com/mathiasbk/o
 | SoluM | SoluM 2.9" black/white | ST-GM29XX2 | 296 × 128 | black/white | ZBS243 | 802.15.4 | Supported |
 | SoluM | SoluM 1.54" black/white | ST-GM16XX2 | 200 × 200 | black/white | ZBS243 | 802.15.4 | Supported |
 | SoluM | SoluM 2.9" black/white/red | ST-GR29000 | 296 × 128 | black/white/red | ZBS243 | 802.15.4 | Experimental |
+| Gicisky | Gicisky/PICKSMART 2.9" black/white/red/yellow | PICKSMART 2.9 BWRY | 296 × 128 | black/white/red/yellow | unknown | ble | Supported |
 <!-- END models -->
 
-The list is made from [shared/models.json](shared/models.json). **Have a label that is not on the list?** [Suggest it in an issue](https://github.com/mathiasbk/openESL/issues/new?template=hardware.yml) with photos of the board and what is written on the chip and display, or see [Adding hardware](https://github.com/mathiasbk/openESL/wiki/Adding-hardware).
+<p align="center">
+  <img src="docs/images/tag-29-bwry-2188.jpg" alt="The Gicisky 2.9-inch black/white/red/yellow Bluetooth tag showing the openESL demo card in all four colours" width="420"><br>
+  <sub>The Gicisky 2.9" BWRY over Bluetooth, with the demo card the BLE AP sent it</sub>
+</p>
+
+The list is made from [shared/models.json](shared/models.json). The SoluM 1.54" and 2.9" also work [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing), on their original firmware: see below. **Have a label that is not on the list?** [Suggest it in an issue](https://github.com/mathiasbk/openESL/issues/new?template=hardware.yml) with photos of the board and what is written on the chip and display, or see [Adding hardware](https://github.com/mathiasbk/openESL/wiki/Adding-hardware).
+
+### SoluM labels: flashed, or as they came
+
+The SoluM 2.9" and 1.54" can run OpenESL's own firmware, or keep the firmware they came with. Both ways the labels get your layouts, fields, pictures and the same HTTP API.
+
+| Label | Firmware on the label | How you start | AP | Status |
+|---|---|---|---|---|
+| SoluM 2.9" (ST-GM29XX2) | OpenESL | Flash once in the jig | Any AP board from the web page | Supported |
+| SoluM 2.9" (ST-GM29XX2) | Original, not flashed | Put a battery in | ESP32-C6 or C5 built with the SoluM option | Experimental, shown a layout on a real label |
+| SoluM 1.54" (ST-GM16XX2) | OpenESL | Flash once in the jig | Any AP board from the web page | Supported |
+| SoluM 1.54" (ST-GM16XX2) | Original, not flashed | Put a battery in | ESP32-C6 or C5 built with the SoluM option | Experimental, joins the AP; picture format tried from a test program |
+
+**Original firmware, not flashed**
+- Pros: no jig, no pogo pins, no flasher board; the label is never changed and can go back to a SoluM system as it is; the quickest way to try OpenESL with a box of second-hand labels.
+- Cons: black and white only; no battery reading; no firmware updates over the air; the label picks its own check-in time (about every 5 minutes), so new content can take a few minutes; the AP has to use SoluM's channel 20 and PAN ID, so it serves only labels on original firmware; you build the AP firmware yourself for now (ESP32-C6 or C5 only).
+
+**Flashed with OpenESL**
+- Pros: firmware updates over the air; battery reading on the 2.9"; the AP sets the check-in time (default 60 s) and night mode; works with every AP board, also the S3 + C6 and the Linux AP; the red 2.9" (experimental).
+- Cons: each label goes in the jig once, which needs a flasher board and pogo pins; the original firmware is backed up first, and only that backup brings it back.
 
 ## Getting started
 
 Everything is done from the web page at **[mathiasbk.github.io/openESL](https://mathiasbk.github.io/openESL/)**, which always serves the latest release. The step-by-step guide is [Getting started](https://github.com/mathiasbk/openESL/wiki/Getting-started) in the wiki. Already running OpenEPaperLink? See [Coming from OpenEPaperLink](https://github.com/mathiasbk/openESL/wiki/Coming-from-OpenEPaperLink).
 
 1. **Flash the access point** on the [Flash AP](https://mathiasbk.github.io/openESL/#ap) tab, and give it your WiFi and an API token.
-2. **Flash the labels** in the jig on the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab. Each label backs up its original firmware first.
+2. **Flash the labels** in the jig on the [Flash tag](https://mathiasbk.github.io/openESL/#tag) tab. Each label backs up its original firmware first. Or skip this step: [Labels without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing) shows how an AP can drive SoluM labels on their original firmware.
 3. **Design your layouts** on the [Design](https://mathiasbk.github.io/openESL/#design) tab, or use the built-in `price` and `text` layouts.
 4. **Send content** from your own software:
 
@@ -120,7 +150,7 @@ The label shows it at its next check-in.
 For the real firmware, the [simulator](sim/README.md) runs the label firmware and the AP together on a PC (Linux or macOS, with a C compiler and make):
 
 ```bash
-make -C sim                                                # builds every label model and runs the tests
+make -C sim                                                # builds every SoluM label model and runs the tests
 sim/build/154/esl-sim serve --speed 60 --png /tmp/screen.png  # a simulated AP with one label, 60 times faster than real time
 ```
 
@@ -155,7 +185,9 @@ The AP keeps a few text fields per label and draws each label's screen from them
 
 ## Status
 
-OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points; the ESP32-C5, the S3 with C6 radios over WiFi and the Linux AP are experimental. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions). What comes next is on the [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
+OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points; the ESP32-C5, the S3 with C6 radios over WiFi and the Linux AP are experimental. Labels [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing) are experimental: a SoluM 2.9" on its original firmware joined an ESP32-C6 AP built with the SoluM option and showed a text layout, and a 1.54" has joined it and shown a picture sent in SoluM's format from a test program; the option is not in the ready-made AP firmware yet. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions). What comes next is on the [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
+
+The Gicisky 2.9" BWRY Bluetooth tag is supported with a separate BLE AP build, tried on an ESP32-C6; it keeps its own firmware.
 
 ## For developers
 
@@ -179,13 +211,13 @@ Help is welcome, most of all with hardware we have not tried yet: other labels (
 
 ## A clean implementation
 
-OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and it uses its own radio protocol. Third-party code is only used where its licence allows it (ESP-IDF, the Inter font, the QR encoder after Project Nayuki). Where each hardware fact comes from is listed in [docs/sources.md](docs/sources.md).
+OpenESL is written from scratch. It does not contain code from other firmware for the same hardware, and flashed labels use its own radio protocol. For labels on their original firmware the AP speaks the maker's protocol, from our own measurements, not from other firmware ([docs/sources.md](docs/sources.md)). Third-party code is only used where its licence allows it (ESP-IDF, the Inter font, the QR encoder after Project Nayuki). Where each hardware fact comes from is listed in [docs/sources.md](docs/sources.md).
 
 ## Credits
 
 This project would be much harder without the people who opened up these tags first:
 
-- **Dmitry Grinberg** ([dmitry.gr](https://dmitry.gr)) for the reverse engineering of the ZBS243 and the SoluM tags.
+- **Dmitry Grinberg** ([dmitry.gr](https://dmitry.gr)) for opening up the ZBS243 and the SoluM tags.
 - **atc1441** for [ZBS_Flasher](https://github.com/atc1441/ZBS_Flasher), the flasher used to read and write the tags, and for a lot of public research and videos on these tags.
 - **Project Nayuki** for the [QR Code generator library](https://www.nayuki.io/page/qr-code-generator-library) (MIT) that our QR encoder follows.
 - The **[OpenEPaperLink](https://github.com/OpenEPaperLink)** project and its contributors for documenting the tags, pinouts and flashing.

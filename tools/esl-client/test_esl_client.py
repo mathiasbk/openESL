@@ -7,6 +7,7 @@ import glob
 import io
 import json
 import os
+import sys
 import tempfile
 import threading
 import time
@@ -1697,6 +1698,93 @@ class SerialClientTest(unittest.TestCase):
         with self.assertRaises(ConnectionError):
             cli.tags()
         self.assertIsNone(cli.fd)   # opened again on the next request, in case the AP restarted
+
+
+class FakePySerial:
+    """Stands in for pyserial's Serial on a pty, so the Windows path (no termios)
+    runs on any system."""
+    opened = []
+
+    def __init__(self):
+        self.port, self.timeout, self.fd = None, None, None
+        self.dtr = self.rts = True
+
+    def open(self):
+        self.state_at_open = (self.dtr, self.rts)
+        self.fd = os.open(self.port, os.O_RDWR | os.O_NOCTTY)
+        FakePySerial.opened.append(self)
+
+    def reset_input_buffer(self):
+        pass
+
+    def write(self, data):
+        os.write(self.fd, data)
+
+    def flush(self):
+        pass
+
+    def read(self, n):
+        import select
+        if not select.select([self.fd], [], [], self.timeout)[0]:
+            return b""
+        return os.read(self.fd, n)
+
+    def close(self):
+        os.close(self.fd)
+
+
+class SerialClientPySerialTest(unittest.TestCase):
+    """Without termios (Windows) the port is opened with pyserial."""
+
+    def setUp(self):
+        import types
+        fake = types.ModuleType("serial")
+        fake.Serial = FakePySerial
+        FakePySerial.opened = []
+        old_mod, old_termios = sys.modules.get("serial"), esl_client.termios
+        sys.modules["serial"] = fake
+        esl_client.termios = None
+
+        def restore():
+            esl_client.termios = old_termios
+            if old_mod is None:
+                sys.modules.pop("serial", None)
+            else:
+                sys.modules["serial"] = old_mod
+        self.addCleanup(restore)
+
+    def _client(self, replies):
+        master, slave = os.openpty()
+        import tty
+        tty.setraw(slave)
+        ap = FakeSerialAp(master, replies)
+        ap.start()
+        cli = esl_client.SerialClient(os.ttyname(slave), timeout=2)
+        cli.fd = cli._open()
+        os.close(slave)
+        self.addCleanup(lambda: cli.fd is not None and cli._close())
+        return cli, ap
+
+    def test_request_and_reply(self):
+        cli, ap = self._client([(200, b'{"mac":"00000123456789A8","content_id":7,\n"pending":true}')])
+        r = cli.set_tag("00000123456789A8", {"layout": "price", "fields": ["Milk", "24.90"]})
+        self.assertEqual(r["content_id"], 7)
+        self.assertEqual(ap.requests[0][:2], ("PUT", "/api/tags/00000123456789A8"))
+        self.assertEqual(FakePySerial.opened[0].state_at_open, (False, False))   # no reset on open
+
+    def test_no_answer(self):
+        cli, _ = self._client([])
+        cli.timeout = 0.3
+        with self.assertRaises(ConnectionError):
+            cli.tags()
+        self.assertIsNone(cli.fd)
+
+    def test_without_pyserial(self):
+        sys.modules["serial"] = None    # import fails
+        cli = esl_client.SerialClient("COM8", timeout=0.3)
+        with self.assertRaises(ConnectionError) as e:
+            cli.tags()
+        self.assertIn("pip install pyserial", str(e.exception))
 
 
 class BridgeTest(unittest.TestCase):

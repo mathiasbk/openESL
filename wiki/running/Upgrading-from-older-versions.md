@@ -11,12 +11,25 @@ The usual order:
 
 ## Skipping releases
 
-Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 0.11.0, for example:
+Go straight to the newest release: you do not have to install the ones in between. Do the steps of each release you skip, in one pass. From 0.5.x to 1.0.0, for example:
 
-1. Backup, then the AP to 0.11.0 over the air, then **a new backup** (only a backup made on 0.11.0 holds the AP's id). It keeps `openesl.local`.
-2. An S3 with a C6 over WiFi: flash that C6 to 0.11.0 together with the S3. The C6 radio of an S3 on a cable keeps working. Flash it once more from the Flash AP tab if you want to update it over the cable from now on (0.8.2), or if it is the one with the 0.96" screen and its colours are wrong.
-3. The labels to the label firmware of the 0.11.0 release (never 0.9.0), one of each model first.
+1. Backup, then the AP to 1.0.0 over the air, then **a new backup** (only a backup made on 0.11.0 or newer holds the AP's id). It keeps `openesl.local`.
+2. An S3 with a C6 over WiFi: flash that C6 to 1.0.0 together with the S3. The C6 radio of an S3 on a cable keeps working. Flash it once more from the Flash AP tab if you want to update it over the cable from now on (0.8.2), or if it is the one with the 0.96" screen and its colours are wrong.
+3. The labels to the label firmware of the 1.0.0 release (never 0.9.0), one of each model first.
 4. Use the new layout elements (icons, lines, QR codes, rounded boxes) and pictures only when you will not go back to 0.5.x: a 0.5.x AP refuses such layout files. Change the radio channel only once every label runs 0.9.2 or newer. Use font files, turned text, more than 6 fields and several radios over WiFi only once the AP will stay on 0.10.0. Use ellipses, circles, triangles, polygons and the new data sources only once the AP will stay on 0.11.0.
+
+## From 0.11.0 to 1.0.0
+
+Take a backup, update the AP over the air, then roll out the new label firmware, one label of each model first. Nothing has to be set after the update, no label draws again, and a C6 radio needs nothing.
+
+- The new label firmware draws on 1.54" labels with a UC-type display (some 2017 labels that showed "drawing failed").
+- Up to 64 labels can be chosen for new label firmware (was 16), and a label that has installed it gives up its place.
+- A Linux AP can be updated from the Firmware page of its dashboard.
+- `esl_client.py --serial COM8` works on Windows after `pip install pyserial`.
+- New and experimental, as AP firmware you build yourself: SoluM labels on their original firmware, without flashing ([Labels without flashing](Labels-without-flashing)), and the Gicisky 2.9" Bluetooth label ([Gicisky 2.9" BWRY](Gicisky-2.9-BWRY)).
+- Going back to 0.11.0: labels that only check in (no content or settings of their own) lose their last-seen time and show up again at their next check-in; a 0.11.0 AP sees at most 16 chosen labels.
+
+Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-0110-to-100).
 
 ## From 0.10.0 to 0.11.0
 
@@ -28,6 +41,7 @@ Take a backup, update the AP over the air, then **take a new backup**: only a ba
 - The 0.11.0 label firmware keeps the old picture until a new one is fully downloaded.
 - Update every AP: on 0.10.0 or older, the published renderer in a C6's dashboard can read the API token.
 - New: circles, ellipses and polygons in layouts; a one-off design on a label; one date language for the AP under Settings, General (English also gives prices with a decimal point; switching to or from English redraws every label whose layout formats numbers once). Dates stay as they were until you choose a language. On an S3 or C5 AP (not a C6): data sources for a picture from a URL, the Norwegian electricity price, a countdown, news headlines and calendar events. The Home Assistant integration 0.5.0 can draw a design on one label and needs this AP release for that.
+- The Linux AP (`openesl-ap`) can update itself since 0.11.0: `POST /api/ota` with the release binary, and it goes back to the old program if the new one does not start. The first update from an earlier build is still by hand (stop it, replace the binary, start it). A Linux AP installed as a systemd service now starts through `openesl-ap-run`, with the binary in `/var/lib/openesl-ap/` (the release carries `openesl-ap-run` and `openesl-ap.service` too): move the binary there and install the script and the new unit file as [docs/linux-ap.md, "Updating"](https://github.com/mathiasbk/openESL/blob/master/docs/linux-ap.md#updating) describes. An AP started some other way, such as your own start script, works as before but answers 501 to `/api/ota`. Updating under systemd has not been tried on a real host yet.
 - Going back below 0.11.0: first remove ellipses, circles, triangles and polygons from your layout files, and note your data sources: an older AP that finds one of the new types starts without any, until it is back on 0.11.0. Take a C6 over WiFi back together with the S3. A label taken back below 0.11.0 starts with its built-in settings and finds the AP again by itself; below 0.9.0 it cannot, unless the AP is on channel 25.
 
 Every detail: [docs/release.md](https://github.com/mathiasbk/openESL/blob/master/docs/release.md#upgrading-from-0100-to-0110).

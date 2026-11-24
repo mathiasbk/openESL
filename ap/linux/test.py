@@ -588,6 +588,10 @@ def test_update(binary, tmp):
     g = Guarded(binary, f, {"OPENESL_CONFIRM_S": "2", "OPENESL_TRIAL_S": "30"})
     o = g.wait_up(old)
     check(o["self_update"] is True and o["confirmed"] is True and o["other_slot"] is None, f"running {old}, confirmed")
+    import platform
+    want = {"x86_64": "x86_64", "amd64": "x86_64", "aarch64": "aarch64", "arm64": "aarch64"}.get(platform.machine().lower(),
+                                                                                                   "armv7" if platform.machine().startswith("arm") else None)
+    check(o.get("arch") == want, f"GET /api/ota names the machine the build is for ({o.get('arch')}, {want})")
     check(api_call(g.port, "POST", "/api/ota", b"x", token="wrong")[0] == 401, "a wrong token is 401")
     check(g.ota(b"")[0] == 422, "an empty body is refused")
     st, o = g.ota(b"#!/bin/sh\necho hi\n" + b"x" * 100)

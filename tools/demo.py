@@ -73,7 +73,7 @@ def log(msg):
 
 def build_sims():
     """One esl-sim per tag model; the first is the one that runs the AP"""
-    builds = [m["build"] for m in models.load()]
+    builds = [m["build"] for m in models.flashable()]
     if "154" in builds:   # the tag of "serve" as sim/README.md shows it
         builds.remove("154")
         builds.insert(0, "154")

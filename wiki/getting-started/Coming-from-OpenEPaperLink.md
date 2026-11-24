@@ -10,8 +10,9 @@ OpenESL is a separate project, written from scratch. It is not a fork of OEPL an
 |---|---|
 | **Labels** | SoluM M2 labels on the ZBS243 chip: the 2.9" and the 1.54" black/white, and the 2.9" black/white/red as experimental. [Supported labels](Supported-labels) |
 | **Moving a label over** | Once in a [flashing jig](Flashing-jig), with its original firmware backed up first. After that, updates go over the air. |
+| **Labels never flashed** | A SoluM 1.54" or 2.9" still on its original firmware can be used as it is, with no jig (experimental): [Labels without flashing](Labels-without-flashing). |
 | **Access point** | An ESP32-C6 is enough (about 400 labels); an S3 + C6 takes 1000 (the C5 too, experimental). [Choosing a board](Access-point-boards) |
-| **Radio** | Its own protocol on 802.15.4, channel 25 by default. |
+| **Radio** | Its own protocol on 802.15.4, channel 25 by default; SoluM's own protocol for labels used without flashing. |
 | **Content** | Your software sends text fields; the AP draws them into a layout you made in the [designer](Label-designer). A PNG works too. |
 | **API** | A documented [HTTP API](HTTP-API) with a token ([OpenAPI](https://github.com/mathiasbk/openESL/blob/master/docs/openapi.yaml)). |
 | **Home Assistant** | Its own [integration](Home-Assistant), installed with HACS. |

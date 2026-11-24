@@ -62,7 +62,7 @@ AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
 AP_SOURCES = ["esl_layout_compile.c", "esl_json.c", "esl_crc32.c", "esl_proto.c", "esl_content.c", "esl_text.c",
               "esl_render.c", "esl_qr.c", "esl_barcode.c", "esl_clock.c", "esl_font.c"]
 TAG_SOURCES = ["src/font.c", "src/barcode.c"] + tag_build.FONTS     # what esl_render.c draws with
-MODELS = [m["build"] for m in tag_build.models.load()]     # -DMODEL=<build>
+MODELS = [m["build"] for m in tag_build.models.load()]          # -DMODEL=<build>
 STATIC = ["index.html", "api.html", "css", "js", "img"]
 
 EXPORTS = ["web_width", "web_height", "web_model_code", "web_error", "web_fb", "web_max_text",
@@ -135,13 +135,19 @@ def renderer_inputs():
     return sorted(set(os.path.normpath(f) for f in files))
 
 
+def model_flags(model):
+    m = tag_build.models.by_build(model)
+    return ["-DMODEL=%s" % model, "-DDRAW_W=%d" % m["width"], "-DDRAW_H=%d" % m["height"],
+            "-DMODEL_CODE=%d" % m["code"]]
+
+
 def build_wasm(model, out=os.path.join(DIST, "wasm")):
     emcc = os.environ.get("EMCC", "emcc")
     if not shutil.which(emcc):
         sys.exit("emcc not found. Install Emscripten (https://emscripten.org) and source emsdk_env.sh.")
     os.makedirs(out, exist_ok=True)
     js = os.path.join(out, "render-%s.js" % model)
-    tag_build.run([emcc, "-std=c11", "-Wall", "-O2", "-DMODEL=%s" % model] + limit_caps() + includes() + sources() + [
+    tag_build.run([emcc, "-std=c11", "-Wall", "-O2"] + model_flags(model) + limit_caps() + includes() + sources() + [
         "-o", js,
         "-sMODULARIZE=1", "-sEXPORT_ES6=1", "-sENVIRONMENT=web,node",
         "-sEXPORT_NAME=createRenderer", "-sALLOW_MEMORY_GROWTH=1", "-sFILESYSTEM=0",
@@ -156,7 +162,7 @@ def build_native(model):
     out = os.path.join(tag_build.BUILD, "web-%s" % model)
     os.makedirs(out, exist_ok=True)
     exe = os.path.join(out, "web_render" + (".exe" if os.name == "nt" else ""))
-    tag_build.run(cc + ["-std=c11", "-Wall", "-Wextra", "-O1", "-DMODEL=%s" % model] + limit_caps() + includes(True) +
+    tag_build.run(cc + ["-std=c11", "-Wall", "-Wextra", "-O1"] + model_flags(model) + limit_caps() + includes(True) +
                   sources() + [os.path.join(HERE, "wasm", "native", "main.c"), "-o", exe])
     return exe
 
@@ -357,6 +363,28 @@ def ap_image(path):
 CHIP_IDS = {"esp32c6": 13, "esp32c5": 23, "esp32s3": 9}
 
 
+# The AP as a Linux program (ap/linux): its release files are ELF programs, openesl-ap-linux-<arch>-<version>
+# (CI: linux-ap/openesl-ap-<arch>). e_machine says which of the three it is; the page lists them as
+# linux_ap in info.json and serves them as ap-linux-<arch>.bin, which the dashboard of a Linux AP
+# sends to POST /api/ota (docs/linux-ap.md, "Updating")
+LINUX_ARCHS = {(2, 62): "x86_64", (2, 183): "aarch64", (1, 40): "armv7"}   # (ELF class, e_machine)
+
+
+def linux_ap_arch(path):
+    """The architecture of an openesl-ap Linux binary, or None when the file is not one"""
+    with open(path, "rb") as f:
+        head = f.read(20)
+    if len(head) < 20 or head[:4] != b"\x7fELF" or head[5] != 1:   # little-endian only
+        return None
+    return LINUX_ARCHS.get((head[4], struct.unpack_from("<H", head, 18)[0]))
+
+
+def linux_ap_version(path, fallback):
+    """The version in a release name (openesl-ap-linux-<arch>-v0.11.0), else fallback"""
+    m = re.search(r"-v?(\d+\.\d+\.\d+[^/]*)$", os.path.basename(path))
+    return m.group(1) if m else fallback
+
+
 def ap_boards():
     """The AP boards in ap/boards/ (board.json, with "display" from its sdkconfig.defaults or its
     base's), supported ones first"""
@@ -455,6 +483,7 @@ def add_firmware(*files):
     aps = {}       # board id -> path
     radios = {}    # radio key -> path
     linux = {}     # the Linux AP's radios: id -> (radio, path)
+    linux_ap = {}  # the Linux AP itself: arch -> path
     for f in files:
         if f == "-":
             continue
@@ -465,6 +494,12 @@ def add_firmware(*files):
                 print("%s: not in release %s, skipped" % (f, release))
                 continue
             sys.exit("%s: no such file" % f)
+        arch = linux_ap_arch(f)
+        if arch:
+            if not re.search(r"openesl-ap(-linux)?-%s(-|$)" % arch, os.path.basename(f)):
+                sys.exit("%s: a Linux AP program for %s, but its name says otherwise" % (f, arch))
+            linux_ap[arch] = f
+            continue
         r = ap_radio_for(f)
         if r and r.get("host") == "linux":
             # the radio of the AP as a Linux program: listed apart (linux_radios), as no board on
@@ -573,6 +608,16 @@ def add_firmware(*files):
                     split_ap_image(path, out, name), r["chip_family"], manifest)
         info["linux_radios"].append({"key": "usb-" + rid, "kind": "usb", "id": rid, "label": r["label"],
                                      "status": r["status"], "chip_family": r["chip_family"], "manifest": manifest})
+    # The AP as a Linux program, one file per architecture: the dashboard of a Linux AP that can
+    # update itself offers the one for its machine ("arch" in GET /api/ota). Never in "ota" or
+    # ap_boards, which the dashboard offers to the ESP32 boards
+    info["linux_ap"] = []
+    for arch, path in sorted(linux_ap.items()):
+        name = "ap-linux-%s.bin" % arch
+        shutil.copy2(path, os.path.join(out, name))
+        info["linux_ap"].append({"arch": arch, "file": name[:-4],
+                                 "version": linux_ap_version(path, info["version"]).lstrip("v"),
+                                 "size": os.path.getsize(path)})
     with open(os.path.join(out, "info.json"), "w") as f:
         json.dump(info, f, indent=2)
     print("Firmware in", out)

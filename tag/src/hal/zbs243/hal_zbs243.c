@@ -1,7 +1,7 @@
 /*
  * hal_zbs243.c - the hardware layer for ZBS243 (SEM9110).
  *
- * Register facts are from Dmitry Grinberg's ZBS243 reverse engineering, as used in
+ * Register facts are from Dmitry Grinberg's public ZBS243 notes, as used in
  * atc1441's ZBS_Flasher examples and the OpenEPaperLink tag firmware (see zbs243.h
  * and docs/sources.md). The code itself is written for this project.
  *
@@ -54,10 +54,11 @@ static void gpio_init(void)
     /*
      * P0.0 EPD SCK, P0.1 EPD MOSI: GPIO outputs (SPI is bit-banged).
      * P0.6 UART TX (debug pad 4): peripheral function, output.
+     * P0.3: display supply switch on some boards (hal_epd_power), low = off.
      */
     P0FUNC = 0x40;
     P0 = 0x00;
-    P0DIR = (uint8_t)~(0x01 | 0x02 | 0x40);
+    P0DIR = (uint8_t)~(0x01 | 0x02 | 0x08 | 0x40);
     P0PULL = 0x00;
 
     /* P1.1 EEPROM nCS high, P1.2 EPD BS1 low (4-wire SPI), P1.7 EPD nCS high. */
@@ -333,6 +334,7 @@ static uint16_t measure_battery_mv(void)
     uint16_t mv = 2600;              /* above every threshold tried */
     uint8_t n, sta;
 
+    hal_epd_power(1);
     P2_0 = 0;                        /* hardware reset */
     hal_delay_ms(1);
     P2_0 = 1;
@@ -371,6 +373,7 @@ sleep:
        SSD-type controller that is already asleep) */
     epd_cmd1(0x10, 0x03);
     epd_cmd1(0x07, 0xA5);
+    hal_epd_power(0);
     return mv;
 }
 
@@ -493,8 +496,9 @@ void power_sleep_s(uint16_t s)
     P0FUNC = 0;
     P1FUNC = 0;
     P2FUNC = 0;
-    P0DIR = 0xFF;
-    P0PULL = 0xFF;
+    P0 = 0x00;
+    P0DIR = (uint8_t)~0x08;          /* P0.3 (display supply) stays an output, low */
+    P0PULL = (uint8_t)~0x08;
     P1 = 0x82;
     P1DIR = (uint8_t)~(0x02 | 0x04 | 0x80);
     P1PULL = 0x00;
@@ -555,7 +559,14 @@ bool hal_doze_1s(void)
 }
 
 /* ---- Display pins: CS P1.7, D/C P2.2, RESET P2.0, BUSY P2.1, SCK P0.0, MOSI P0.1 ---- */
-void hal_epd_power(bool on) { (void)on; }   /* no switchable display supply known */
+/* P0.3 high while the display is in use: on some boards (a 1.54" made in 2017) it switches
+   the display supply; on the others nothing seems to depend on it */
+void hal_epd_power(bool on)
+{
+    P0_3 = on;
+    if (on)
+        hal_delay_ms(10);
+}
 /* P1 as a whole byte (it does not read back): flash nCS P1.1 high, BS1 P1.2 low, as
    gpio_init() and xflash_zbs243.c leave it, so a bit write cannot disturb them while
    the image streams from the flash to the display. */

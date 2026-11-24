@@ -15,12 +15,15 @@ Where the code for what lives, how the parts talk to each other, and where to st
                                          └──────────────────────────────────────┘
                shared/proto.h: the radio messages, used by both the tag and the AP
                shared/models.json: the tag models, generated into C and JS by tools/gen_models.py
+               esl_solum_stock.c: SoluM's own tag protocol, a second protocol the AP answers (ap/README.md)
 ```
 
 1. A client sends text fields and a layout name to the AP's HTTP API ([openapi.yaml](openapi.yaml)).
 2. `esl_api` checks the request and puts the content in `esl_store`, which keeps it in NVS.
 3. When the tag polls, `esl_radio` answers. If the tag's picture is out of date, `esl_render` draws the screen and `esl_image` sends it in blocks.
 4. The tag stores the picture in its SPI flash and shows it. It only shows pictures and never draws layouts itself.
+
+The AP can also answer SoluM labels that still run the vendor's own firmware: `esl_solum_stock` speaks that protocol next to openESL's, with the same store, drawing and image code ([ap/README.md](../ap/README.md), "SoluM stock-firmware tags").
 
 The protocol in detail: [protocol.md](protocol.md). The reasons behind the design: [architecture.md](architecture.md).
 
@@ -45,7 +48,7 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | `templates/` | The designer's template library | [templates/README.md](../templates/README.md) |
 | `tools/esl-client/` | Command-line client for the API, backup and restore, tag OTA, and the bridge the web page uses | [tools/esl-client/README.md](../tools/esl-client/README.md) |
 | `tools/flash-tui/` | Terminal UI for flashing many tags in a row | [tools/flash-tui/README.md](../tools/flash-tui/README.md) |
-| `tools/` | `check.py` (runs what CI runs), `gen_models.py`, `fw_version.py`, `release_notes.py`, `demo.py`, `power-budget/`, `ble-probe/` (Bluetooth tags: scan, read a phone's HCI log), `sniffer/` (decodes what the AP's sniffer build hears, [radio-sniffer.md](radio-sniffer.md)) | – |
+| `tools/` | `check.py` (runs what CI runs), `gen_models.py`, `fw_version.py`, `release_notes.py`, `demo.py`, `power-budget/`, `ble-probe/` (Bluetooth tags: scan and map their protocol), `sniffer/` (decodes what the AP's sniffer build hears, [radio-sniffer.md](radio-sniffer.md)) | – |
 | `wiki/` | The user guide, published to the GitHub wiki | – |
 
 ## Want to change X? Start in Y
@@ -55,7 +58,8 @@ The protocol in detail: [protocol.md](protocol.md). The reasons behind the desig
 | An API endpoint | `ap/components/esl_core/esl_api_*.c` (the route table is in `esl_api.c`), then [openapi.yaml](openapi.yaml), which CI checks against the code |
 | How a layout is drawn | `esl_render.c`, and `esl_layout_compile.c` for the checks on the JSON. The web preview uses the same code. |
 | What a tag is sent and when | `esl_store.c` (what is next for a tag) and `esl_radio.c` (the reply to a frame) |
-| Bluetooth tags (the AP sends to them) | `esl_push.c`, and [ble-tags.md](ble-tags.md) |
+| Bluetooth tags (the AP sends to them) | `esl_push.c`, `esl_gicisky.c`, `esl_ble.c`, `ap/main/ble.c` (NimBLE), and [ble-tags.md](ble-tags.md); the Gicisky 2.9" BWRY protocol is in [gicisky-296-bwry.md](gicisky-296-bwry.md) |
+| A second tag protocol (a label on the vendor's own firmware) | `esl_solum_stock.c` and `esl_link.h`, plus [ap/README.md](../ap/README.md), "SoluM stock-firmware tags" |
 | A radio message | `shared/proto.h` and [protocol.md](protocol.md) part 1, then both `tag/src/proto.c` and `esl_proto.c`. Older tags must keep working. |
 | The tag's behaviour (polling, status screens, OTA) | `tag/src/app.c`, `status.c`, `ota.c`; what it does on the air is in [tag-radio.md](tag-radio.md) |
 | A new tag model | `shared/models.json` and `tag/src/panels/`, see the wiki page "Adding hardware" |

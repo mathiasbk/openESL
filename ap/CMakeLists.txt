@@ -37,6 +37,13 @@ unset(SNIFFER CACHE)
 if(esl_sniffer)
     list(APPEND SDKCONFIG_DEFAULTS "sniffer.sdkconfig.defaults")
 endif()
+# -DBLE=1: the same board as a Bluetooth AP for tags with the maker's firmware
+# (ble.sdkconfig.defaults, docs/ble-tags.md). The radio mode is the stub, so 802.15.4 is off.
+set(esl_ble "${BLE}")
+unset(BLE CACHE)
+if(esl_ble)
+    list(APPEND SDKCONFIG_DEFAULTS "ble.sdkconfig.defaults")
+endif()
 # The chip comes from the board, not from a sdkconfig left in this folder by another build
 if(DEFINED ENV{IDF_TARGET} AND NOT "$ENV{IDF_TARGET}" STREQUAL "${board_target}")
     message(FATAL_ERROR "IDF_TARGET is $ENV{IDF_TARGET}, but board ${BOARD} is ${board_target}")

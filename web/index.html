@@ -41,7 +41,7 @@
     <section class="hero">
       <div class="hero-text">
         <h2>Open firmware for e-paper shelf labels</h2>
-        <p class="lead">Turn SoluM e-paper tags into labels you control. An ESP32 access point sends them your text over radio, and any software can talk to it over plain HTTP.</p>
+        <p class="lead">Turn SoluM e-paper tags into labels you control. An ESP32 access point sends them your text over radio, and any software can talk to it over plain HTTP. A separate BLE build also drives the Gicisky 2.9″ BWRY Bluetooth tag.</p>
         <div class="hero-go">
           <a class="button primary big" href="#ap">Flash the firmware</a>
           <a class="button big" href="?demo=browser#dashboard" title="A pretend AP with six tags in this page, no hardware needed">Try the demo</a>
@@ -65,7 +65,7 @@
     </div>
     <section class="gallery" aria-labelledby="gallery-h">
       <h2 id="gallery-h">What you can make</h2>
-      <p class="muted">Every picture below is the screen of a simulated tag: the access point's code drew it and the tag firmware showed it, the same code that runs on real hardware. Start from a template or draw your own layout in the <a href="#design">Designer</a>, send a photo from the <a href="#dashboard">Dashboard</a>, or fill the fields from Home Assistant or a script.</p>
+      <p class="muted">Every picture below is a tag's screen. The 802.15.4 pictures are simulated: the access point's code drew them and the tag firmware showed them, the same code that runs on real hardware. The two Gicisky 2.9″ cards are drawn in the tag's own four colours, one per tag. Start from a template or draw your own layout in the <a href="#design">Designer</a>, send a photo from the <a href="#dashboard">Dashboard</a>, or fill the fields from Home Assistant or a script.</p>
       <div class="gallery-grid">
         <figure class="wide"><img src="img/gallery/weather.png" width="596" height="260" loading="lazy" alt="Weather with a symbol that follows the forecast, on a simulated 2.9″ tag"><figcaption>Weather with a symbol that follows the forecast</figcaption></figure>
         <figure class="wide"><img src="img/gallery/freeform.png" width="596" height="260" loading="lazy" alt="A layout of your own: boxes, round corners, lines and icons, on a simulated 2.9″ tag"><figcaption>A layout of your own: boxes, round corners, lines and icons</figcaption></figure>
@@ -73,6 +73,8 @@
         <figure><img src="img/gallery/guest-wifi.png" width="404" height="404" loading="lazy" alt="Guest WiFi with a QR code to join, on a simulated 1.54″ tag"><figcaption>Guest WiFi with a QR code to join</figcaption></figure>
         <figure class="wide"><img src="img/gallery/calendar.png" width="596" height="260" loading="lazy" alt="Your next events from a calendar, on a simulated 2.9″ tag"><figcaption>Your next events from a calendar</figcaption></figure>
         <figure class="wide"><img src="img/gallery/shelf-red.png" width="596" height="260" loading="lazy" alt="A shelf label with a red bar, on a simulated 2.9″ black/white/red tag"><figcaption>A shelf label with red, on the 2.9″ black/white/red</figcaption></figure>
+        <figure class="wide"><img src="img/gallery/openesl-bwry-1.png" width="596" height="260" loading="lazy" alt="An openESL demo card on the Gicisky 2.9″ black/white/red/yellow tag NEMR92852188"><figcaption>openESL on the 2.9″ BWRY, tag NEMR92852188</figcaption></figure>
+        <figure class="wide"><img src="img/gallery/openesl-bwry-2.png" width="596" height="260" loading="lazy" alt="An openESL demo card on the Gicisky 2.9″ black/white/red/yellow tag NEMR92835821"><figcaption>openESL on the 2.9″ BWRY, tag NEMR92835821</figcaption></figure>
         <figure><img src="img/gallery/3d-printer.png" width="404" height="404" loading="lazy" alt="A 3D print's progress, from Home Assistant, on a simulated 1.54″ tag"><figcaption>A 3D print's progress, from Home Assistant</figcaption></figure>
         <figure class="wide"><img src="img/gallery/product-ean.png" width="596" height="260" loading="lazy" alt="A price with an EAN-13 barcode, on a simulated 2.9″ tag"><figcaption>A price with an EAN-13 barcode</figcaption></figure>
         <figure class="wide"><img src="img/gallery/meeting-room.png" width="596" height="260" loading="lazy" alt="A meeting room sign, on a simulated 2.9″ tag"><figcaption>A meeting room sign</figcaption></figure>
@@ -707,6 +709,17 @@
           <p class="muted">New firmware for the AP, or for the tags over the radio. A tag image stays on the AP, and each tag of that model fetches it a part at a time at its normal polls (a few minutes at one poll a minute), keeps showing its price, and restarts into it. The arrow next to a tag in the Tags list updates that tag alone; the arrow next to a model below updates every tag of it, and the bars show how far they are. The AP restarts into its new firmware a second after the upload, and goes back to the old one by itself if the new one does not start or cannot be reached within three minutes. When this page has a newer release than the AP runs, an arrow-up button next to its version sends the image that fits it (with or without the status screen). New tag firmware should go to one tag of each model first, and to the rest once that tag has polled 10 times without problems: the table says how far each version is tried, and the page asks before it sends firmware to several tags of a model that no tag has run that long (it counts the polls it sees itself, in this browser, from the first time it sees a tag on the version). Tags flashed once with firmware that has the bootloader, and an AP flashed once over USB with it, are needed (<a href="https://github.com/mathiasbk/openesl/blob/master/docs/tag-ota.md">tag-ota.md</a>).</p>
         </details>
         <dl id="dash-ota" class="facts"></dl>
+        <div id="lx-box" class="lx-box" hidden>
+          <h3>Update the Linux AP</h3>
+          <dl id="lx-facts" class="facts"></dl>
+          <div class="form row">
+            <label id="lx-arch-wrap" hidden>This computer is
+              <select id="lx-arch"><option value="aarch64">aarch64 (64-bit ARM, Raspberry Pi OS 64-bit)</option><option value="armv7">armv7 (32-bit ARM)</option><option value="x86_64">x86_64 (PC)</option></select>
+            </label>
+            <button id="lx-update" type="button" class="primary" hidden></button>
+          </div>
+          <p class="hint">The AP checks that the program is for its machine and starts, keeps the one it runs now, and restarts into the new one (the dashboard is gone for a few seconds). If the new version does not start, or does not confirm itself within a minute, the AP goes back to the old one by itself. The data folder is not touched.</p>
+        </div>
         <div class="table-wrap">
           <table class="dash-tags">
             <thead><tr><th>Tag model</th><th>Firmware on the AP</th><th>Tags</th><th><span class="sr-only">Actions</span></th></tr></thead>

@@ -327,14 +327,12 @@ static void hw_reset(void)
 #ifdef EPD_UC_INIT
 /*
  * Some boards of the same tag carry a UC-type controller (UC8151 family) instead of the
- * SSD-type one: the stock firmware has a driver for each and picks one from flash 0xFC0B
- * (docs/st-gm16xx2.md), which our flasher erases. The two are told apart by BUSY, which
- * is active high on SSD-type and active low on UC-type: once out of reset an SSD-type
- * controller holds it low, a UC-type one high. The init values are the stock firmware's
- * for this panel (EPD_UC_INIT in the panel header).
+ * SSD-type one (docs/st-gm16xx2.md). BUSY is active high on SSD-type and active low on
+ * UC-type; how update() tells them apart is above busy_says_uc(). The init list is in the
+ * panel header (EPD_UC_INIT).
  */
-#if EPD_TRANSPOSE || MODEL_HAS_RED
-#error "the UC-type path streams one black/white plane in gate line order"
+#if MODEL_HAS_RED
+#error "the UC-type path streams one black/white plane"
 #endif
 static const uint8_t __code uc_init[] = { EPD_UC_INIT };
 static bool uc_panel;          /* the display has answered as UC-type */
@@ -352,27 +350,106 @@ static bool uc_wait_ready(uint16_t timeout_ms)
     return true;
 }
 
+#if EPD_TRANSPOSE
+/*
+ * The UC-type controller on the 1.54" (seen on a tag made in 2017) is written one gate line (screen row) at a time, two bits per pixel
+ * (11 = white, 00 = black), all into DTM1; DTM2 is not used. It has no data entry mode, and
+ * on this transposed panel a gate line is a layout row, so the rows are built in strips of
+ * UC_STRIP_ROWS: every layout column is drawn once per strip and only its rows inside the
+ * strip are kept, then the strip is sent. Gate line 0 here is RAM line DRAW_H-1 on the
+ * SSD-type path (which counts Y down), byte for byte, so with the 180 degree turn of the
+ * SSD-type path a row runs from layout column DRAW_W-1 down to 0, MSB first.
+ */
+#if !EPD_ROTATE_180
+#error "the transposed UC-type path assumes the SSD-type path's EPD_ROTATE_180"
+#endif
+#define UC_STRIP_ROWS   100u
+#if DRAW_H % UC_STRIP_ROWS
+#error "DRAW_H must be a multiple of UC_STRIP_ROWS"
+#endif
+static uint8_t __xdata uc_strip[UC_STRIP_ROWS * RAM_X_BYTES];
+
+/* Four pixels (bits 3..0, 1 = white) as two bits each, the first in bits 7..6 */
+static uint8_t uc_2bpp(uint8_t n)
+{
+    uint8_t r = 0;
+    if (n & 0x08) r |= 0xC0;
+    if (n & 0x04) r |= 0x30;
+    if (n & 0x02) r |= 0x0C;
+    if (n & 0x01) r |= 0x03;
+    return r;
+}
+
+static void uc_stream(draw_scene_t *s)
+{
+    uint16_t x;
+    uint8_t y0, y, p, m, b;
+    uint8_t __xdata *row;
+
+    cmd(UC_DTM1);
+    for (y0 = 0; y0 < DRAW_H; y0 += UC_STRIP_ROWS) {
+        for (row = uc_strip; row != uc_strip + sizeof(uc_strip); row++)
+            *row = 0;
+        if (s)
+            draw_begin(s);
+        for (x = 0; x < DRAW_W; x++) {
+            column(s, x);
+            p = (uint8_t)(DRAW_W - 1 - x);
+            m = (uint8_t)(0x80 >> (p & 7));
+            row = uc_strip + (p >> 3);
+            for (y = y0; y < y0 + UC_STRIP_ROWS; y++, row += RAM_X_BYTES)
+                if (col_black[y >> 3] & (uint8_t)(0x80 >> (y & 7)))
+                    *row |= m;
+            if ((x & 31) == 0)
+                hal_wdt_kick();
+        }
+        hal_epd_dc(1);
+        hal_epd_cs(0);
+        for (row = uc_strip; row != uc_strip + sizeof(uc_strip); row++) {
+            b = (uint8_t)~*row;            /* 1 = white */
+            spi_byte(uc_2bpp((uint8_t)(b >> 4)));
+            spi_byte(uc_2bpp((uint8_t)(b & 0x0F)));
+        }
+        hal_epd_cs(1);
+    }
+}
+#else
+/* One layout column per gate line: the image goes into both RAMs as it is */
+static void uc_stream(draw_scene_t *s)
+{
+    stream_plane_cmd(s, 0, UC_DTM1);
+    stream_plane_cmd(s, 0, UC_DTM2);
+}
+#endif
+
+/* Power on can take seconds on the 1.54" made in 2017 */
+#define UC_PON_MS       10000u
+
 static bool update_uc(draw_scene_t *s)
 {
     bool ok = false;
     uint8_t i = 0, n;
     uint8_t t;
 
-    hw_reset();
-    if (!uc_wait_ready(100)) {
-        sleep_any();
-        return false;
+    /* Out of reset BUSY goes high (idle) on most boards. On the 1.54" made in 2017 it stays
+       low until power on, so after a few reset pulses the init goes ahead anyway; power on
+       is where the controller has to answer. */
+    for (t = 0; t < 3; t++) {
+        hw_reset();
+        if (uc_wait_ready(100))
+            break;
     }
     while (i < sizeof(uc_init)) {
         cmd(uc_init[i++]);
         n = uc_init[i++];
-        if (!n)
-            uc_wait_ready(1000);       /* power on */
+        if (!n && !uc_wait_ready(UC_PON_MS)) {   /* power on */
+            sleep_any();
+            return false;
+        }
         for (; n; n--)
             data(uc_init[i++]);
     }
-    stream_plane_cmd(s, 0, UC_DTM1);
-    stream_plane_cmd(s, 0, UC_DTM2);
+    uc_stream(s);
     cmd(UC_DRF);
     /* The refresh pulls BUSY low: a line that stays high is no display at all */
     for (t = 0; t < 200 && hal_epd_busy(); t++)
@@ -388,11 +465,20 @@ static bool update_uc(draw_scene_t *s)
     return ok;
 }
 
-/* After hw_reset(): BUSY still high after 100 ms means a UC-type controller (or none) */
+/*
+ * After hw_reset(): an SSD-type controller holds BUSY high for a while and then low (idle).
+ * A UC-type one holds it high when idle, so BUSY that never goes low within UC_DETECT_MS
+ * means UC-type (or no display). On some UC-type boards (a 1.54" made in 2017) BUSY is low
+ * after reset: those take the SSD-type path first, which fails, and then the UC-type path
+ * (update()). After a UC-type draw has worked, uc_panel skips this check until reboot.
+ */
+#define UC_DETECT_MS    1000u
+static bool ssd_panel;         /* an SSD-type draw has worked */
+
 static bool busy_says_uc(void)
 {
-    uint8_t t;
-    for (t = 0; t < 100; t++) {
+    uint16_t t;
+    for (t = 0; t < UC_DETECT_MS; t++) {
         if (!hal_epd_busy())
             return false;
         hal_delay_ms(1);
@@ -400,6 +486,8 @@ static bool busy_says_uc(void)
     return true;
 }
 #endif
+
+static bool update_ssd(draw_scene_t *s);
 
 /* s = 0: the image in the SPI flash */
 static bool update(draw_scene_t *s)
@@ -417,6 +505,21 @@ static bool update(draw_scene_t *s)
         return uc_panel;
     }
 #endif
+    ok = update_ssd(s);
+#ifdef EPD_UC_INIT
+    /* An SSD-type draw that fails before it has ever worked: try the UC-type path once */
+    if (ok)
+        ssd_panel = true;
+    else if (!ssd_panel)
+        ok = uc_panel = update_uc(s);
+#endif
+    return ok;
+}
+
+/* The SSD-type path, after hw_reset() */
+static bool update_ssd(draw_scene_t *s)
+{
+    bool ok;
 
     cmd(CMD_SW_RESET);
     if (!wait_busy(1000)) {

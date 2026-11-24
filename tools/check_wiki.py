@@ -60,7 +60,7 @@ def model_pages(pages):
     overview = open(os.path.join(ROOT, listed), encoding="utf-8").read() if listed else ""
     errors = []
     for m in models:
-        if m.get("status") == "planned":
+        if m.get("status") == "planned" or m.get("radio") == "ble":
             continue
         found = [p for p, rel in pages.items()
                  if p.endswith("-" + m["product"]) and rel.startswith(os.path.join("wiki", "labels", "models"))]

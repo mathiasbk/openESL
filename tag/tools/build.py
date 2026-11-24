@@ -87,7 +87,7 @@ def host_model():
     for flag in os.environ.get("HOST_CFLAGS", "").split():
         if flag.startswith("-DMODEL="):
             return flag[len("-DMODEL="):]
-    return models.load()[0]["build"]
+    return models.flashable()[0]["build"]
 
 
 # The chips the tag firmware is built for, by "chip" in shared/models.json (tools/gen_models.py
@@ -249,7 +249,7 @@ def build_8051(subdir, name, sources, defines=(), code_loc=0, limit=CODE_SIZE, m
     rels = []
     for s in sources:
         rel = os.path.join(out, os.path.splitext(os.path.basename(s))[0] + ".rel")
-        run([sdcc] + flags + list(defines) + version_defines(tag_model or models.load()[0]["build"]) +
+        run([sdcc] + flags + list(defines) + version_defines(tag_model or models.flashable()[0]["build"]) +
             ["-I" + i for i in INCLUDES[:2]] +
             ["-c", os.path.join(TAG, s), "-o", rel])
         rels.append(rel)
@@ -263,7 +263,7 @@ def cmd_fw():
          openesl.bin      both, written at 0 by the flasher (the jig)
          openesl-ota.bin  the OTA file for the AP: ESL_FWF_* header + the application"""
     import struct
-    ms = models.load()
+    ms = models.flashable()
     m = models.by_build(os.environ.get("MODEL", ms[0]["build"]), ms)
     if not m:
         sys.exit("MODEL must be one of %s (shared/models.json)" % ", ".join(x["build"] for x in ms))

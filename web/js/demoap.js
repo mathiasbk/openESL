@@ -237,7 +237,7 @@ export class DemoAp {
       case "GET /api/fonts/*": return fail(404, `no font file "${p[2]}"`);
       case "PUT /api/fonts/*": return fail(501, "the demo AP keeps no font files");
       case "GET /api/tag-firmware":
-        return { max_size: 61456, part_max: 24576, images: Object.keys(MODELS).map((model) => ({ model, version: null })) };
+        return { max_size: 61456, part_max: 24576, images: Object.keys(MODELS).filter((m) => MODELS[m].radio !== "ble").map((model) => ({ model, version: null })) };
       case "GET /api/ota": return fail(501, "no OTA in the browser demo");
       default: return fail(404, "not found");
     }
@@ -437,7 +437,7 @@ export class DemoAp {
     const res = r.render(n, flags, content.fields);
     if (!res.ok) return { error: "cannot draw it: " + res.error };
     if (res.refused) return { error: res.refused };
-    return { raw: packRaw(res.pixels, m.width, m.height, m.colors.includes("red")) };
+    return { raw: packRaw(res.pixels, m.width, m.height, m.colors.includes("red"), m.colors.includes("yellow")) };
   }
 
   renderer(model) {

@@ -1,6 +1,6 @@
 # What you need
 
-Three things: labels, an access point (AP), and a jig to flash each label once.
+Three things: labels, an access point (AP), and a jig to flash each label once. Or only two: SoluM labels on their original firmware can be used [without flashing](Labels-without-flashing) (experimental), with an AP you build with the SoluM option.
 
 | Part | What to get | More |
 |---|---|---|
@@ -10,5 +10,7 @@ Three things: labels, an access point (AP), and a jig to flash each label once.
 | **A browser** | Chrome, Edge or Firefox 151+ on a computer (Web Serial) for flashing. The designer works in any modern browser. | |
 
 You only need the jig once per label. After that, labels get new firmware over the air ([Updating labels](Updating-labels)).
+
+Bluetooth tags are the exception: they keep the maker's firmware and are not flashed. They use a separate BLE AP build; see [the Gicisky 2.9" BWRY](Gicisky-2.9-BWRY).
 
 **No hardware yet?** The [simulator](https://github.com/mathiasbk/openESL/blob/master/sim/README.md) runs the label firmware and the AP together on a PC, so you can try the API first.

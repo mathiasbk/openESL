@@ -105,7 +105,7 @@ Network errors are retried with backoff; an HTTP error from the AP (401, 422, ..
 
 New firmware goes to one tag of each model first, since a tag that does not start again has to go back in the jig ([docs/release.md](../../docs/release.md), "Rollout to the tags"). So without `--to` or `--all` nothing is sent.
 
-- `tag-ota FILE --to MAC[,MAC]` uploads tag firmware (`openesl-tag-<model>-<version>-ota.bin` from a release, or `tag/build/fw/openesl-ota.bin`) with `PUT /api/tag-firmware` in parts of 8 KB, for these tags only (at most 16). They take it at their next polls ([docs/tag-ota.md](../../docs/tag-ota.md)).
+- `tag-ota FILE --to MAC[,MAC]` uploads tag firmware (`openesl-tag-<model>-<version>-ota.bin` from a release, or `tag/build/fw/openesl-ota.bin`) with `PUT /api/tag-firmware` in parts of 8 KB, for these tags only (at most 64; an AP before 1.0.0 takes 16). They take it at their next polls ([docs/tag-ota.md](../../docs/tag-ota.md)).
   - First it checks that the AP knows each tag, that it is of the file's model, and that the AP firmware can offer it to chosen tags (0.4.4 and newer).
   - Afterwards it checks that the AP really offers it to them alone: an AP that offers it to the whole model has the update stopped again.
 - `tag-ota FILE --all` sends it to every tag of the model at once.
@@ -138,7 +138,7 @@ Not in it: the WiFi (its password cannot be read) and the token.
 
 ## Over the USB port
 
-- `--serial PORT` (or `OPENESL_SERIAL`) talks to the AP over its USB port instead of WiFi, with no token (Linux and macOS, see [ap/README.md](../../ap/README.md)). Opening the port does not reset the AP.
+- `--serial PORT` (or `OPENESL_SERIAL`) talks to the AP over its USB port instead of WiFi, with no token (see [ap/README.md](../../ap/README.md)). On Windows give the COM port (`--serial COM8`) and install pyserial first (`pip install pyserial`); Linux and macOS need nothing extra. Opening the port does not reset the AP.
 - `serve` listens on `http://localhost:8080` (`--port`) and passes `/api/` requests on to the AP, over the USB port or over WiFi with `--url`. It lets the web page (the API tab's "Test Request", the Dashboard, the designer) reach a real AP, which a web page cannot do by itself.
   - It only listens on localhost, and only pages from `https://mathiasbk.github.io` and `localhost` may use it (`--allow-origin` adds one).
   - Over WiFi the page's token is passed on, or `--token` when the page sends none.

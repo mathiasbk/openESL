@@ -12,6 +12,7 @@
 #define MODEL_CODE       1
 #define MODEL_NAME       "2.9"
 #define MODEL_HAS_RED    0
+#define MODEL_HAS_YELLOW 0
 #define DRAW_W           296
 #define DRAW_H           128
 #define MODEL_PANEL_H    "panels/ssd16xx-29.h"
@@ -24,6 +25,7 @@
 #define MODEL_CODE       2
 #define MODEL_NAME       "1.54"
 #define MODEL_HAS_RED    0
+#define MODEL_HAS_YELLOW 0
 #define DRAW_W           200
 #define DRAW_H           200
 #define MODEL_PANEL_H    "panels/ssd16xx-154.h"
@@ -36,6 +38,7 @@
 #define MODEL_CODE       3
 #define MODEL_NAME       "2.9-bwr"
 #define MODEL_HAS_RED    1
+#define MODEL_HAS_YELLOW 0
 #define DRAW_W           296
 #define DRAW_H           128
 #define MODEL_PANEL_H    "panels/ssd16xx-29-bwr.h"

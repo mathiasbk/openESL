@@ -243,6 +243,31 @@ menu "OpenESL AP"
                 device on the network can connect as the radio.
     endchoice
 
+    config ESL_SOLUM_STOCK_TAGS
+        bool "SoluM stock-firmware tags: answer the vendor's own protocol too"
+        depends on ESL_RADIO_DRIVER_IEEE802154 && !ESL_RADIO_SNIFFER
+        default n
+        help
+            Some SoluM labels in the field still run the vendor's own firmware. The
+            AP answers their frames (components/esl_core/esl_solum_stock.c) next to
+            the openESL ones, draws the same content with esl_render, and sends it in
+            SoluM's own image format. Such a tag uses its own PAN and channel, so set
+            "802.15.4 PAN ID" and "802.15.4 channel" to match it, or the AP will not
+            hear it at all. Only the 1.54" and 2.9" panels are known. This protocol
+            is SoluM's: another vendor's stock firmware needs its own handler.
+
+    config ESL_SOLUM_STOCK_GW_ADDR
+        string "SoluM stock-firmware tags: the gateway address they expect"
+        depends on ESL_SOLUM_STOCK_TAGS
+        default ""
+        help
+            The gateway's 8-byte 802.15.4 address as 16 hex digits in the order
+            the AP shows a MAC (as on the gateway's label, e.g.
+            00:11:22:FF:FE:33:44:55; ':' or spaces allowed). A tag that is already
+            attached only answers the gateway it was attached to, so the AP must
+            present that address. Empty: the AP's own 802.15.4 address, which a
+            tag that is not attached yet learns during its scan.
+
     config ESL_NETRADIO_PORT
         int "Radio over WiFi: TCP port"
         depends on ESL_RADIO_DRIVER_NET
@@ -278,7 +303,7 @@ menu "OpenESL AP"
     config ESL_STUB_TAGS
         int "Simulated tags"
         depends on ESL_RADIO_STUB
-        range 1 16
+        range 0 16
         default 3
 
     config ESL_STUB_INTERVAL_S
@@ -286,5 +311,33 @@ menu "OpenESL AP"
         depends on ESL_RADIO_STUB
         range 1 600
         default 10
+
+    config ESL_BLE
+        bool "Bluetooth tags with the maker's firmware (BLE central)"
+        depends on ESL_RADIO_STUB && BT_ENABLED && BT_NIMBLE_ENABLED
+        default n
+        help
+            The AP uses its BLE radio instead of 802.15.4 (the stub radio mode)
+            and sends pictures to Bluetooth price tags that keep their maker's
+            firmware, such as the Gicisky/PICKSMART 2.9" BWRY (docs/ble-tags.md,
+            docs/gicisky-296-bwry.md). Needs the NimBLE central and observer
+            roles; ble.sdkconfig.defaults has them and is read by
+            "python build.py --ble <board>" or idf.py -D BLE=1.
+
+    config ESL_BLE_TAG_MAC
+        string "Tag MAC to add at boot (AA:BB:CC:DD:EE:FF; empty = from the scan)"
+        depends on ESL_BLE
+        default ""
+
+    config ESL_BLE_AUTO_ADD
+        bool "Add a Gicisky tag the scan hears"
+        depends on ESL_BLE
+        default y
+
+    config ESL_BLE_ROUND_MS
+        int "Milliseconds between push rounds"
+        depends on ESL_BLE
+        range 1000 60000
+        default 5000
 
 endmenu

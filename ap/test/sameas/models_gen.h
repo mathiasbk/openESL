@@ -17,10 +17,10 @@
 #define ESL_MODEL_154_H 200
 
 #define ESL_MODEL_LIST(X) \
-    X(1, "2.9", "solum-m2-29-bw", 296, 128, 0) \
-    X(2, "1.54", "solum-m2-154-bw", 200, 200, 0) \
-    X(3, "2.9b", "other-29-bw", 296, 128, 0) \
-    X(4, "bad", "other-bad", 296, 128, 0) \
+    X(1, "2.9", "solum-m2-29-bw", 296, 128, 0, 0) \
+    X(2, "1.54", "solum-m2-154-bw", 200, 200, 0, 0) \
+    X(3, "2.9b", "other-29-bw", 296, 128, 0, 0) \
+    X(4, "bad", "other-bad", 296, 128, 0, 0) \
 
 #define ESL_MODEL_SAME_AS_LIST(X) \
     X(3, 1) \

@@ -32,10 +32,12 @@ bool esl_persist_cfg_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_ta
 /* Blob format for what the AP last heard from a tag, so a tag that only polls
  * (no content, no settings) is not forgotten across a restart or an OTA update,
  * and a tag that has gone quiet still shows when it was last heard:
- *   ver(1) mac(8, LE) model(1) fw(2) battery_mv(2) rssi(1) unix_s(4), all LE
- * unix_s is the wall-clock second of its last POLL as last saved, 0 = unknown. */
-#define ESL_PERSIST_SEEN_VER 1
-#define ESL_PERSIST_SEEN_LEN (1 + 8 + 1 + 2 + 2 + 1 + 4)
+ *   ver(1) mac(8, LE) model(1) fw(2) battery_mv(2) rssi(1) unix_s(4) [stock(1)], all LE
+ * unix_s is the wall-clock second of its last POLL as last saved, 0 = unknown.
+ * Version 1 has no stock byte and is still read (stock = false). */
+#define ESL_PERSIST_SEEN_VER 2
+#define ESL_PERSIST_SEEN_LEN (1 + 8 + 1 + 2 + 2 + 1 + 4 + 1)
+#define ESL_PERSIST_SEEN_LEN_V1 (1 + 8 + 1 + 2 + 2 + 1 + 4)
 
 typedef struct {
     uint8_t model;
@@ -43,7 +45,19 @@ typedef struct {
     uint16_t battery_mv;
     int8_t rssi;
     uint32_t unix_s;
+    bool stock;
 } esl_seen_t;
 
 size_t esl_persist_seen_encode(uint64_t mac, const esl_seen_t *s, uint8_t *out);
 bool esl_persist_seen_decode(const uint8_t *in, size_t len, uint64_t *mac, esl_seen_t *s);
+
+/* Blob format for one tag the AP sends to itself (esl_push, a Bluetooth tag with the
+ * maker's firmware), so a restart keeps the table and the id of the image the tag was
+ * last given:
+ *   ver(1) mac(8, LE) model(1) shown(4, LE)
+ * shown is the image id the tag was last given, 0 = none since it was added. */
+#define ESL_PERSIST_PUSH_VER 1
+#define ESL_PERSIST_PUSH_LEN (1 + 8 + 1 + 4)
+
+size_t esl_persist_push_encode(uint64_t mac, uint8_t model, uint32_t shown, uint8_t *out);
+bool esl_persist_push_decode(const uint8_t *in, size_t len, uint64_t *mac, uint8_t *model, uint32_t *shown);

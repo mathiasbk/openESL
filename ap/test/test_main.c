@@ -17,6 +17,8 @@ void test_radio(void);
 void test_rcache(void);
 void test_rhost(void);
 void test_push(void);
+void test_gicisky(void);
+void test_ble(void);
 void test_nlink(void);
 void test_wifi(void);
 void test_screen(void);
@@ -31,6 +33,7 @@ void test_clock(void);
 void test_font(void);
 void test_compat(void);
 void test_remote(void);
+void test_solum_stock(void);
 
 static const struct {
     const char *name;
@@ -53,6 +56,8 @@ static const struct {
     {"rcache", test_rcache},
     {"rhost", test_rhost},
     {"push", test_push},
+    {"gicisky", test_gicisky},
+    {"ble", test_ble},
     {"nlink", test_nlink},
     {"wifi", test_wifi},
     {"screen", test_screen},
@@ -65,13 +70,14 @@ static const struct {
     {"clock", test_clock},
     {"font", test_font},
     {"compat", test_compat},
+    {"solum_stock", test_solum_stock},
 };
 
 int main(void)
 {
     for (size_t i = 0; i < sizeof(tests) / sizeof(tests[0]); i++) {
         int before = tt_failures;
-        printf("%-10s", tests[i].name);
+        printf("%-12s", tests[i].name);
         fflush(stdout);
         tests[i].fn();
         printf("%s\n", tt_failures == before ? "ok" : "");

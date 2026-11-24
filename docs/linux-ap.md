@@ -144,16 +144,18 @@ The HTTP server takes 32 connections at a time (more get 503), one request each;
 `POST /api/ota` with the `openesl-ap-linux-<arch>-<version>` file of a release as the body updates the program itself (the body is the file as it is, no `offset`/`total`; it goes to disk as it arrives, up to 32 MB):
 
 ```
-curl -H "Authorization: Bearer $(cat ~/openesl/token)" --data-binary @openesl-ap-linux-armv7-0.12.0 \
+curl -H "Authorization: Bearer $(cat ~/openesl/token)" --data-binary @openesl-ap-linux-armv7-1.0.0 \
     "http://<host>/api/ota"
 ```
 
 1. The AP checks that the file is an ELF for its own machine (class, byte order and `e_machine`), writes it next to the running program as `<binary>.new`, syncs it and runs `<binary>.new --version` (5 s) to see that it starts here and which version it is. A version that is not newer than the running one is refused with 409; `?force=1` installs it anyway (an older one, or the same).
 2. It keeps the running program as `<binary>.prev` (a hard link, so the program never goes missing), renames the new file over `<binary>`, puts `new` in `<binary>.trial` and exits with code 75.
 3. `openesl-ap-run` starts the new program as a trial. The program removes `<binary>.trial` once it has run for 10 s with its HTTP server and radio up, which is what `confirmed` in `GET /api/ota` means. If it exits first, or `<binary>.trial` is still there after 60 s, `openesl-ap-run` moves `<binary>.prev` back and starts that one again, and says so on stderr (the journal). A second update is refused with 409 while the first is on trial.
-4. `GET /api/ota` answers in the shape the ESP32 boards use: `slot` is `binary`, `version` the running version, `other_slot` is `prev` while an older program is kept and `other_version` its version, `confirmed`, and `uploading`; `self_update` says whether this AP can update itself and `self_update_blocked` why not.
+4. `GET /api/ota` answers in the shape the ESP32 boards use: `slot` is `binary`, `arch` the machine the build is for (`x86_64`, `aarch64`, `armv7`; 0.11.0 does not say), `version` the running version, `other_slot` is `prev` while an older program is kept and `other_version` its version, `confirmed`, and `uploading`; `self_update` says whether this AP can update itself and `self_update_blocked` why not.
 
 The update is refused with 501, and the AP keeps running as it was, when it was not started by `openesl-ap-run` (nothing would bring the old version back; `GET /api/ota` says `unguarded`) and when it runs in a container (`container`: pull a new image, below). With 500 when the folder of the program is not writable by the user that runs it, or the disk is full. The data directory is never touched; a version that changes the stored formats has to read the old ones, as the ESP32 builds do.
+
+The dashboard's Firmware page does this for an AP that can update itself (`self_update`): it offers the program for the AP's `arch` from the published page, which serves each release's Linux programs as `firmware/ap-linux-<arch>.bin` (`linux_ap` in its `info.json`), sends it in one request and waits for `confirmed`, or says that the old version came back. In a container and without `openesl-ap-run` it shows why it cannot instead of the button.
 
 Replacing the program by hand keeps working: stop the service, put the new file in place, start it. Without a service manager, start it as `openesl-ap-run /path/to/openesl-ap --data ...`; the script restarts the program itself after an update and ends with the program's exit code, so the service manager restarts it only if it died for another reason (`Restart=on-failure`). `OPENESL_TRIAL_S` (60) sets how long a new version has to confirm itself, and `OPENESL_CONFIRM_S` (10) how long the program runs before it does.
 

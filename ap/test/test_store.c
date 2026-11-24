@@ -386,7 +386,7 @@ static void test_store_seen(void)
     esl_store_t st2 = {0};
     esl_store_free(&st2);
     esl_store_init(&st2, CAP, &ops, 0);
-    esl_seen_t rec = {ESL_MODEL_154, 0x0401, 2600, -88, 1792000000};
+    esl_seen_t rec = {ESL_MODEL_154, 0x0401, 2600, -88, 1792000000, false};
     CHECK(esl_store_restore_seen(&st2, 2, 0xB2, &rec));
     CHECK(!esl_store_restore_seen(&st2, 2, 0xC3, &rec)); /* slot holds another tag */
     CHECK(!esl_store_restore_seen(&st2, CAP, 0xC3, &rec));
@@ -409,6 +409,63 @@ static void test_store_seen(void)
     CHECK_INT(g.f.locks, g.f.unlocks);
     esl_store_free(&st);
     esl_store_free(&st2);
+}
+
+/* A tag that speaks another protocol (esl_solum_stock) is listed too, through
+ * esl_store_note_seen: model, signal and last seen, but no openESL poll handling. */
+static void test_store_note_seen(void)
+{
+    enum { CAP = 4 };
+    esl_store_t st = {0};
+    seenfake_t g = {0};
+    esl_store_ops_t ops = {&g, f_lock, f_unlock, NULL, NULL, NULL, NULL, s_seen, s_clock, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+    esl_tag_t t;
+    esl_store_free(&st);
+    esl_store_init(&st, CAP, &ops, 0);
+
+    /* a new tag is saved at once, with model, signal and last seen */
+    g.clock = 1792000000;
+    CHECK(esl_store_note_seen(&st, 0xD1, ESL_MODEL_154, 0, -55, 1000));
+    CHECK_INT(g.writes, 1);
+    CHECK(g.mac == 0xD1);
+    CHECK_INT(g.rec.model, ESL_MODEL_154);
+    CHECK_INT(g.rec.rssi, -55);
+    CHECK_INT(g.rec.battery_mv, 0); /* its frames do not carry one */
+    CHECK(g.rec.unix_s == 1792000000u);
+    CHECK(esl_store_get(&st, 0xD1, &t));
+    CHECK(t.seen && t.model == ESL_MODEL_154 && t.rssi == -55 && t.polls == 1);
+    CHECK(t.stock && g.rec.stock);
+    CHECK(t.last_seen_ms == 1000);
+
+    /* the same tag again: nothing written at once, and the (unknown) battery is kept */
+    g.clock = 1792000060;
+    esl_store_note_stock_poll(&st, 0xD1, 60000);
+    CHECK(esl_store_note_seen(&st, 0xD1, ESL_MODEL_154, 0, -60, 61000));
+    CHECK_INT(g.writes, 1);
+    CHECK(esl_store_get(&st, 0xD1, &t));
+    CHECK(t.polls == 2 && t.rssi == -60 && t.last_seen_ms == 61000);
+    CHECK_INT(esl_store_save_seen(&st), 1);
+    CHECK_INT(g.writes, 2);
+    CHECK(g.rec.unix_s == 1792000060u);
+
+    /* another model: saved at once */
+    CHECK(esl_store_note_seen(&st, 0xD1, ESL_MODEL_29, 0, -61, 62000));
+    CHECK_INT(g.writes, 3);
+    CHECK_INT(g.rec.model, ESL_MODEL_29);
+
+    /* a battery reading, when the caller has one, is kept */
+    CHECK(esl_store_note_seen(&st, 0xD1, ESL_MODEL_29, 2900, -61, 63000));
+    CHECK(esl_store_get(&st, 0xD1, &t) && t.battery_mv == 2900);
+
+    /* a table with no room: no row, nothing written */
+    uint64_t m = 0xE0;
+    while (!esl_store_full(&st))
+        esl_store_note_seen(&st, m++, ESL_MODEL_154, 0, -70, 80000);
+    int w = g.writes;
+    CHECK(!esl_store_note_seen(&st, 0x1234, ESL_MODEL_154, 0, -70, 81000));
+    CHECK_INT(g.writes, w);
+    CHECK_INT(g.f.locks, g.f.unlocks);
+    esl_store_free(&st);
 }
 
 /* ---- a table that grows, and content kept only in "NVS" ---- */
@@ -833,5 +890,6 @@ void test_store(void)
 
     test_store_seen();
     test_store_hours();
+    test_store_note_seen();
     test_store_grow();
 }
