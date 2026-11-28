@@ -143,3 +143,19 @@ test("the Linux AP: a card only when the page has its USB radio, flashing the C6
   // the S3 on a cable never gets the USB radio
   assert.deepEqual(radiosFor(info.ap_boards[2], withLinux).map((r) => r.key), ["uart-c6", "uart-c6-lcd"]);
 });
+
+test("the Bluetooth AP has a card of its own after the boards, flashed like one board", () => {
+  const ble = { id: "c6-supermini-ble", board: "c6-supermini", ble: true, chip_family: "ESP32-C6", target: "esp32c6", status: "experimental", manifest: "ap-ble-manifest.json", radio: "native" };
+  const c = cards({ ...info, ble_aps: [ble] });
+  assert.equal(c.length, info.ap_boards.length + 1);
+  const last = c[c.length - 1];
+  assert.equal(last.title, "C6 for Bluetooth tags");
+  assert.deepEqual(last.chips, ["C6", "Bluetooth"]);
+  assert.equal(last.pic, "single");
+  assert.equal(last.line, "one board, Bluetooth tags only");
+  assert.ok(last.ready);
+  assert.notEqual(last.board.id, c[0].board.id);
+  const p = plan(ble, null);
+  assert.deepEqual(p.flash, [{ kind: "flash", role: "ap", chip: "ESP32-C6", manifest: "ap-ble-manifest.json", title: "ESP32-C6", usbPort: false }]);
+  assert.deepEqual(p.connect, [{ kind: "wifi" }]);
+});

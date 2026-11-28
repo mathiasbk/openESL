@@ -126,6 +126,12 @@ A fix for tags that stay "new content waiting" (#238). The AP drew a tag's scree
 
 `esl-client --url` takes an address without `http://` (#235), and the user guide has its own page for moving to a new AP.
 
+### Upgrading from 1.0.0 to 1.0.1
+
+Order: the AP over the air as usual, then nothing else: the tag images and the C6 radios have not changed. An 802.15.4 AP keeps everything. The Bluetooth AP is now a release file, `openesl-ap-esp32c6-ble-<version>.bin` (and `-ota.bin`), and a card in the Flash AP tab. It is its own app (`esl_ap_ble`): it takes only Bluetooth AP updates over the air, and an 802.15.4 AP refuses its image. A Bluetooth AP you built from 1.0.0 is the 802.15.4 app (`esl_ap`), so it refuses the new image over the air and its dashboard offers it nothing: flash it once over USB from the Flash AP tab ("C6 for Bluetooth tags"). It has the same partition table, so it keeps its WiFi, tags and settings; after that its dashboard updates it.
+
+Never send the 802.15.4 image (`openesl-ap-esp32c6-<version>-ota.bin`) to a Bluetooth AP from 1.0.0 with esl-client or by hand: that version takes it and stops serving its Bluetooth tags until it is flashed again. Going back to 1.0.0 is a USB flash too, for the same reason.
+
 ### Upgrading from 0.11.0 to 1.0.0
 
 Order: `esl-client backup ap.json`, the AP over the air, then the tags, one of each model first. Nothing has to be set after the update, no tag draws again, and a C6 radio (on a cable or over WiFi) needs nothing. The new features (SoluM tags on their original firmware, Bluetooth tags) are separate AP builds you make yourself and are off in the release images.
@@ -260,6 +266,10 @@ Not tried on hardware yet: the automatic rollback of the tag after 9 failed star
 ## 6. Summaries
 
 Every release has a section "Summary of X.Y.Z" here: a few sentences on what the release brings, for the top of the release notes. `tools/release_notes.py` stops with an error without it, like the upgrade instructions. The notes then list the changes, and the short upgrade instructions come last.
+
+### Summary of 1.0.1
+
+The Bluetooth AP for the Gicisky/PICKSMART 2.9" black, white, red and yellow label is now in the release and on the web page: flash an ESP32-C6 from the Flash AP tab ("C6 for Bluetooth tags") instead of building it yourself, and update it from its dashboard. It is its own app, so an 802.15.4 AP and a Bluetooth AP never take each other's update. A Bluetooth AP you built from 1.0.0 needs one USB flash; nothing else changes.
 
 ### Summary of 1.0.0
 

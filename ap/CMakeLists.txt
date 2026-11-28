@@ -119,6 +119,11 @@ if(NOT no_psram AND board_psram GREATER 0)
     idf_build_set_property(COMPILE_DEFINITIONS "ESL_LINK_HIST=32" APPEND)
 endif()
 
+# The app's name comes from the manifest ("app" of a variant, esl_ap by default): the Bluetooth AP
+# is its own app (esl_ap_ble), as its image goes into its own partition table (ble.partitions.csv,
+# no tag firmware partition), so an 802.15.4 AP refuses it over the air and it refuses theirs
+# (ota.c, is_ap_image: only an image of this project goes in), and the dashboard and web/build.py
+# tell the two apart by the name
 project(${esl_app})
 # A build folder whose sdkconfig was made for the sniffer stays a sniffer: say so, so it is not
 # put on an AP that serves tags by mistake (docs/radio-sniffer.md)

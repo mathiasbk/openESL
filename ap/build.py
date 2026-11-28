@@ -5,7 +5,8 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
   python build.py                    every board
   python build.py c6-supermini ...   only these boards
   python build.py --list             the boards: id, chip, status, file name
-  python build.py --release          "<artifact> <release name>" per board (release.yml)
+  python build.py --release          "<artifact> <release name>" per board, radio and the
+                                     Bluetooth AP (release.yml, web.yml)
   python build.py --jobs             the CI build jobs as JSON, one per board and one per radio
                                      (firmware.yml builds them side by side)
   python build.py --no-radio <board>...  only the boards, not their radio firmware
@@ -363,9 +364,15 @@ def main():
         for b in boards + load_radios(boards) + linux_radios():
             print("%-20s %-8s %-12s %s" % (b["id"], b["target"], b["status"], b["artifact"]))
         return
+    # the Bluetooth AP of one board with a "ble" variant (the recommended one first)
+    ble_aps = [b for b in sorted(boards, key=lambda b: not b.get("recommended")) if "ble" in b["variants"]][:1]
     if args == ["--release"]:
         for b in boards + load_radios(boards) + linux_radios():
             print(b["artifact"], b["release"])
+        # the Bluetooth AP (docs/ble-tags.md): openesl-ap-esp32c6-ble-<version>.bin, so it can be
+        # flashed from the web page and updated from its dashboard; the sniffer stays a build of your own
+        for b in ble_aps:
+            print(b["artifact"] + "-ble", b["release"] + "-ble")
         return
     if args == ["--jobs"]:
         jobs = [{"name": b["id"], "args": "--no-radio " + b["id"]} for b in boards]

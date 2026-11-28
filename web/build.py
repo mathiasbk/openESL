@@ -366,6 +366,25 @@ def ap_image(path):
 
 CHIP_IDS = {"esp32c6": 13, "esp32c5": 23, "esp32s3": 9}
 
+# The project name of the Bluetooth AP (ap/CMakeLists.txt): an ESP32 AP takes only an image of
+# its own app over the air, so its images are listed apart (ble_aps in info.json)
+BLE_APP = "esl_ap_ble"
+
+
+def ap_project(path):
+    """The app's project name in an AP image: from the <file>-ota.bin next to it (the app
+    alone), else from the app the merged image holds; None when neither says"""
+    ota = path[:-4] + "-ota.bin"
+    if os.path.exists(ota):
+        with open(ota, "rb") as f:
+            return app_project(f.read(112))
+    with open(path, "rb") as f:
+        img = f.read()
+    for label, ptype, sub, off, size in partitions(img):
+        if ptype == 0 and sub in (0x00, 0x10):
+            return app_project(img[off:off + 112])
+    return None
+
 
 # The AP as a Linux program (ap/linux): its release files are ELF programs, openesl-ap-linux-<arch>-<version>
 # (CI: linux-ap/openesl-ap-<arch>). e_machine says which of the three it is; the page lists them as
@@ -486,6 +505,7 @@ def add_firmware(*files):
     radios = {}    # radio key -> path
     linux = {}     # the Linux AP's radios: id -> (radio, path)
     linux_ap = {}  # the Linux AP itself: arch -> path
+    ble = {}       # the Bluetooth AP: board id -> path
     for f in files:
         if f == "-":
             continue
@@ -517,7 +537,16 @@ def add_firmware(*files):
         m = tag_image_model(f)
         if m:
             tags[m["build"]] = f
+        elif ap_image(f) is not None and ap_project(f) == BLE_APP:
+            # the Bluetooth AP (docs/ble-tags.md): its own app and partition table, so never
+            # in ap_boards or under the board's file name, which the dashboard offers 802.15.4 APs
+            ble[ap_board_for(f, boards)["id"]] = f
         elif ap_image(f) is not None:
+            # an image named as the Bluetooth AP's that is not its app would replace the
+            # board's own image, which every 802.15.4 AP on it is offered
+            if re.search(r"-ble(-v?\d|$)", os.path.basename(f)[:-4]):
+                sys.exit("%s: named as the Bluetooth AP, but its image is project %s, not %s"
+                         % (f, ap_project(f) or "(no app description)", BLE_APP))
             aps[ap_board_for(f, boards)["id"]] = f
         else:
             sys.exit("%s: neither a tag firmware image (OTA header in it or in its -ota.bin) nor an AP image "
@@ -602,6 +631,30 @@ def add_firmware(*files):
             entry["ota"] = name[:-4] + "-ota"
             entry["version"] = image_version(ota)
         info["radios"].append(entry)
+    # The Bluetooth AP (docs/ble-tags.md), one per board that has it: the Flash AP tab offers it
+    # as a card of its own, and the dashboard of a Bluetooth AP ("app": "esl_ap_ble" in GET
+    # /api/ota) offers its -ota.bin. Never in ap_boards, whose images an 802.15.4 AP is offered
+    info["ble_aps"] = []
+    for b in boards:
+        if b["id"] not in ble:
+            continue
+        src = ble[b["id"]]
+        name = ap_file_name(b)[:-4] + "-ble.bin"
+        manifest = name.replace("ap-openesl", "ap").replace(".bin", "-manifest.json")
+        ap_manifest(out, "OpenESL Bluetooth AP, %s" % b["chip_family"], info["version"], name,
+                    split_ap_image(src, out, name), b["chip_family"], manifest)
+        # its own id: the Flash AP tab picks a card by it, and the board's own card has the board's
+        entry = {"id": b["id"] + "-ble", "board": b["id"], "name": "%s for Bluetooth tags" % b["chip_family"], "status": "experimental",
+                 "label": "%s as an AP for Bluetooth tags that keep their maker's firmware (Gicisky 2.9\" BWRY): "
+                          "no 802.15.4, so no SoluM tags on this board" % b["chip_family"],
+                 "target": b["target"], "chip_family": b["chip_family"], "display": False, "radio": "native",
+                 "ble": True, "file": name[:-4], "manifest": manifest, "designer": b["designer"]}
+        ota = src[:-4] + "-ota.bin"
+        if os.path.exists(ota):
+            shutil.copy2(ota, os.path.join(out, name[:-4] + "-ota.bin"))
+            info["ota"][name[:-4]] = True
+            entry["version"] = image_version(ota)
+        info["ble_aps"].append(entry)
     # The radios of the AP as a Linux program (docs/linux-ap.md): the Flash AP tab's "Linux AP"
     # card flashes them; never in "radios" or "ota", which the dashboard offers to an S3's C6
     info["linux_radios"] = []
