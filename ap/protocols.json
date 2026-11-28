@@ -24,7 +24,6 @@
       "id": "gicisky",
       "label": "Gicisky Bluetooth tags",
       "radio": "ble",
-      "conflicts": ["802.15.4"],
       "models": "protocol",
       "kconfig": "ESL_BLE",
       "sdkconfig": "protocols/gicisky.sdkconfig",
