@@ -198,5 +198,75 @@ class RadioProjects(unittest.TestCase):
             self.add("openesl-ap-radio-esp32c6-v0.11.0.bin", "esl_netradio")
 
 
+def chip_image(img, chip_id=13):
+    """img with the chip id of its app header (esp_image_header_t chip_id, 13 = ESP32-C6)"""
+    img = bytearray(img)
+    img[12:14] = struct.pack("<H", chip_id)
+    return bytes(img)
+
+
+class BleAp(unittest.TestCase):
+    """The Bluetooth AP (esl_ap_ble, docs/ble-tags.md) is told apart by its project name: it goes
+    to ble_aps as ap-openesl-ble, never in ap_boards or over the C6's own ap-openesl, which the
+    dashboard offers every 802.15.4 C6 AP"""
+
+    def add(self, files):
+        d = tempfile.mkdtemp()
+        paths = []
+        for name, project in files:
+            p = os.path.join(d, name)
+            with open(p, "wb") as fh:
+                fh.write(merged_image(project))
+            with open(p[:-4] + "-ota.bin", "wb") as fh:
+                fh.write(chip_image(app_image(project)))
+            paths.append(p)
+        saved = build.DIST, build.split_ap_image
+        build.DIST = d
+        build.split_ap_image = lambda src, out, name: [(name, 0)]
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                build.add_firmware(*paths)
+        finally:
+            build.DIST, build.split_ap_image = saved
+        with open(os.path.join(d, "firmware", "info.json")) as fh:
+            return d, json.load(fh)
+
+    def check(self, normal, ble):
+        d, info = self.add([(normal, "esl_ap"), (ble, "esl_ap_ble")])
+        self.assertEqual([b["file"] for b in info["ap_boards"]], ["ap-openesl"])
+        self.assertEqual([(b["id"], b["file"], b["manifest"], b["ble"]) for b in info["ble_aps"]],
+                         [("c6-supermini-ble", "ap-openesl-ble", "ap-ble-manifest.json", True)])
+        self.assertEqual(info["ota"], {"ap-openesl": True, "ap-openesl-ble": True})
+        fw = os.path.join(d, "firmware")
+        with open(os.path.join(fw, "ap-openesl-ota.bin"), "rb") as fh:
+            self.assertEqual(build.app_project(fh.read()), "esl_ap")
+        with open(os.path.join(fw, "ap-openesl-ble-ota.bin"), "rb") as fh:
+            self.assertEqual(build.app_project(fh.read()), "esl_ap_ble")
+        self.assertTrue(os.path.exists(os.path.join(fw, "ap-ble-manifest.json")))
+
+    def test_release_names(self):
+        self.check("openesl-ap-esp32c6-v1.0.1.bin", "openesl-ap-esp32c6-ble-v1.0.1.bin")
+
+    def test_ci_names(self):
+        self.check("openesl-ap.bin", "openesl-ap-ble.bin")
+
+    def test_order_does_not_matter(self):
+        d, info = self.add([("openesl-ap-ble.bin", "esl_ap_ble"), ("openesl-ap.bin", "esl_ap")])
+        self.assertEqual([b["file"] for b in info["ap_boards"]], ["ap-openesl"])
+        self.assertEqual([b["file"] for b in info["ble_aps"]], ["ap-openesl-ble"])
+
+    def test_an_802154_image_under_the_ble_name_stops_the_build(self):
+        for name in ("openesl-ap-ble.bin", "openesl-ap-esp32c6-ble-v1.0.1.bin"):
+            with self.subTest(name=name), self.assertRaises(SystemExit) as e:
+                self.add([(name, "esl_ap")])
+            self.assertIn("not esl_ap_ble", str(e.exception))
+
+    def test_release_lists_the_ble_ap(self):
+        import subprocess
+        out = subprocess.run([sys.executable, os.path.join(build.ROOT, "ap", "build.py"), "--release"],
+                             capture_output=True, text=True, check=True).stdout.split("\n")
+        self.assertIn("openesl-ap-ble openesl-ap-esp32c6-ble", out)
+
+
 if __name__ == "__main__":
     unittest.main()

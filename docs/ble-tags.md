@@ -50,7 +50,13 @@ are. What is new is how the picture gets to the tag.
    `esl_push_seen`, and the transport `send`, which connects, hands the picture to the
    tag's protocol module and disconnects. The transport adapter `esl_ble.c` is built and
    tested on the PC; the NimBLE backend and the scan are in `ap/main/ble.c`, built with
-   `python ap/build.py --ble <board>` and tried on two units. Tags are added by the scan or
+   `python ap/build.py --ble <board>` and tried on two units. The BLE AP is its own app,
+   `esl_ap_ble`, so it takes only its own image over the air and an 802.15.4 AP refuses
+   it (`ap/main/ota.c`); GET /api/ota says `app`. Releases carry it for the C6 Super
+   Mini as `openesl-ap-esp32c6-ble-<version>.bin` and `-ota.bin`, the web page's Flash AP
+   tab offers it as its own card (`ble_aps` in `firmware/info.json`), and the dashboard of
+   a BLE AP offers its update. A BLE AP built from 1.0.0 (app `esl_ap`) is offered no
+   update and takes one USB flash. Tags are added by the scan or
    `CONFIG_ESL_BLE_TAG_MAC`; pairing in the web page is to do. The push table (the image
    id each tag shows) is saved in NVS (`esl_persist.c`'s blob) after each send, so a
    restart does not send an image again.

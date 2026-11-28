@@ -5,7 +5,8 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
   python build.py                    every board
   python build.py c6-supermini ...   only these boards
   python build.py --list             the boards: id, chip, status, file name
-  python build.py --release          "<artifact> <release name>" per board (release.yml)
+  python build.py --release          "<artifact> <release name>" per board, radio and the
+                                     Bluetooth AP (release.yml, web.yml)
   python build.py --jobs             the CI build jobs as JSON, one per board and one per radio
                                      (firmware.yml builds them side by side)
   python build.py --no-radio <board>...  only the boards, not their radio firmware
@@ -268,12 +269,14 @@ def build(b, sniffer=False, ble=False):
     fresh_sdkconfig(HERE, bdir, defaults_files(b, sniffer, ble))
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "BOARD=" + b["id"],
          "-D", "SNIFFER=%d" % sniffer, "-D", "BLE=%d" % ble, "build"])
-    merge(b["target"], bdir, "esl_ap.bin", artifact)
+    # the Bluetooth AP is its own app, esl_ap_ble (CMakeLists.txt)
+    app = "esl_ap_ble" if ble else "esl_ap"
+    merge(b["target"], bdir, app + ".bin", artifact)
     # the symbols for this image: a panic backtrace (the AP is built with silent assertions,
     # sdkconfig.defaults) is decoded with it, e.g. idf.py monitor --elf or addr2line
-    shutil.copyfile(os.path.join(HERE, bdir, "esl_ap.elf"), os.path.join(OUT, artifact + ".elf"))
+    shutil.copyfile(os.path.join(HERE, bdir, app + ".elf"), os.path.join(OUT, artifact + ".elf"))
     print("%s: out/%s.bin, out/%s-ota.bin and out/%s.elf" % (name, artifact, artifact, artifact))
-    return record_size(name, artifact, bdir, "esl_ap.bin")
+    return record_size(name, artifact, bdir, app + ".bin")
 
 
 def build_radio(r):
@@ -362,16 +365,20 @@ def main():
         for b in boards + load_radios(boards) + linux_radios():
             print("%-20s %-8s %-12s %s" % (b["id"], b["target"], b["status"], b["artifact"]))
         return
+    # the sniffer and the Bluetooth AP of one board with its own radio (the recommended one first)
+    native = sorted((b for b in boards if b.get("radio", "native") == "native"), key=lambda b: not b.get("recommended"))[:1]
     if args == ["--release"]:
         for b in boards + load_radios(boards) + linux_radios():
             print(b["artifact"], b["release"])
+        # the Bluetooth AP (docs/ble-tags.md): openesl-ap-esp32c6-ble-<version>.bin, so it can be
+        # flashed from the web page and updated from its dashboard; the sniffer stays a build of your own
+        for b in native:
+            print(b["artifact"] + "-ble", b["release"] + "-ble")
         return
     if args == ["--jobs"]:
         jobs = [{"name": b["id"], "args": "--no-radio " + b["id"]} for b in boards]
-        # the sniffer of one board with its own radio (the recommended one first), so it keeps building
-        native = sorted((b for b in boards if b.get("radio", "native") == "native"), key=lambda b: not b.get("recommended"))
-        jobs += [{"name": b["id"] + "-sniffer", "args": "--sniffer " + b["id"]} for b in native[:1]]
-        jobs += [{"name": b["id"] + "-ble", "args": "--ble " + b["id"]} for b in native[:1]]
+        jobs += [{"name": b["id"] + "-sniffer", "args": "--sniffer " + b["id"]} for b in native]
+        jobs += [{"name": b["id"] + "-ble", "args": "--ble " + b["id"]} for b in native]
         jobs += [{"name": "%s-%s" % (r["project"], r["id"]), "args": "%s/%s" % (r["project"], r["id"])}
                  for r in load_radios(boards) + linux_radios()]
         print(json.dumps(jobs))

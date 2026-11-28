@@ -2,7 +2,7 @@
 // parts as esl_tagfw_part() and the AP's POST /api/ota do (docs/openapi.yaml).
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { PART, TAGFW_PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, apSendQuestion, tagFirmwarePlan, radioImageFor, radioSendQuestion, waitRadioBack, isLinuxAp, linuxImageFor, linuxBlocked, linuxSendQuestion, sendLinuxAp, waitLinuxBack } from "../js/fwupload.js";
+import { PART, TAGFW_PART, tagUpdate, firmwareKind, sendTagFirmware, chooseTagFirmware, fwProgress, sendApFirmware, tagFirmwareRows, waitApBack, fmtVer, cmpVersion, apImageFor, isBleAp, apSendQuestion, tagFirmwarePlan, radioImageFor, radioSendQuestion, waitRadioBack, isLinuxAp, linuxImageFor, linuxBlocked, linuxSendQuestion, sendLinuxAp, waitLinuxBack } from "../js/fwupload.js";
 
 const enc = new TextEncoder();
 
@@ -417,4 +417,28 @@ test("after a Linux AP update: confirmed, rolled back, or gone", async () => {
   } finally {
     Date.now = realNow;
   }
+});
+
+test("the Bluetooth AP is offered its own image, and an 802.15.4 AP never that one", () => {
+  const info = {
+    version: "v1.0.1", release: true,
+    ap_boards: [{ id: "c6-supermini", target: "esp32c6", display: false, file: "ap-openesl" }],
+    ble_aps: [{ id: "c6-supermini-ble", board: "c6-supermini", target: "esp32c6", file: "ap-openesl-ble", version: "1.0.1", ble: true }],
+    ota: { "ap-openesl": true, "ap-openesl-ble": true },
+  };
+  const ble = { version: "1.0.0", chip: "esp32c6", display: false, slot_size: 0x1c0000, app: "esl_ap_ble" };
+  assert.deepEqual(apImageFor(ble, info), { file: "ap-openesl-ble-ota", version: "1.0.1", newer: true, display: false, ble: true });
+  assert.equal(apImageFor({ ...ble, version: "1.0.1" }, info).newer, false);
+  assert.equal(apImageFor(ble, { ...info, ble_aps: [] }), null);           // a page without it
+  // an 802.15.4 AP, saying its app or not: the board's image, never the Bluetooth one
+  const plain = { version: "1.0.0", chip: "esp32c6", display: false, slot_size: 0x180000 };
+  assert.equal(apImageFor(plain, info).file, "ap-openesl-ota");
+  assert.equal(apImageFor({ ...plain, app: "esl_ap" }, info).file, "ap-openesl-ota");
+  // a 1.0.0 Bluetooth AP (built as esl_ap, the larger slot): nothing, as it would take the
+  // 802.15.4 image and refuses the new Bluetooth one
+  assert.equal(apImageFor({ ...ble, app: undefined }, info), null);
+  assert.ok(isBleAp({ ...ble, app: undefined }));
+  assert.ok(!isBleAp(plain));
+  assert.ok(!isBleAp({ ...plain, chip: "esp32s3", slot_size: 0x1c0000 }));
+  assert.equal(apImageFor({ ...plain, app: "something_else" }, info), null);
 });

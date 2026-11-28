@@ -37,14 +37,14 @@ The two cards are the images the tags were sent: red, yellow, black and white in
 
 ## How to use it
 
-1. **Build and flash the BLE AP**, a separate firmware from the 802.15.4 one:
+1. **Flash the BLE AP**, a separate firmware from the 802.15.4 one. On the [web page](https://mathiasbk.github.io/openESL/), the Flash AP tab has the card **C6 for Bluetooth tags**; each release also has it as `openesl-ap-esp32c6-ble-<version>.bin` (written at 0, like the other AP images) and `-ota.bin` for updates. Or build it yourself:
 
    ```bash
    source ~/esp/esp-idf-v5.5.5/export.sh
    python ap/build.py --ble c6-supermini
    ```
 
-   The image is `ap/out/openesl-ap-ble.bin`. An ESP32-C6 runs either the Bluetooth tags or the 802.15.4 tags, not both. The BLE build has its own partition table; a board flashed with it needs a USB flash to go back ([Access point boards](Access-point-boards)).
+   The image is `ap/out/openesl-ap-ble.bin`. An ESP32-C6 runs either the Bluetooth tags or the 802.15.4 tags, not both. The BLE build has its own partition table, so moving a board between the two is a USB flash that erases it ([Access point boards](Access-point-boards)). The BLE AP is its own app: it takes only BLE AP updates over the air, and an 802.15.4 AP refuses the BLE image, so the dashboard offers each its own. A BLE AP you built from 1.0.0 needs one USB flash with a newer BLE image; after that its dashboard updates it.
 
 2. **Let the AP hear the tag.** The scan adds a Gicisky tag it hears. To name one, set its address in `CONFIG_ESL_BLE_TAG_MAC`.
 

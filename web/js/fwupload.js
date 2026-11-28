@@ -105,6 +105,21 @@ export function cmpVersion(a, b) {
 // release's version.
 export function apImageFor(ota, info) {
   if (isLinuxAp(ota)) return null; // a program, not an ESP32 image: linuxImageFor
+  // The Bluetooth AP (app esl_ap_ble, docs/ble-tags.md) takes only its own image, and an
+  // 802.15.4 AP only its own (ota.c): ble_aps in info.json for the one, ap_boards for the other.
+  // One that does not say its app (1.0.0) but has the Bluetooth AP's larger slot is a 1.0.0
+  // Bluetooth AP, built as esl_ap: it would take the 802.15.4 image and lose its partition
+  // table's purpose, and refuses the new Bluetooth image, so it is offered nothing (update it
+  // once over USB)
+  if (isBleAp(ota)) {
+    if (ota.app !== BLE_APP) return null;
+    const b = (info?.ble_aps || []).find((x) => info?.ota?.[x.file] && x.target === (ota.chip || "esp32c6"));
+    if (!b) return null;
+    const version = String(b.version || info.ap_version || info.version).replace(/^v/, "");
+    const c = cmpVersion(version, ota.version);
+    return { file: b.file + "-ota", version, newer: info.release === true && c !== null && c > 0, display: false, ble: true };
+  }
+  if (ota?.app && ota.app !== "esl_ap") return null; // an app this page has no image for
   const boards = (info?.ap_boards || [
     { file: "ap-openesl", target: "esp32c6", display: false },
     { file: "ap-openesl-lcd", target: "esp32c6", display: true },
@@ -115,6 +130,14 @@ export function apImageFor(ota, info) {
   const c = cmpVersion(version, ota?.version);
   return { file: b.file + "-ota", version, newer: info.release === true && c !== null && c > 0, display: !!b.display };
 }
+
+// The Bluetooth AP's app (ap/CMakeLists.txt), and its app slot on a 4 MB C6
+// (ap/ble.partitions.csv: 0x1C0000; the 802.15.4 AP's is 0x180000), which tells a 1.0.0
+// Bluetooth AP, which does not say its app, from an 802.15.4 one
+export const BLE_APP = "esl_ap_ble";
+const BLE_SLOT = 0x1c0000;
+export const isBleAp = (ota) => ota?.app === BLE_APP ||
+  (!ota?.app && (ota?.chip || "esp32c6") === "esp32c6" && ota?.slot_size === BLE_SLOT);
 
 // The AP runs as a Linux program (ap/linux): GET /api/ota says slot "binary"
 export const isLinuxAp = (ota) => ota?.slot === "binary";

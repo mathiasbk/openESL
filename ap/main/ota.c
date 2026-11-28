@@ -273,6 +273,10 @@ int ota_info(esl_sb_t *out)
 #endif
     esl_sb_printf(out, ",\"confirmed\":%s,\"display\":%s,\"chip\":\"%s\"", kept ? "true" : "false",
                   display ? "true" : "false", CONFIG_IDF_TARGET);
+    /* the app (esl_ap, or esl_ap_ble for the Bluetooth AP): the only images this AP takes as
+     * its own (is_ap_image), so the dashboard offers the one with this name */
+    esl_sb_puts(out, ",\"app\":");
+    esl_sb_json_str(out, esp_app_get_description()->project_name);
 #if CONFIG_ESL_RADIO_DRIVER_UART
     esl_sb_puts(out, ",\"radio\":");
     radio_info(out);
