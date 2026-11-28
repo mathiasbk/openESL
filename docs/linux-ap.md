@@ -100,6 +100,13 @@ The other places each get a channel of their own when their radio first connects
   radio. Keep the port to the network the radios are on (a firewall, or the address in
   `--netradio`).
 
+## Other tags
+
+- **SoluM labels on their original firmware** (experimental): `--solum-stock-pan 1234 --channel 20`. The radio listens on SoluM's PAN as a second PAN next to openESL's, so both kinds of labels are served together; a C6 on USB needs radio firmware from 1.0.1. The gateway address the labels attach to is made at the first start and kept in `solum-stock-gw` (or give `--solum-stock-gw`). The SPI modem has no second PAN: there `--pan` must be the same as `--solum-stock-pan`, and the AP serves only those labels. See the wiki page Labels without flashing.
+- **Bluetooth tags with their maker's firmware** (experimental, the Gicisky 2.9" BWRY, [ble-tags.md](ble-tags.md)): `--ble hci0` on a computer with Bluetooth (a Raspberry Pi's own, or a USB dongle). The program talks to the kernel's Bluetooth stack through its sockets (no libraries, no bluetoothd needed): a raw HCI socket for the scan (30 ms of every 100 ms) and an L2CAP socket on the ATT channel for each transfer (`ap/linux/ble.c`). The raw socket needs `CAP_NET_RAW` and `CAP_NET_ADMIN`: as a service, add them to the unit's `AmbientCapabilities` and `CapabilityBoundingSet` with `systemctl edit openesl-ap`; by hand, root or `setcap cap_net_raw,cap_net_admin+eip openesl-ap`; in Docker, `--net host --cap-add NET_RAW --cap-add NET_ADMIN` without `--user` (the image has no file capabilities). Every Gicisky tag the scan hears is added to the tag list (`--ble-auto-add 0` turns that off; `--ble-tag AA:BB:CC:DD:EE:FF` adds one at the start), and which image each tag shows is kept in `ble-push`, so a restart does not send it again. Not tried with a tag on Linux yet. The SoluM gateway has no Bluetooth.
+
+`GET /api/tags` lists what the program serves under `ap.protocols` (`openesl`, `solum-stock`, `gicisky`).
+
 ## Building
 
 ```
@@ -198,6 +205,8 @@ Each file holds what the C6 keeps in one NVS entry, in the same format (`esl_per
 | `tagfw/<model>.bin`, `tagfw/<model>.to` | tag firmware and which tags it is for |
 | `next_poll`, `channel` | the AP-wide settings changed through the API |
 | `radios` | the network radios' places and channels (`--netradio`) |
+| `solum-stock-gw` | the gateway address SoluM labels on their original firmware attach to (`--solum-stock-pan`) |
+| `ble-push` | the Bluetooth tags and the image each was last given (`--ble`): one `MAC model image` line each |
 
 ## The clock
 

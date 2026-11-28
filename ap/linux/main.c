@@ -89,6 +89,9 @@ typedef struct {
     char netradio[128];
     unsigned solum_stock_pan; /* 0: off */
     char solum_stock_gw[32];
+    char ble[16];             /* "": off */
+    char ble_tag[24];
+    unsigned ble_auto_add;
 } opts_t;
 
 static void usage(FILE *f)
@@ -112,6 +115,10 @@ static void usage(FILE *f)
             "                    Both kinds share the channel (off)\n"
             "  --solum-stock-gw MAC  the gateway address those tags were attached to (default: one made at\n"
             "                    the first start, kept in DIR/solum-stock-gw)\n"
+            "  --ble hciN        also serve Bluetooth tags with their maker's firmware (Gicisky 2.9\" BWRY)\n"
+            "                    on that adapter; needs root or cap_net_raw,cap_net_admin (off)\n"
+            "  --ble-tag MAC     a Bluetooth tag to add at the start (AA:BB:CC:DD:EE:FF)\n"
+            "  --ble-auto-add 0  do not add every Gicisky tag the scan hears (1)\n"
             "  --token TOKEN     API token (default: made at the first start, kept in DIR/token)\n"
             "  --next-poll S     default poll interval sent to tags, 0 = the tag keeps its own (0)\n"
             "  --max-tags N      (%d)\n"
@@ -153,6 +160,12 @@ static bool set_opt(opts_t *o, const char *name, const char *val)
         return NUM(solum_stock_pan, 16, 1, 0xFFFE);
     if (!strcmp(name, "solum-stock-gw"))
         return STR(solum_stock_gw);
+    if (!strcmp(name, "ble"))
+        return STR(ble);
+    if (!strcmp(name, "ble-tag"))
+        return STR(ble_tag);
+    if (!strcmp(name, "ble-auto-add"))
+        return NUM(ble_auto_add, 10, 0, 1);
     if (!strcmp(name, "next-poll"))
         return NUM(next_poll_s, 10, 0, 3600);
     if (!strcmp(name, "max-tags"))
@@ -533,7 +546,7 @@ static int radio_loop(const radio_backend_t *b)
 
 int main(int argc, char **argv)
 {
-    static opts_t o = {"/var/lib/openesl", ":80", "", "", ESL_DEFAULT_CHANNEL, ESL_DEFAULT_PAN_ID, 0, AP_MAX_TAGS, "", 0, ""};
+    static opts_t o = {"/var/lib/openesl", ":80", "", "", ESL_DEFAULT_CHANNEL, ESL_DEFAULT_PAN_ID, 0, AP_MAX_TAGS, "", 0, "", "", "", 1};
     int rc = parse_args(&o, argc, argv);
     if (rc)
         return rc;
@@ -617,7 +630,10 @@ int main(int argc, char **argv)
     ap.api.store = &ap.store;
     ap.api.token = o.token;
     ap.api.fw_version = OPENESL_VERSION;
-    ap.api.protocols = solum_stock_pan ? "openesl,solum-stock" : "openesl";
+    static char protocols[64];
+    snprintf(protocols, sizeof(protocols), "openesl%s%s", solum_stock_pan ? ",solum-stock" : "",
+             o.ble[0] ? ",gicisky" : "");
+    ap.api.protocols = protocols;
     ap.api.layouts = &ap.layouts;
     ap.api.reset_reason = "poweron";
     ap.api.sched = &ap.sched;
@@ -630,6 +646,8 @@ int main(int argc, char **argv)
     ap.api.jobs = &ap.jobs;
     ap.api.apid = store_files_apid();
     if (o.netradio[0] && !netradio_start(o.netradio, own))
+        return 1;
+    if (o.ble[0] && !ble_start(o.ble, o.data, o.ble_tag, o.ble_auto_add, 5000, store_files_images(), &stop))
         return 1;
     if (!http_start(o.listen))
         return 1;
@@ -652,6 +670,8 @@ int main(int argc, char **argv)
     stop = 1;
     if (hk_ok)
         pthread_join(hk, NULL);
+    if (o.ble[0])
+        ble_stop();
     esl_store_save_seen(&ap.store);
     store_files_sync();
     if (b->close)

@@ -1,4 +1,6 @@
 #pragma once
+#include <signal.h>
+#include "esl_image.h"
 /* openesl-ap: the AP core (ap/components/esl_core) as a Linux program (docs/linux-ap.md).
  *
  *   main.c        options, start-up, the radio loop and the scheduler tick
@@ -49,6 +51,16 @@ typedef struct {
 
 extern ap_t ap;
 
+/* ---- ble.c ---- */
+
+/* --ble hciN: Bluetooth tags with their maker's firmware (Gicisky 2.9" BWRY) on that adapter,
+ * in a thread of their own until *stop is set; tag_mac (AA:BB:CC:DD:EE:FF, or "") is added at
+ * the start, and with auto_add every such tag the scan hears. The push table is kept in
+ * data_dir/ble-push. False with a message on stderr when the adapter cannot be used. */
+bool ble_start(const char *spec, const char *data_dir, const char *tag_mac, bool auto_add, unsigned round_ms,
+               esl_image_t *im, volatile sig_atomic_t *stop);
+void ble_stop(void);
+
 /* ---- store_files.c ---- */
 
 /* Opens (and creates) the data directory and loads everything kept there into ap's store,
@@ -63,6 +75,8 @@ void store_unlock(void *ctx);
 /* The AP id's settings for the API (esl_api_t.apid), and their days: starts them once the
  * clock is known and ends them; called now and then (every minute) */
 esl_apid_cfg_t *store_files_apid(void);
+/* The image buffers (esl_image.h), with their own lock; NULL before store_files_open */
+esl_image_t *store_files_images(void);
 void store_files_tick(void);
 /* Syncs the data directory's file system: after esl_store_save_seen(), whose files are
  * written without a sync each */

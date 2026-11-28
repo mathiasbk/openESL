@@ -418,6 +418,17 @@ def config_channel(frames):
     return next((p[0] for t, p in frames if t == 0x81), None)
 
 
+def test_ble_refused(binary, tmp):
+    """--ble without a usable adapter stops at the start with a reason, not later"""
+    data = os.path.join(tmp, "ble")
+    p = subprocess.run([binary, "--data", data, "--listen", f"127.0.0.1:{free_port()}", "--ble", "usb0"],
+                       capture_output=True, timeout=20)
+    check(p.returncode == 1 and b"an adapter such as hci0" in p.stderr, "ble: --ble takes an adapter name")
+    p = subprocess.run([binary, "--data", data, "--listen", f"127.0.0.1:{free_port()}", "--ble", "hci9"],
+                       capture_output=True, timeout=20)
+    check(p.returncode == 1 and b"--ble hci9" in p.stderr, "ble: an adapter that cannot be opened stops it at the start")
+
+
 def test_netradio_only(binary, tmp):
     data = os.path.join(tmp, "net-only")
     nport = free_port()
@@ -801,6 +812,7 @@ def main():
 
         test_uart(binary, tmp)
         test_uart_solum_stock(binary, tmp)
+        test_ble_refused(binary, tmp)
         test_netradio(binary, tmp)
         test_netradio_only(binary, tmp)
         test_update(binary, tmp)
