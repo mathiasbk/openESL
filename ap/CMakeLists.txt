@@ -61,6 +61,7 @@ if(esl_protocols STREQUAL "-")
     set(esl_protocols "")
 endif()
 list(GET manifest_lines 2 esl_app)
+list(GET manifest_lines 3 esl_protocol_kconfig)
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
              "${CMAKE_CURRENT_LIST_DIR}/manifest.py" "${CMAKE_CURRENT_LIST_DIR}/protocols.json" "${board_json_file}")
 message(STATUS "OpenESL AP board ${BOARD}: variant ${esl_variant}, protocols ${esl_protocols}")
@@ -125,6 +126,19 @@ endif()
 # (ota.c, is_ap_image: only an image of this project goes in), and the dashboard and web/build.py
 # tell the two apart by the name
 project(${esl_app})
+# Every protocol the manifest gives the build has to be on in the sdkconfig Kconfig made: a symbol
+# whose "depends on" is not met (main/Kconfig.projbuild) is dropped without a word, and the AP would
+# then say it speaks a protocol it does not
+if(NOT esl_protocol_kconfig STREQUAL "-")
+    string(REPLACE "," ";" esl_protocol_kconfig "${esl_protocol_kconfig}")
+    foreach(sym ${esl_protocol_kconfig})
+        if(NOT CONFIG_${sym})
+            message(FATAL_ERROR "Board ${BOARD} (variant ${esl_variant}) has protocols ${esl_protocols}, but "
+                                "CONFIG_${sym} is not on in ${SDKCONFIG}: its Kconfig dependencies are not met "
+                                "(main/Kconfig.projbuild). Fix board.json or protocols.json.")
+        endif()
+    endforeach()
+endif()
 # A build folder whose sdkconfig was made for the sniffer stays a sniffer: say so, so it is not
 # put on an AP that serves tags by mistake (docs/radio-sniffer.md)
 if(CONFIG_ESL_RADIO_SNIFFER AND NOT esl_sniffer)

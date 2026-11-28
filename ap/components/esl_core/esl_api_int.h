@@ -23,6 +23,8 @@
 #ifndef ESL_PROTOCOLS
 #define ESL_PROTOCOLS "openesl"
 #endif
+/* A comma-separated list of protocol ids (ESL_PROTOCOLS) as a JSON array of strings */
+void esl_api_protocols_json(esl_sb_t *out, const char *list);
 
 /* The paths, as ap/test/openapi/check_openapi.py reads them */
 #define PATH_TAGS "/api/tags"

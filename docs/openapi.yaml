@@ -2233,8 +2233,8 @@ components:
         board_name: { type: string, description: "The board's short name for people (`name` in its board.json); not sent by firmware 0.6.0 and older", example: ESP32-S3 + C6 on cable }
         protocols:
           type: array
-          items: { type: string, enum: [openesl, solum-stock, gicisky] }
-          description: "The tag protocols this AP's firmware speaks (`protocols` in its board.json, `ap/protocols.json`): `openesl` (tags with openESL's firmware, over 802.15.4), `solum-stock` (SoluM tags on their original firmware), `gicisky` (Gicisky Bluetooth tags). Empty on a sniffer. Not sent by firmware 1.0.0 and older"
+          items: { type: string }
+          description: "The tag protocols this AP's firmware speaks (`protocols` in its board.json, `ap/protocols.json`): `openesl` (tags with openESL's firmware, over 802.15.4), `solum-stock` (SoluM tags on their original firmware), `gicisky` (Gicisky Bluetooth tags). Empty on a sniffer. Later firmware can add ids, so a client skips one it does not know. Not sent by firmware 1.0.0 and older"
           example: [openesl]
         uptime_s: { type: integer, minimum: 0, description: Seconds since the AP started }
         radio:

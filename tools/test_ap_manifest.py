@@ -42,6 +42,17 @@ class Checks(unittest.TestCase):
         self.assertIn("needs its 802.15.4 radio to be native", " ".join(manifest.check_build(b)))
         self.assertEqual(manifest.check_build(board(protocols=["openesl", "solum-stock"])), [])
 
+    def test_conflicting_radio(self):
+        # ESL_BLE depends on the stub radio mode (main/Kconfig.projbuild): not next to 802.15.4
+        b = board(radios={"802.15.4": {"via": "native"}, "ble": {"via": "native"}}, protocols=["openesl", "gicisky"])
+        self.assertIn("gicisky cannot be built with a 802.15.4 radio", " ".join(manifest.check_build(b)))
+
+    def test_the_sniffer_has_no_protocols(self):
+        b = board(variants={"sniffer": {"sdkconfig": "sniffer.sdkconfig.defaults"}})
+        self.assertIn("the sniffer answers no tags", " ".join(manifest.check_build(b, "sniffer")))
+        b = board(variants={"sniffer": {"protocols": [], "sdkconfig": "sniffer.sdkconfig.defaults"}})
+        self.assertEqual(manifest.check_build(b, "sniffer"), [])
+
     def test_unknown_protocol_and_radio(self):
         self.assertTrue(manifest.check_build(board(protocols=["zigbee"])))
         self.assertTrue(manifest.check_build(board(radios={"802.15.4": {"via": "spi"}})))
@@ -88,10 +99,15 @@ class Sdkconfig(unittest.TestCase):
             out = io.StringIO()
             with redirect_stdout(out):
                 self.assertEqual(manifest.main(["cmake", "c6-supermini", "sniffer", d]), 0)
-            files, protocols, app = out.getvalue().splitlines()
+            files, protocols, app, kconfig = out.getvalue().splitlines()
             self.assertTrue(files.endswith("|sniffer.sdkconfig.defaults"))
             self.assertEqual(protocols, "-")
             self.assertEqual(app, "esl_ap")
+            self.assertEqual(kconfig, "-")
+            out = io.StringIO()
+            with redirect_stdout(out):
+                self.assertEqual(manifest.main(["cmake", "c6-supermini", "ble", d]), 0)
+            self.assertEqual(out.getvalue().splitlines()[1:], ["gicisky", "esl_ap_ble", "ESL_BLE"])
             self.assertTrue(os.path.isfile(os.path.join(d, "manifest.sdkconfig")))
 
 
