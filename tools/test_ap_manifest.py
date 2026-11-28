@@ -38,9 +38,12 @@ class Checks(unittest.TestCase):
         self.assertIn("protocol gicisky needs a ble radio", " ".join(manifest.check_build(b)))
 
     def test_needs_are_checked_on_the_radio(self):
-        b = board(radios={"802.15.4": {"via": "uart", "radio_fw": ["c6"]}}, protocols=["solum-stock"])
-        self.assertIn("needs its 802.15.4 radio to be native", " ".join(manifest.check_build(b)))
-        self.assertEqual(manifest.check_build(board(protocols=["openesl", "solum-stock"])), [])
+        b = board(radios={"802.15.4": {"via": "net", "radio_fw": ["c6"]}}, protocols=["solum-stock"])
+        self.assertIn("needs its 802.15.4 radio to be multipan", " ".join(manifest.check_build(b)))
+        b = board(radios={"802.15.4": {"via": "uart", "radio_fw": ["c6"], "multipan": True}},
+                  protocols=["openesl", "solum-stock"])
+        self.assertEqual(manifest.check_build(b), [])
+        self.assertTrue(manifest.check_build(board(protocols=["openesl", "solum-stock"])))
 
     def test_conflicting_radio(self):
         # ESL_BLE is not built next to the chip's own 802.15.4 radio (main/Kconfig.projbuild),

@@ -245,18 +245,29 @@ menu "OpenESL AP"
 
     config ESL_SOLUM_STOCK_TAGS
         bool "SoluM stock-firmware tags: answer the vendor's own protocol too"
-        depends on ESL_RADIO_DRIVER_IEEE802154 && !ESL_RADIO_SNIFFER
+        depends on (ESL_RADIO_DRIVER_IEEE802154 || ESL_RADIO_DRIVER_UART) && !ESL_RADIO_SNIFFER
         default n
         help
             Some SoluM labels in the field still run the vendor's own firmware. The
             AP answers their frames (components/esl_core/esl_solum_stock.c) next to
             the openESL ones, draws the same content with esl_render, and sends it in
-            SoluM's own image format. Such a tag uses its own PAN and channel, so set
-            "802.15.4 PAN ID" and "802.15.4 channel" to match it, or the AP will not
-            hear it at all. Only the 1.54" and 2.9" panels are known. This protocol
+            SoluM's own image format. Such a tag keeps its own PAN, which the radio
+            hears as a second 802.15.4 interface next to the openESL PAN (multi-PAN:
+            the C6/C5's own radio, or a C6 radio on the cable with radio firmware
+            from 1.0.1 on), so both kinds of tags are served at once. Both share
+            one channel: set "802.15.4 channel" to the stock tags' channel. Only the 1.54" and 2.9" panels are known. This protocol
             is SoluM's: another vendor's stock firmware needs its own handler.
             A board gets it with "solum-stock" in its protocols (board.json,
             manifest.py, protocols/solum-stock.sdkconfig).
+
+    config ESL_SOLUM_STOCK_PAN_ID
+        hex "SoluM stock-firmware tags: their PAN ID"
+        depends on ESL_SOLUM_STOCK_TAGS
+        default 0x1234
+        help
+            The PAN the stock tags are on. When it differs from "802.15.4 PAN ID"
+            the radio listens on it as a second interface; a radio that cannot
+            (no multi-PAN) serves the stock tags only with the AP's PAN set to it.
 
     config ESL_SOLUM_STOCK_GW_ADDR
         string "SoluM stock-firmware tags: the gateway address they expect"

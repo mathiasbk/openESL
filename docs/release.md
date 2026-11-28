@@ -129,11 +129,13 @@ A fix for tags that stay "new content waiting" (#238). The AP drew a tag's scree
 
 ### Upgrading from 1.0.0 to 1.0.1
 
-Order: the AP over the air as usual, then nothing else: the tag images and the C6 radios have not changed. An 802.15.4 AP keeps everything. The Bluetooth AP is now a release file, `openesl-ap-esp32c6-ble-<version>.bin` (and `-ota.bin`), and a card in the Flash AP tab. It is its own app (`esl_ap_ble`): it takes only Bluetooth AP updates over the air, and an 802.15.4 AP refuses its image. A Bluetooth AP you built from 1.0.0 is the 802.15.4 app (`esl_ap`), so it refuses the new image over the air and its dashboard offers it nothing: flash it once over USB from the Flash AP tab ("C6 for Bluetooth tags"). It has the same partition table, so it keeps its WiFi, tags and settings; after that its dashboard updates it.
+Order: the AP over the air as usual, then nothing else: the tag images have not changed, and a C6 radio needs its update only for SoluM labels on their original firmware (below). An 802.15.4 AP keeps everything. The Bluetooth AP is now a release file, `openesl-ap-esp32c6-ble-<version>.bin` (and `-ota.bin`), and a card in the Flash AP tab. It is its own app (`esl_ap_ble`): it takes only Bluetooth AP updates over the air, and an 802.15.4 AP refuses its image. A Bluetooth AP you built from 1.0.0 is the 802.15.4 app (`esl_ap`), so it refuses the new image over the air and its dashboard offers it nothing: flash it once over USB from the Flash AP tab ("C6 for Bluetooth tags"). It has the same partition table, so it keeps its WiFi, tags and settings; after that its dashboard updates it.
 
 An ESP32-S3 AP (with a C6 on a cable or over WiFi) now has Bluetooth too: after the update over the air it also serves Gicisky Bluetooth tags next to its 802.15.4 tags, with nothing to set. Its image is about 195 KB larger, with the same partition table, so no USB flash is needed and it keeps its WiFi, tags and settings. It listens for Bluetooth tags 30 % of the time and adds every Gicisky tag it hears to its tag list (each takes a slot, but gets nothing until you give it content).
 
 Never send the 802.15.4 image (`openesl-ap-esp32c6-<version>-ota.bin`) to a Bluetooth AP from 1.0.0 with esl-client or by hand: that version takes it and stops serving its Bluetooth tags until it is flashed again. Going back to 1.0.0 is a USB flash too, for the same reason.
+
+SoluM labels on their original firmware (experimental, not in the release images) are now served next to the labels flashed with OpenESL: the radio listens on SoluM's PAN as a second PAN. Build `python build.py --variant solum-stock <board>` for a C6, C5 or S3 + C6, or start the Linux AP with `--solum-stock-pan 1234`, and put the AP on channel 20. An AP built for these labels with 1.0.0 (`ESL_PAN_ID` 0x1234) keeps working as it is. An S3 + C6 needs the C6's radio firmware from 1.0.1 for this; otherwise the C6 needs no update.
 
 ### Upgrading from 0.11.0 to 1.0.0
 

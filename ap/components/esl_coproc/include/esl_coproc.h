@@ -51,6 +51,7 @@ enum {
 
 /* CONFIG flags */
 #define ESL_COPROC_CFG_SNIFFER 0x01 /* promiscuous: forward every frame on the channel */
+#define ESL_COPROC_CFG_PAN2    0x02 /* also receive pan2/ext2 (multi-PAN); a radio with ESL_COPROC_FEAT_PAN2 does */
 
 typedef struct {
     uint8_t channel;    /* 11-26 */
@@ -58,6 +59,12 @@ typedef struct {
     uint16_t short_addr;
     int8_t tx_power;    /* dBm */
     uint8_t flags;      /* ESL_COPROC_CFG_* */
+    /* With ESL_COPROC_CFG_PAN2: a second PAN the radio also receives and acknowledges, for
+     * frames sent to the extended address ext2 (on-air order): a SoluM stock-firmware tag's
+     * gateway (esl_link_t.add_pan). Sent after the 7 bytes above; a radio from before it
+     * reads the 7 and leaves the rest. Not in HELLO. */
+    uint16_t pan2;
+    uint8_t ext2[8];
 } esl_coproc_config_t;
 
 #define ESL_COPROC_APP_VERSION_MAX 32 /* esp_app_desc_t.version */
@@ -73,6 +80,7 @@ typedef struct {
 } esl_coproc_hello_t;
 
 #define ESL_COPROC_FEAT_DISPLAY 0x01 /* built with the LCD (boards/c6-lcd): new firmware must be the -lcd image too */
+#define ESL_COPROC_FEAT_PAN2    0x02 /* takes ESL_COPROC_CFG_PAN2: receives a second PAN (multi-PAN) */
 
 /* A received frame. ref numbers the frames (wraps at 256): a TX that answers
  * it carries the same ref, so the radio can time its resends from when this

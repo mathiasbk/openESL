@@ -124,6 +124,7 @@ class FakeRadio:
         self.slave = slave
         self.buf = b""
         self.cfg = None
+        self.cfg_full = None
         self.configs = 0
         self.silent = False
         self.tx = []
@@ -148,6 +149,7 @@ class FakeRadio:
                 payload = body[2:]
                 if typ == 0x02:                       # CONFIG
                     self.cfg = payload[:7]
+                    self.cfg_full = payload
                     self.configs += 1
                 if typ in (0x01, 0x02) and self.cfg and not self.silent:  # PING, CONFIG -> HELLO
                     hello = bytes([2, 1]) + struct.pack("<H", 0x0101) + bytes(range(8)) + self.cfg
@@ -232,6 +234,40 @@ def test_uart(binary, tmp):
             os.close(radio.master)
         os.close(radio.slave)
     check(rc == 0, "uart: SIGTERM stops it cleanly")
+
+
+def test_uart_solum_stock(binary, tmp):
+    """--solum-stock-pan: the radio gets a second PAN, and a stock tag's SCAN on it is answered"""
+    radio = FakeRadio()
+    data = os.path.join(tmp, "uart-stock")
+    port = free_port()
+    log = open(os.path.join(tmp, "uart-stock.log"), "ab")
+    p = subprocess.Popen([binary, "--data", data, "--listen", f"127.0.0.1:{port}", "--radio", "uart:" + radio.path,
+                          "--channel", "20", "--token", "t", "--solum-stock-pan", "1234",
+                          "--solum-stock-gw", "00:11:22:FF:FE:33:44:55"], stdout=log, stderr=log)
+    try:
+        radio.pump(3)
+        c = radio.cfg_full
+        check(c is not None and len(c) >= 17 and c[6] & 0x02 and c[7:9] == b"\x34\x12"
+              and c[9:17] == bytes([0x55, 0x44, 0x33, 0xFE, 0xFF, 0x22, 0x11, 0x00]),
+              "solum-stock: CONFIG asks the radio for PAN 1234 and the gateway address as a second PAN")
+        check(c[1:3] == b"\x53\x45", "solum-stock: the openESL PAN stays the first")
+        req = urllib.request.Request(f"http://127.0.0.1:{port}/api/tags", headers={"Authorization": "Bearer t"})
+        ap = json.load(urllib.request.urlopen(req, timeout=5))["ap"]
+        check(ap.get("protocols") == ["openesl", "solum-stock"], "solum-stock: GET /api/tags lists both protocols")
+        radio.rx(4, bytes([0x41, 0x88, 0x1C, 0x34, 0x12, 0xFF, 0xFF, 0xAF, 0x10, 0xE0, 0x01]) + b"\0\0")
+        radio.pump(1)
+        check(len(radio.tx) == 1 and radio.tx[0][0] == 0xFF and radio.tx[0][4:6] == b"\x34\x12",
+              "solum-stock: a SCAN on PAN 1234 gets a reply on it, timed from now (ref none)")
+        radio.rx(5, poll_psdu(0x00000000FAC70088))
+        radio.pump(1)
+        check(len(radio.tx) == 2 and radio.tx[1][0] == 5, "solum-stock: openESL tags are still answered")
+    finally:
+        p.send_signal(signal.SIGTERM)
+        p.wait(timeout=10)
+        log.close()
+        os.close(radio.master)
+        os.close(radio.slave)
 
 
 # ---- network radios (esl_nlink.h) ----
@@ -764,6 +800,7 @@ def main():
         check(ap.stop() == 0, "SIGTERM stops it cleanly a third time")
 
         test_uart(binary, tmp)
+        test_uart_solum_stock(binary, tmp)
         test_netradio(binary, tmp)
         test_netradio_only(binary, tmp)
         test_update(binary, tmp)

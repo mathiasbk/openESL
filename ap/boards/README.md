@@ -40,7 +40,9 @@ Each folder has:
     `ap/netradio/`, [docs/ap-netradio.md](../../docs/ap-netradio.md)). `radio_fw` names the radio
     boards in `ap/radio/boards/` (or `ap/netradio/boards/`) the radio can be; `build.py` builds each
     one too, once, and the release has it as `<release in its radio.json>-<version>.bin`.
-    `"ble"`: `{"via": "native"}`, the chip's own Bluetooth LE (`main/ble.c`). The manifest sets
+    `"multipan": true` on an 802.15.4 radio says it can listen on a second PAN (the C6/C5's own
+    radio, and a C6 on the cable with `ap/radio/`; not yet a C6 over WiFi), which `solum-stock`
+    needs. `"ble"`: `{"via": "native"}`, the chip's own Bluetooth LE (`main/ble.c`). The manifest sets
     the radio driver in the build (`CONFIG_ESL_RADIO_DRIVER_*`), so `sdkconfig.defaults` does not.
   - `protocols`: the tag protocols the board's build has, from `ap/protocols.json`: `openesl`
     (tags with openESL's firmware), `solum-stock` (SoluM tags on their original firmware),
@@ -50,7 +52,8 @@ Each folder has:
   - `variants` (optional): other builds of the same board, each with its own `radios`,
     `protocols` (the board's when left out), `sdkconfig` (a file read last) and `app` (the app's
     name, `esl_ap` when left out): `ble` is the Bluetooth AP (`python build.py --ble <board>`,
-    out/<artifact>-ble.bin), `sniffer` the sniffer (`--sniffer`), any other `--variant <name>`.
+    out/<artifact>-ble.bin), `sniffer` the sniffer (`--sniffer`), `solum-stock` the board's firmware with SoluM tags on their
+    original firmware too (experimental, not in the release), any other `--variant <name>`.
     `python manifest.py table` lists what every board's builds have.
   - `limits` (optional): what one layout file may hold on this board, where it differs from the
     defaults in `shared/proto.h` and `components/esl_core/include/esl_layout.h` (the ESP32-C6's,

@@ -144,6 +144,9 @@ static void on_hello(const esl_coproc_hello_t *h)
     if (!link.up)
         ESP_LOGI(TAG, "radio %u.%u up on channel %u, PAN 0x%04X", h->fw >> 8, h->fw & 0xFF,
                  cfg.channel, cfg.pan);
+    if (!link.up && (cfg.flags & ESL_COPROC_CFG_PAN2) && !(h->features & ESL_COPROC_FEAT_PAN2))
+        ESP_LOGW(TAG, "the radio's firmware has no second PAN: SoluM stock-firmware tags are not heard "
+                      "until it is updated (Firmware page)");
     set_up(true);
 }
 
@@ -444,7 +447,9 @@ static int link_send(esl_link_t *l, const uint8_t *psdu, size_t len, const esl_l
     l->stats.tx_resent += atomic_exchange(&resent, 0);
     if (!link.up)
         return ESP_ERR_INVALID_STATE;
-    size_t n = esl_coproc_encode_tx(f, (uint8_t)req->ref, psdu, len);
+    /* one fragment of a burst is timed from now, not from the frame that started it */
+    uint8_t ref = req->ref == ESL_LINK_REF_NOW ? ESL_COPROC_REF_NONE : (uint8_t)req->ref;
+    size_t n = esl_coproc_encode_tx(f, ref, psdu, len);
     if (!n)
         return ESP_ERR_INVALID_SIZE;
     esl_link_sending(l, req, esp_timer_get_time());
@@ -502,10 +507,23 @@ static int link_set_tx_power(esl_link_t *l, int8_t dbm)
     return ESP_OK;
 }
 
+/* A second PAN on the radio (multi-PAN, esl_link_t.add_pan): sent with the CONFIG from now on;
+ * a radio whose firmware has no ESL_COPROC_FEAT_PAN2 says so in its HELLO (on_hello warns) */
+static int link_add_pan(esl_link_t *l, uint16_t pan, const uint8_t ext_addr[8])
+{
+    (void)l;
+    cfg.pan2 = pan;
+    memcpy(cfg.ext2, ext_addr, sizeof(cfg.ext2));
+    cfg.flags |= ESL_COPROC_CFG_PAN2;
+    send_config(); /* HELLO follows */
+    return ESP_OK;
+}
+
 esl_link_t radio_link = {
     .name = "802.15.4 coprocessor",
     .start = link_start,
     .send = link_send,
     .set_channel = link_set_channel,
     .set_tx_power = link_set_tx_power,
+    .add_pan = link_add_pan,
 };

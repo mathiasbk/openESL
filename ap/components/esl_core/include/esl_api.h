@@ -150,6 +150,8 @@ typedef struct {
     esl_remote_t *remote;   /* a SoluM remote as a button (GET/PUT /api/remote); NULL: /api/remote answers 404 */
     esl_jobs_t *jobs;       /* a job per PUT /api/tags batch (#421, esl_jobs.h); NULL: no "job" in its reply,
                                and /api/jobs answers 404 */
+    const char *protocols;  /* the tag protocols it speaks, "openesl,solum-stock" (ap.protocols in GET
+                               /api/tags); NULL: the build's (ESL_PROTOCOLS, from its manifest) */
 } esl_api_t;
 
 /* Against guessing the token: after ESL_API_AUTH_TRIES wrong tokens in a row the

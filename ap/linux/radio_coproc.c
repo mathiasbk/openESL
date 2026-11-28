@@ -98,6 +98,9 @@ static void on_hello(const esl_coproc_hello_t *h)
     if (!co.up)
         ap_log("radio %u.%u up on channel %u, PAN 0x%04X, %d dBm", h->fw >> 8, h->fw & 0xFF, co.cfg.channel,
                co.cfg.pan, co.cfg.tx_power);
+    if (!co.up && (co.cfg.flags & ESL_COPROC_CFG_PAN2) && !(h->features & ESL_COPROC_FEAT_PAN2))
+        ap_log("the radio's firmware has no second PAN: SoluM stock-firmware tags are not heard until it is "
+               "updated (the radio's c6-usb image)");
     co.up = true;
 }
 
@@ -332,7 +335,9 @@ static int co_send(esl_link_t *l, const uint8_t *psdu, size_t len, const esl_lin
     co.resent = 0;
     if (!co.up)
         return -1;
-    size_t n = esl_coproc_encode_tx(f, (uint8_t)req->ref, psdu, len);
+    /* one fragment of a burst is timed from now, not from the frame that started it */
+    uint8_t ref = req->ref == ESL_LINK_REF_NOW ? ESL_COPROC_REF_NONE : (uint8_t)req->ref;
+    size_t n = esl_coproc_encode_tx(f, ref, psdu, len);
     if (!n)
         return -1;
     esl_link_sending(l, req, ap_clock_us());
@@ -366,6 +371,17 @@ static int co_set_tx_power(esl_link_t *l, int8_t dbm)
     return 0;
 }
 
+/* A second PAN on the radio (multi-PAN, esl_link_t.add_pan), sent with the CONFIG from now on */
+static int co_add_pan(esl_link_t *l, uint16_t pan, const uint8_t ext_addr[8])
+{
+    (void)l;
+    co.cfg.pan2 = pan;
+    memcpy(co.cfg.ext2, ext_addr, sizeof(co.cfg.ext2));
+    co.cfg.flags |= ESL_COPROC_CFG_PAN2;
+    send_config();
+    return 0;
+}
+
 static int co_open(esl_link_t *l, const char *arg)
 {
     if (!*arg) {
@@ -383,6 +399,7 @@ static int co_open(esl_link_t *l, const char *arg)
     l->send = co_send;
     l->set_channel = co_set_channel;
     l->set_tx_power = co_set_tx_power;
+    l->add_pan = co_add_pan;
     l->ctx = &co;
     return 0;
 }

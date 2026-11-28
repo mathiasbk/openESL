@@ -191,6 +191,9 @@ static void hop(int64_t *next_hop_us, int64_t last_frame_us)
  * link's send. Such a tag uses its own PAN and channel, so the AP must be set to them. */
 static esl_solum_stock_t solum_stock;
 static bool solum_stock_ready;
+/* The PAN the stock tags are on: the vendor's (CONFIG_ESL_SOLUM_STOCK_PAN_ID). The radio hears
+   it next to the openESL PAN as a second interface (add_pan), or it is the AP's own PAN. */
+static uint16_t solum_stock_pan;
 
 typedef struct {
     const esl_link_rx_t *req;
@@ -212,6 +215,7 @@ static bool solum_stock_send(void *ctx, const uint8_t *psdu, size_t len)
        within its own window, not the window of the AA frame that started the burst. */
     esl_link_rx_t req = *s->req;
     req.rx_us = esp_timer_get_time();
+    req.ref = ESL_LINK_REF_NOW; /* a coprocessor times it from when it gets it, too */
     /* A stock tag does not acknowledge every fragment like an openESL reply.
        The frame is still on the air when the driver reports no ACK, so keep the
        burst going; the tag's next POLL with the job says whether it has it. */
@@ -283,7 +287,7 @@ static void __attribute__((unused)) handle_frame(const esl_link_rx_t *f)
             return;
         }
         solum_stock_send_t s = { f, 0 };
-        unsigned n = esl_solum_stock_handle(&solum_stock, store, layouts, pan, f->psdu, f->len - ESL_FCS_LEN,
+        unsigned n = esl_solum_stock_handle(&solum_stock, store, layouts, solum_stock_pan, f->psdu, f->len - ESL_FCS_LEN,
                                             f->rssi, now_ms, solum_stock_send, &s);
         if (n) {
             radio_link.stats.rx++;
@@ -390,6 +394,11 @@ static void move_channel(void)
 #endif
     int err = radio_link.set_channel ? radio_link.set_channel(&radio_link, ch) : ESP_ERR_NOT_SUPPORTED;
     ESP_LOGI(TAG, "moved to channel %u: %s", ch, esp_err_to_name(err));
+#ifdef CONFIG_ESL_SOLUM_STOCK_TAGS
+    /* the stream head names the channel; a stock tag does not follow a move by itself */
+    if (err == ESP_OK)
+        solum_stock.channel = ch;
+#endif
 }
 #endif
 
@@ -520,10 +529,20 @@ esp_err_t radio_start(esl_store_t *st, esl_layouts_t *ls, uint8_t channel, uint1
         remote_start_visits(channel);
 #endif
 #ifdef CONFIG_ESL_SOLUM_STOCK_TAGS
-    if (solum_stock_ready) {
-        if (radio_link.set_extended_addr)
-            radio_link.set_extended_addr(&radio_link, solum_stock.gw);
-        ESP_LOGI(TAG, "solum-stock: on, gateway %02X%02X%02X%02X%02X%02X%02X%02X", solum_stock.gw[7],
+    if (solum_stock_ready && err == ESP_OK) {
+        solum_stock_pan = CONFIG_ESL_SOLUM_STOCK_PAN_ID;
+        if (solum_stock_pan == pan_id) {
+            /* the AP is on the stock tags' PAN: they answer to its own interface */
+            if (radio_link.set_extended_addr)
+                radio_link.set_extended_addr(&radio_link, solum_stock.gw);
+        } else if (!radio_link.add_pan || radio_link.add_pan(&radio_link, solum_stock_pan, solum_stock.gw) != 0) {
+            ESP_LOGW(TAG, "solum-stock: this radio has no second PAN, so stock tags (PAN 0x%04X) are "
+                          "heard only with the AP's PAN set to it", solum_stock_pan);
+            solum_stock_pan = pan_id;
+            if (radio_link.set_extended_addr)
+                radio_link.set_extended_addr(&radio_link, solum_stock.gw);
+        }
+        ESP_LOGI(TAG, "solum-stock: on, PAN 0x%04X, gateway %02X%02X%02X%02X%02X%02X%02X%02X", solum_stock_pan, solum_stock.gw[7],
                  solum_stock.gw[6], solum_stock.gw[5], solum_stock.gw[4], solum_stock.gw[3], solum_stock.gw[2],
                  solum_stock.gw[1], solum_stock.gw[0]);
     }

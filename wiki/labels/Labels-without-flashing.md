@@ -34,24 +34,18 @@ Only black and white is drawn on these labels. This is meant for labels that are
 ## What you need
 
 - One of the labels above, with a battery.
-- An **ESP32-C6** board (with or without a screen) or an **ESP32-C5** board as the AP. The ESP32-S3 + C6, the S3 with wireless C6 radios and the [Linux AP](Linux-AP) cannot answer these labels yet.
+- An AP that can answer them: an **ESP32-C6** board (with or without a screen), an **ESP32-C5** board, an **ESP32-S3 + C6 on a cable** (the C6 with radio firmware from 1.0.1 on), or the [Linux AP](Linux-AP) with a C6 on USB. The S3 with wireless C6 radios cannot answer these labels yet.
 - A computer to build the AP firmware yourself: the SoluM option is not in the ready-made firmware on the Flash AP tab yet. See [Building from source](Building-from-source) for the tools.
 
 ## Setting up the AP
 
-These labels look for their gateway on SoluM's own network: radio channel **20** and PAN ID **0x1234**. The AP has to use the same, so this AP serves only labels on their original firmware; labels flashed with OpenESL need an AP of their own on OpenESL's channel and PAN ID.
+These labels look for their gateway on SoluM's own network: radio channel **20** and PAN ID **0x1234**. Since 1.0.1 the AP listens on that PAN next to OpenESL's own (a second PAN on the same radio), so one AP serves labels on their original firmware and labels flashed with OpenESL together. Both kinds share the channel, so the AP has to be on channel 20; labels flashed with OpenESL follow it when it moves.
 
-1. **Turn the option on.** In `ap/`, add these lines to the board's `boards/<board>/sdkconfig.defaults` (for example `boards/c6-supermini/sdkconfig.defaults`), or set the same in `idf.py menuconfig` under "OpenESL AP":
+1. **Build the SoluM build of your board** in `ap/`: `python build.py --variant solum-stock c6-supermini` (or `c5-wroom-1u-n16r8`, `c6-supermini-lcd`, `s3-n16r8-c6`). It is the normal firmware with the SoluM option on (`"solum-stock"` in the board's `variants`, `ap/boards/README.md`). Leave "the gateway address they expect" (`CONFIG_ESL_SOLUM_STOCK_GW_ADDR`) empty: a label that is looking for a gateway then learns the AP's own address. Their PAN is `CONFIG_ESL_SOLUM_STOCK_PAN_ID` (0x1234).
+2. **Flash it:** `idf.py -B build-c6-supermini-solum-stock -p <port> flash`. On an S3 + C6, update the C6 too (the S3 offers it on its Firmware page): a C6 with older radio firmware has no second PAN, and the S3 logs that it does not hear the SoluM labels.
+3. **Set channel 20** on the AP's [Settings](Access-point-settings) page (or `CONFIG_ESL_CHANNEL=20` before building): a channel chosen there is kept and wins over the built-in one. Labels flashed with OpenESL move with the AP.
 
-   ```
-   CONFIG_ESL_SOLUM_STOCK_TAGS=y
-   CONFIG_ESL_CHANNEL=20
-   CONFIG_ESL_PAN_ID=0x1234
-   ```
-
-   Leave "the gateway address they expect" (`CONFIG_ESL_SOLUM_STOCK_GW_ADDR`) empty: a label that is looking for a gateway then learns the AP's own address.
-2. **Build it:** `python build.py c6-supermini` (or your board).
-3. **Flash it:** `idf.py -B build-c6-supermini -p <port> flash`. On an AP that already ran OpenESL, check the channel on its [Settings](Access-point-settings) page afterwards: a channel chosen there is kept and wins over the built-in one, so set it to 20.
+On the [Linux AP](Linux-AP) with a C6 on USB nothing has to be built: start it with `--solum-stock-pan 1234 --channel 20` (or `solum-stock-pan = 1234` in its config file). It makes a gateway address at the first start and keeps it in its data folder (`solum-stock-gw`). The SoluM gateway's own radio has no second PAN, so there the AP's `--pan` has to be 1234 and it serves only these labels. On an AP that already ran OpenESL, check the channel on its [Settings](Access-point-settings) page afterwards: a channel chosen there is kept and wins over the built-in one, so set it to 20.
 4. **Give it WiFi and an API token** as for any AP ([WiFi and API token](WiFi-and-API-token)).
 
 ## Adding a label

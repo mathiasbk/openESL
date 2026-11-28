@@ -13,7 +13,7 @@
       "id": "solum-stock",
       "label": "SoluM tags on their original firmware",
       "radio": "802.15.4",
-      "needs": ["native"],
+      "needs": ["multipan"],
       "models": ["29", "154"],
       "kconfig": "ESL_SOLUM_STOCK_TAGS",
       "sdkconfig": "protocols/solum-stock.sdkconfig",

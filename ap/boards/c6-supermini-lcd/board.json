@@ -8,9 +8,12 @@
   "flash_mb": 4,
   "psram_mb": 0,
   "antenna": "on the board",
-  "radios": { "802.15.4": {"via": "native"}, "ble": {"via": "native"} },
+  "radios": { "802.15.4": {"via": "native", "multipan": true}, "ble": {"via": "native"} },
   "protocols": ["openesl"],
-  "variants": { "sniffer": {"protocols": [], "sdkconfig": "sniffer.sdkconfig.defaults"} },
+  "variants": {
+    "solum-stock": { "protocols": ["openesl", "solum-stock"] },
+    "sniffer": { "protocols": [], "sdkconfig": "sniffer.sdkconfig.defaults" }
+  },
   "artifact": "openesl-ap-lcd",
   "release": "openesl-ap-esp32c6-lcd",
   "status": "supported",
