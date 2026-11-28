@@ -10,12 +10,13 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
   python build.py --jobs             the CI build jobs as JSON, one per board and one per radio
                                      (firmware.yml builds them side by side)
   python build.py --no-radio <board>...  only the boards, not their radio firmware
-  python build.py --sniffer <board>...   the boards as a sniffer (docs/radio-sniffer.md):
-                                     out/<artifact>-sniffer.bin and -sniffer-ota.bin; only
-                                     boards with their own 802.15.4 radio ("radio": "native")
-  python build.py --ble <board>...       the boards as a Bluetooth AP for tags with the
-                                     maker's firmware (docs/ble-tags.md):
-                                     out/<artifact>-ble.bin and -ble-ota.bin
+  python build.py --variant <name> <board>...
+                                     a variant of the boards ("variants" in board.json,
+                                     manifest.py): out/<artifact>-<name>.bin and -<name>-ota.bin
+  python build.py --sniffer <board>...   = --variant sniffer: the boards as a sniffer
+                                     (docs/radio-sniffer.md)
+  python build.py --ble <board>...       = --variant ble: the boards as a Bluetooth AP for
+                                     tags with the maker's firmware (docs/ble-tags.md)
   python build.py radio/c6 ...       only this radio firmware (<project>/<id>, as --jobs names it)
   python build.py --sizes DIR [--base DIR]
                                      the flash budget table for the images in DIR (the
@@ -23,11 +24,13 @@ Builds the AP firmware for one or more boards (boards/<board>/board.json) with E
                                      the images in --base (an older out/ or ap-firmware artifact);
                                      added to $GITHUB_STEP_SUMMARY in CI, exit code 1 over budget
 
-A board with "radio": "uart" in board.json (an AP host without 802.15.4, such as the ESP32-S3)
-also builds the radio coprocessor firmware for each radio board its "radio_fw" names
+What a board's build has comes from its manifest (manifest.py: "radios", "protocols" and
+"variants" in board.json, protocols.json). A board whose 802.15.4 radio is "via": "uart" (an AP
+host without 802.15.4, such as the ESP32-S3) also builds the radio coprocessor firmware for
+each radio board its "radio_fw" names
 (radio/boards/<id>/radio.json: c6, c6-lcd), each once, into out/ and the release as
 <artifact>.bin and <artifact>-ota.bin: the AP passes the latter on to its radio over the UART
-link (POST /api/ota, docs/ap-radio-link.md). A board with "radio": "net" (the radio over WiFi,
+link (POST /api/ota, docs/ap-radio-link.md). A board with "via": "net" (the radio over WiFi,
 docs/ap-netradio.md) builds netradio/ the same way, for each of its "radio_fw"
 (netradio/boards/<id>/radio.json: c6), as <artifact>.bin only: nothing updates it over the
 air yet. A radio board with "host": "linux" in radio.json (c6-usb) is the radio of the AP as a
@@ -63,9 +66,12 @@ import struct
 import subprocess
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import manifest  # noqa: E402  (manifest.py next to this script)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOARDS = os.path.join(HERE, "boards")
-# the radio firmware per "radio" in board.json: its project and its boards
+# the radio firmware per way to the 802.15.4 radio ("via" in board.json): its project and its boards
 RADIO_PROJECTS = {"uart": "radio", "net": "netradio"}
 OUT = os.path.join(HERE, "out")
 # The flash budget: the free bytes an app slot must keep (fail below) and should keep (warn below)
@@ -74,15 +80,15 @@ BUDGET_WARN = 128 * 1024
 
 
 def load_boards():
-    boards = []
-    for name in sorted(os.listdir(BOARDS)):
-        path = os.path.join(BOARDS, name, "board.json")
-        if os.path.isfile(path):
-            with open(path, encoding="utf-8") as f:
-                b = json.load(f)
-            if b.get("id") != name:
-                sys.exit("%s: id must be the folder name (%s)" % (path, name))
-            boards.append(b)
+    """The boards with their manifest (manifest.py): "radios", "protocols", "variants", and
+    "radio"/"radio_fw" filled in from the 802.15.4 radio for the readers below"""
+    try:
+        boards = manifest.load_boards()
+        errors = manifest.check_all()
+    except manifest.ManifestError as e:
+        sys.exit("manifest: %s" % e)
+    if errors:
+        sys.exit("manifest:\n" + "\n".join(errors))
     return boards
 
 
@@ -207,18 +213,10 @@ def check_budget(info):
     return state != "over"
 
 
-def defaults_files(b, sniffer=False, ble=False):
-    """The sdkconfig.defaults an AP board's build reads, in CMakeLists.txt's order: the common
-    one, the "base" board's, the board's own, and the sniffer's or the BLE build's"""
-    files = ["sdkconfig.defaults"]
-    if b.get("base"):
-        files.append("boards/%s/sdkconfig.defaults" % b["base"])
-    files.append("boards/%s/sdkconfig.defaults" % b["id"])
-    if sniffer:
-        files.append("sniffer.sdkconfig.defaults")
-    if ble:
-        files.append("ble.sdkconfig.defaults")
-    return files
+def defaults_files(b, variant=None, bdir="build"):
+    """The sdkconfig.defaults an AP board's build reads, in CMakeLists.txt's order: the board's
+    manifest says which (manifest.defaults_files), with its own fragment in bdir"""
+    return manifest.defaults_files(b, variant, bdir)
 
 
 def fresh_sdkconfig(cwd, bdir, files):
@@ -261,16 +259,17 @@ def fresh_sdkconfig(cwd, bdir, files):
         f.write(digest + "\n")
 
 
-def build(b, sniffer=False, ble=False):
-    suffix = "-sniffer" if sniffer else "-ble" if ble else ""
+def build(b, variant=None):
+    """One board, or one of its variants ("variants" in board.json: --sniffer, --ble, --variant)"""
+    suffix = "-" + variant if variant else ""
     name = b["id"] + suffix
     artifact = b["artifact"] + suffix
     bdir = "build-" + name
-    fresh_sdkconfig(HERE, bdir, defaults_files(b, sniffer, ble))
+    manifest.write_fragment(b, variant, bdir)
+    fresh_sdkconfig(HERE, bdir, defaults_files(b, variant, bdir))
     run(["idf.py", "-B", bdir, "-D", "SDKCONFIG=%s/sdkconfig" % bdir, "-D", "BOARD=" + b["id"],
-         "-D", "SNIFFER=%d" % sniffer, "-D", "BLE=%d" % ble, "build"])
-    # the Bluetooth AP is its own app, esl_ap_ble (CMakeLists.txt)
-    app = "esl_ap_ble" if ble else "esl_ap"
+         "-D", "VARIANT=" + (variant or "-"), "build"])
+    app = manifest.resolve(b, variant)["app"]
     merge(b["target"], bdir, app + ".bin", artifact)
     # the symbols for this image: a panic backtrace (the AP is built with silent assertions,
     # sdkconfig.defaults) is decoded with it, e.g. idf.py monitor --elf or addr2line
@@ -365,20 +364,23 @@ def main():
         for b in boards + load_radios(boards) + linux_radios():
             print("%-20s %-8s %-12s %s" % (b["id"], b["target"], b["status"], b["artifact"]))
         return
-    # the sniffer and the Bluetooth AP of one board with its own radio (the recommended one first)
-    native = sorted((b for b in boards if b.get("radio", "native") == "native"), key=lambda b: not b.get("recommended"))[:1]
+    # the Bluetooth AP of one board with a "ble" variant (the recommended one first)
+    ble_aps = [b for b in sorted(boards, key=lambda b: not b.get("recommended")) if "ble" in b["variants"]][:1]
     if args == ["--release"]:
         for b in boards + load_radios(boards) + linux_radios():
             print(b["artifact"], b["release"])
         # the Bluetooth AP (docs/ble-tags.md): openesl-ap-esp32c6-ble-<version>.bin, so it can be
         # flashed from the web page and updated from its dashboard; the sniffer stays a build of your own
-        for b in native:
+        for b in ble_aps:
             print(b["artifact"] + "-ble", b["release"] + "-ble")
         return
     if args == ["--jobs"]:
         jobs = [{"name": b["id"], "args": "--no-radio " + b["id"]} for b in boards]
-        jobs += [{"name": b["id"] + "-sniffer", "args": "--sniffer " + b["id"]} for b in native]
-        jobs += [{"name": b["id"] + "-ble", "args": "--ble " + b["id"]} for b in native]
+        # each variant of one board (the recommended one first), so its code keeps building
+        first = sorted(boards, key=lambda b: not b.get("recommended"))
+        for v in ("sniffer", "ble"):
+            jobs += [{"name": b["id"] + "-" + v, "args": "--%s %s" % (v, b["id"])}
+                     for b in [b for b in first if v in b["variants"]][:1]]
         jobs += [{"name": "%s-%s" % (r["project"], r["id"]), "args": "%s/%s" % (r["project"], r["id"])}
                  for r in load_radios(boards) + linux_radios()]
         print(json.dumps(jobs))
@@ -386,33 +388,31 @@ def main():
     if args[:1] == ["--sizes"]:
         return sizes(args[1:])
     no_radio = "--no-radio" in args
-    sniffer = "--sniffer" in args
-    ble = "--ble" in args
+    variants = [a[2:] for a in args if a in ("--sniffer", "--ble")]
+    while "--variant" in args:
+        i = args.index("--variant")
+        if i + 1 >= len(args):
+            sys.exit("--variant needs a name")
+        variants.append(args[i + 1])
+        del args[i:i + 2]
     args = [a for a in args if a not in ("--no-radio", "--sniffer", "--ble")]
     by_id = {b["id"]: b for b in boards}
     radios = {"%s/%s" % (r["project"], r["id"]): r for r in load_radios(boards) + linux_radios()}
     unknown = [a for a in args if a not in by_id and a not in radios]
     if unknown:
         sys.exit("unknown board %s; the boards are %s" % (", ".join(unknown), ", ".join(list(by_id) + list(radios))))
-    if sniffer:
-        if not args or any(a not in by_id or by_id[a].get("radio", "native") != "native" for a in args):
-            sys.exit("--sniffer needs one or more boards with their own 802.15.4 radio: %s"
-                     % ", ".join(b["id"] for b in boards if b.get("radio", "native") == "native"))
-    if sniffer and ble:
-        sys.exit("--sniffer and --ble are separate builds")
-    if ble and not args:
-        sys.exit("--ble needs one or more boards")
-    if ble and any(a not in by_id for a in args):
-        sys.exit("--ble needs AP boards, not radio firmware")
+    if len(variants) > 1:
+        sys.exit("--%s are separate builds" % " and --".join(variants))
+    variant = variants[0] if variants else None
+    if variant:
+        with_it = [b["id"] for b in boards if variant in b["variants"]]
+        if not args or any(a not in by_id or variant not in by_id[a]["variants"] for a in args):
+            sys.exit("the %s build needs one or more boards with that variant in board.json: %s"
+                     % (variant, ", ".join(with_it) or "none"))
     if not shutil.which("idf.py"):
         sys.exit("idf.py not found: source ESP-IDF v5.5.5's export.sh first")
-    if sniffer:
-        infos = [build(by_id[a], sniffer=True) for a in args]
-        if not all([check_budget(i) for i in infos]):
-            sys.exit("over the flash budget: an image keeps less than %s free in its slot" % kb_limit(BUDGET_FAIL))
-        return
-    if ble:
-        infos = [build(by_id[a], ble=True) for a in args]
+    if variant:
+        infos = [build(by_id[a], variant) for a in args]
         if not all([check_budget(i) for i in infos]):
             sys.exit("over the flash budget: an image keeps less than %s free in its slot" % kb_limit(BUDGET_FAIL))
         return

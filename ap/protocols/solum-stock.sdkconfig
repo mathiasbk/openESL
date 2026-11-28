@@ -1,0 +1,4 @@
+# SoluM tags on their original firmware (protocols.json "solum-stock", esl_solum_stock.c): the AP
+# answers the vendor's own frames next to the openESL ones. Such a tag uses its own PAN and
+# channel, so the AP must be set to them (ap/README.md, "SoluM stock-firmware tags").
+CONFIG_ESL_SOLUM_STOCK_TAGS=y

@@ -176,7 +176,7 @@ def step_tools():
     run([PY, "-m", "unittest", "test_esl_client"], cwd=os.path.join(ROOT, "tools", "esl-client"))
     run([PY, "-m", "unittest", "test_power_budget", "test_measure"], cwd=os.path.join(ROOT, "tools", "power-budget"))
     run([PY, "-m", "unittest", "test_btsnoop", "test_scan"], cwd=os.path.join(ROOT, "tools", "ble-probe"))
-    run([PY, "-m", "unittest", "test_release_notes", "test_ap_budget"], cwd=os.path.join(ROOT, "tools"))
+    run([PY, "-m", "unittest", "test_release_notes", "test_ap_budget", "test_ap_manifest"], cwd=os.path.join(ROOT, "tools"))
     run([PY, "-m", "unittest", "test_sniff"], cwd=os.path.join(ROOT, "tools", "sniffer"))
 
 

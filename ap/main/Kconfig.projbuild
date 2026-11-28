@@ -255,6 +255,8 @@ menu "OpenESL AP"
             "802.15.4 PAN ID" and "802.15.4 channel" to match it, or the AP will not
             hear it at all. Only the 1.54" and 2.9" panels are known. This protocol
             is SoluM's: another vendor's stock firmware needs its own handler.
+            A board gets it with "solum-stock" in its protocols (board.json,
+            manifest.py, protocols/solum-stock.sdkconfig).
 
     config ESL_SOLUM_STOCK_GW_ADDR
         string "SoluM stock-firmware tags: the gateway address they expect"
@@ -321,8 +323,9 @@ menu "OpenESL AP"
             and sends pictures to Bluetooth price tags that keep their maker's
             firmware, such as the Gicisky/PICKSMART 2.9" BWRY (docs/ble-tags.md,
             docs/gicisky-296-bwry.md). Needs the NimBLE central and observer
-            roles; ble.sdkconfig.defaults has them and is read by
-            "python build.py --ble <board>" or idf.py -D BLE=1.
+            roles; protocols/gicisky.sdkconfig has them, and a build reads it
+            when "gicisky" is in its board's protocols (board.json, manifest.py),
+            as in the "ble" variant: "python build.py --ble <board>".
 
     config ESL_BLE_TAG_MAC
         string "Tag MAC to add at boot (AA:BB:CC:DD:EE:FF; empty = from the scan)"

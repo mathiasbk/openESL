@@ -9,7 +9,6 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_ESPTOOLPY_FLASHSIZE="16MB"
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="boards/s3-n16r8-c6/partitions.csv"
 
-CONFIG_ESL_RADIO_DRIVER_UART=y
 # The UART interrupt runs from IRAM, so it keeps emptying the 128-byte FIFO (1.4 ms of
 # frames at 921600 baud) while a flash write (NVS, tag firmware, OTA) has the cache off
 CONFIG_UART_ISR_IN_IRAM=y

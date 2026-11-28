@@ -289,6 +289,26 @@ static void test_auth_lockout(void)
     CHECK_INT(esl_api_auth_check(&api, "Bearer wrong", t, &wait_s), 401);
 }
 
+/* esl_api_int.h, private to esl_core */
+void esl_api_protocols_json(esl_sb_t *out, const char *list);
+
+/* ap.protocols: the build's ESL_PROTOCOLS (ap/manifest.py) as a JSON array */
+static void test_protocols_json(void)
+{
+    char buf[128];
+    esl_sb_t sb;
+    const char *cases[][2] = {{"openesl", "[\"openesl\"]"},
+                              {"openesl,solum-stock,gicisky", "[\"openesl\",\"solum-stock\",\"gicisky\"]"},
+                              {"", "[]"},   /* a sniffer */
+                              {",gicisky,", "[\"gicisky\"]"}};
+    for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        esl_sb_init(&sb, buf, sizeof(buf));
+        esl_api_protocols_json(&sb, cases[i][0]);
+        buf[sb.len < sizeof(buf) ? sb.len : sizeof(buf) - 1] = 0;
+        CHECK_STR(buf, cases[i][1]);
+    }
+}
+
 static void test_batch_and_list(void)
 {
     char body[8192];
@@ -358,7 +378,7 @@ static void test_batch_and_list(void)
     esl_store_delete(&st, 0x105);
     poll_as_tag(0xABCDEF, 0, 1000);
     CHECK_INT(req("GET", "/api/tags", AUTH, NULL, 86400000), 200);
-    CHECK(HAS(resp, "{\"ap\":{\"fw\":\"0.1.0\",\"board\":\"host\",\"board_name\":\"host\",\"uptime_s\":86400,\"channel\":25,\"max_tags\":8,\"table_full\":false,\"poll_s\":0},\"tags\":["));
+    CHECK(HAS(resp, "{\"ap\":{\"fw\":\"0.1.0\",\"board\":\"host\",\"board_name\":\"host\",\"protocols\":[\"openesl\"],\"uptime_s\":86400,\"channel\":25,\"max_tags\":8,\"table_full\":false,\"poll_s\":0},\"tags\":["));
     /* the network radio: its address and when it was last heard; no "radio" without a link */
     esl_radio_link_t link = {.up = true, .ip = 0xC0A803F9, .seen_ms = 86395000, .ver = 3};
     api.link = &link;
@@ -1664,6 +1684,7 @@ void test_api(void)
     test_auth_lockout();
     test_put_one();
     test_put_errors();
+    test_protocols_json();
     test_batch_and_list();
     test_layouts();
     test_config_api();

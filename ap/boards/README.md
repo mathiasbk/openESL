@@ -32,11 +32,26 @@ Each folder has:
     `CONFIG_ESL_MAX_TAGS`; left out when it is not known). Keep it in step with
     [docs/access-points.md](../../docs/access-points.md). The card also says when the board's
     dashboard has the label designer (`CONFIG_ESL_WEB_DESIGNER=y`, `designer` in info.json)
-  - `radio`: where the 802.15.4 radio is. `native`: on the AP chip itself (C6, C5;
-    `main/radio_ieee802154.c`). `uart`: a radio coprocessor on UART (`main/radio_uart.c`,
-    [docs/ap-radio-link.md](../../docs/ap-radio-link.md)); its `sdkconfig.defaults` then sets
-    `CONFIG_ESL_RADIO_DRIVER_UART=y`. `net`: a radio over WiFi (`main/radio_net.c`, the radio in
-    `ap/netradio/`, [docs/ap-netradio.md](../../docs/ap-netradio.md)); `CONFIG_ESL_RADIO_DRIVER_NET=y`.
+  - `radios`: the radios the board has and how the AP reaches them (the manifest,
+    `ap/manifest.py`). `"802.15.4"`: `{"via": "native"}` on the AP chip itself (C6, C5;
+    `main/radio_ieee802154.c`), `{"via": "uart", "radio_fw": [...]}` a radio coprocessor on UART
+    (`main/radio_uart.c`, [docs/ap-radio-link.md](../../docs/ap-radio-link.md)), or
+    `{"via": "net", "radio_fw": [...]}` a radio over WiFi (`main/radio_net.c`, the radio in
+    `ap/netradio/`, [docs/ap-netradio.md](../../docs/ap-netradio.md)). `radio_fw` names the radio
+    boards in `ap/radio/boards/` (or `ap/netradio/boards/`) the radio can be; `build.py` builds each
+    one too, once, and the release has it as `<release in its radio.json>-<version>.bin`.
+    `"ble"`: `{"via": "native"}`, the chip's own Bluetooth LE (`main/ble.c`). The manifest sets
+    the radio driver in the build (`CONFIG_ESL_RADIO_DRIVER_*`), so `sdkconfig.defaults` does not.
+  - `protocols`: the tag protocols the board's build has, from `ap/protocols.json`: `openesl`
+    (tags with openESL's firmware), `solum-stock` (SoluM tags on their original firmware),
+    `gicisky` (Gicisky Bluetooth tags). Each needs a radio of its kind on the board (and what its
+    `needs` says), and brings its own `protocols/<id>.sdkconfig`; one the build does not have is
+    turned off. `GET /api/tags` reports them as `ap.protocols`, and the Flash AP card shows them.
+  - `variants` (optional): other builds of the same board, each with its own `radios`,
+    `protocols` (the board's when left out), `sdkconfig` (a file read last) and `app` (the app's
+    name, `esl_ap` when left out): `ble` is the Bluetooth AP (`python build.py --ble <board>`,
+    out/<artifact>-ble.bin), `sniffer` the sniffer (`--sniffer`), any other `--variant <name>`.
+    `python manifest.py table` lists what every board's builds have.
   - `limits` (optional): what one layout file may hold on this board, where it differs from the
     defaults in `shared/proto.h` and `components/esl_core/include/esl_layout.h` (the ESP32-C6's,
     which the default board `c6-supermini` keeps): `runs` (lines of text per screen, 32),
@@ -50,12 +65,11 @@ Each folder has:
     `fileBytes` 8192 and `jsonBytes` 16384, room for a set of icons such as the weather template's
     next to the layouts a file already has; the layout files share NVS with the tags, so two full
     files take 16 KB more of it than on the C6 (about 40 tags' worth of its 468 KB).
-  - `radio_fw` (`uart` and `net`): the radio boards in `ap/radio/boards/` (or `ap/netradio/boards/`) the radio can be
-    (a name or a list: `["c6", "c6-lcd"]`). `build.py` builds each one too, once, and the
-    release has it as `<release in its radio.json>-<version>.bin`.
 - `sdkconfig.defaults`: read after `ap/sdkconfig.defaults` (settings for every board). Sets
   `CONFIG_IDF_TARGET`, the flash size and `CONFIG_PARTITION_TABLE_CUSTOM_FILENAME`, and
-  anything else that differs.
+  anything else that differs. After it the build reads what the manifest writes (the radio
+  driver, the protocols that are off), each protocol's `protocols/<id>.sdkconfig`, and a
+  variant's own file.
 - `partitions.csv` (unless the base board's is used): must have `nvs`, `otadata`, `ota_0`,
   `ota_1` and `tagfw` (64 KB per tag model; with fewer slots than models, the models that do
   not fit get no tag firmware updates, see `main/tagfw.c`).

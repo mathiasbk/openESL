@@ -938,6 +938,21 @@ static bool since_ok(const esl_api_changes_t *ch, const char *v, size_t len, uin
     return true;
 }
 
+void esl_api_protocols_json(esl_sb_t *out, const char *list)
+{
+    bool first = true;
+    esl_sb_puts(out, "[");
+    for (const char *p = list; *p;) {
+        size_t n = strcspn(p, ",");
+        if (n) {
+            esl_sb_printf(out, "%s\"%.*s\"", first ? "" : ",", (int)n, p);
+            first = false;
+        }
+        p += n + (p[n] == ',');
+    }
+    esl_sb_puts(out, "]");
+}
+
 static int get_all(const esl_api_t *api, const char *uri, uint64_t now_ms, esl_sb_t *out)
 {
     /* The list can be far larger than the buffer (ESL_API_RESP_SIZE): a
@@ -947,6 +962,10 @@ static int get_all(const esl_api_t *api, const char *uri, uint64_t now_ms, esl_s
     esl_sb_json_str(out, api->fw_version ? api->fw_version : "");
     /* which board this is (ap/boards/<board>/board.json), so a dashboard can tell two APs apart */
     esl_sb_puts(out, ",\"board\":\"" ESL_BOARD "\",\"board_name\":\"" ESL_BOARD_NAME "\"");
+    /* the tag protocols the AP speaks (its manifest: ap/protocols.json), so a dashboard or Home
+       Assistant can tell which tags it can serve */
+    esl_sb_puts(out, ",\"protocols\":");
+    esl_api_protocols_json(out, ESL_PROTOCOLS);
     esl_tag_cfg_t ap;
     esl_store_tag_defaults(api->store, &ap);
     esl_channel_state_t ch;
