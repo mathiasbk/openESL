@@ -39,7 +39,7 @@ LDLIBS  := -lpthread -lm
 CORE_SRCS := $(filter-out $(CORE)/esl_screen.c,$(wildcard $(CORE)/*.c))
 # the tag's fonts and barcodes, which esl_render draws with (as esl_core/CMakeLists.txt)
 TAG_SRCS  := $(ROOT)/tag/src/font.c $(ROOT)/tag/src/barcode.c $(wildcard $(ROOT)/tag/fonts/font_*.c)
-SRCS      := main.c store_files.c http.c netradio.c radio_sim.c radio_coproc.c radio_spimodem.c radio_none.c ota.c
+SRCS      := main.c store_files.c http.c netradio.c radio_sim.c radio_coproc.c radio_spimodem.c radio_none.c ota.c ble.c
 OBJS      := $(SRCS:%.c=$(OUT)/%.o) $(CORE_SRCS:$(CORE)/%.c=$(OUT)/core/%.o) $(OUT)/esl_coproc.o \
              $(TAG_SRCS:$(ROOT)/tag/%.c=$(OUT)/tag/%.o) $(OUT)/webui_files.o
 DEPS      := ap.h Makefile $(wildcard $(CORE)/include/*.h $(ROOT)/shared/*.h) $(ROOT)/VERSION
@@ -85,8 +85,14 @@ $(OUT)/test_spimodem: test_spimodem.c radio_spimodem.c $(DEPS)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) $< $(LDFLAGS) $(LDLIBS) -o $@
 
-test: $(OUT)/openesl-ap $(OUT)/test_spimodem
+# ble.c with the core it uses, without main.c (the test has its own ap and log)
+$(OUT)/test_ble: test_ble.c ble.c $(filter $(OUT)/core/%,$(OBJS)) $(filter $(OUT)/tag/%,$(OBJS)) $(DEPS)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS) $< $(filter $(OUT)/core/%,$(OBJS)) $(filter $(OUT)/tag/%,$(OBJS)) $(LDFLAGS) $(LDLIBS) -o $@
+
+test: $(OUT)/openesl-ap $(OUT)/test_spimodem $(OUT)/test_ble
 	$(OUT)/test_spimodem
+	$(OUT)/test_ble
 	python3 test.py $(OUT)/openesl-ap
 
 clean:

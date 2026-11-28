@@ -637,6 +637,13 @@ static bool mkdirs(void)
     return true;
 }
 
+static esl_image_t *store_images;
+
+esl_image_t *store_files_images(void)
+{
+    return store_images;
+}
+
 bool store_files_open(const char *dir, unsigned max_tags, uint16_t next_poll_s, uint8_t channel)
 {
     static const esl_store_ops_t ops = {
@@ -751,6 +758,7 @@ bool store_files_open(const char *dir, unsigned max_tags, uint16_t next_poll_s, 
     /* their own lock: network radios draw in a thread of their own (netradio.c) */
     static const esl_image_ops_t iops = {.lock = image_lock, .unlock = image_unlock};
     esl_image_init(&images, image_mem, &iops);
+    store_images = &images;
     esl_radio_set_image(&images);
     ap_log("data in %s: %u tags with content", root, tags);
     return true;

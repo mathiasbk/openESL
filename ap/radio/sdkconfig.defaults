@@ -22,3 +22,7 @@ CONFIG_ESP_TASK_WDT_EN=y
 CONFIG_ESP_TASK_WDT_INIT=y
 CONFIG_ESP_TASK_WDT_TIMEOUT_S=10
 CONFIG_ESP_TASK_WDT_PANIC=y
+
+# Two 802.15.4 interfaces (ESL_COPROC_CFG_PAN2): the host's PAN, and a second one it asks for,
+# such as the PAN of SoluM tags on their original firmware. Only the first is on until it does.
+CONFIG_IEEE802154_MULTI_PAN_ENABLE=y

@@ -7,6 +7,7 @@
 #include "esl_lcd.h"
 #include "esl_screen.h"
 #include "esp_app_desc.h"
+#include "esp_bit_defs.h"
 #include "esp_ieee802154.h"
 #include "esp_log.h"
 #include "esp_mac.h"
@@ -234,6 +235,9 @@ static void send_hello(void)
 #if CONFIG_ESL_DISPLAY
     h.features |= ESL_COPROC_FEAT_DISPLAY;
 #endif
+#if CONFIG_IEEE802154_MULTI_PAN_ENABLE
+    h.features |= ESL_COPROC_FEAT_PAN2;
+#endif
     esp_read_mac(mac, ESP_MAC_IEEE802154);
     for (int i = 0; i < 8; i++)
         h.ieee_addr = h.ieee_addr << 8 | mac[i];
@@ -246,6 +250,18 @@ static void apply_config(const esl_coproc_config_t *c)
     esp_ieee802154_set_txpower(c->tx_power);
     esp_ieee802154_set_panid(c->pan);
     esp_ieee802154_set_short_address(c->short_addr);
+#if CONFIG_IEEE802154_MULTI_PAN_ENABLE
+    /* A second PAN the host asks for (a SoluM stock tag's): its frames to ext2 are received
+       and acknowledged like the host's own; otherwise only the first interface listens */
+    if (c->flags & ESL_COPROC_CFG_PAN2) {
+        esp_ieee802154_set_multipan_panid(ESP_IEEE802154_MULTIPAN_1, c->pan2);
+        esp_ieee802154_set_multipan_short_address(ESP_IEEE802154_MULTIPAN_1, 0xFFFE);
+        esp_ieee802154_set_multipan_extended_address(ESP_IEEE802154_MULTIPAN_1, c->ext2);
+        esp_ieee802154_set_multipan_enable(BIT(ESP_IEEE802154_MULTIPAN_0) | BIT(ESP_IEEE802154_MULTIPAN_1));
+    } else {
+        esp_ieee802154_set_multipan_enable(BIT(ESP_IEEE802154_MULTIPAN_0));
+    }
+#endif
     esp_ieee802154_set_promiscuous(c->flags & ESL_COPROC_CFG_SNIFFER);
     esp_ieee802154_set_rx_when_idle(true);
     esp_ieee802154_receive();
@@ -253,6 +269,10 @@ static void apply_config(const esl_coproc_config_t *c)
     configured = true;
     ESP_LOGI(TAG, "channel %u, PAN 0x%04X, short 0x%04X, %d dBm%s", c->channel, c->pan, c->short_addr,
              c->tx_power, c->flags & ESL_COPROC_CFG_SNIFFER ? ", sniffer" : "");
+#if CONFIG_IEEE802154_MULTI_PAN_ENABLE
+    if (c->flags & ESL_COPROC_CFG_PAN2)
+        ESP_LOGI(TAG, "second PAN 0x%04X", c->pan2);
+#endif
     if (pending_verify) {
         pending_verify = false;
         esp_ota_mark_app_valid_cancel_rollback();

@@ -965,7 +965,7 @@ static int get_all(const esl_api_t *api, const char *uri, uint64_t now_ms, esl_s
     /* the tag protocols the AP speaks (its manifest: ap/protocols.json), so a dashboard or Home
        Assistant can tell which tags it can serve */
     esl_sb_puts(out, ",\"protocols\":");
-    esl_api_protocols_json(out, ESL_PROTOCOLS);
+    esl_api_protocols_json(out, api->protocols ? api->protocols : ESL_PROTOCOLS);
     esl_tag_cfg_t ap;
     esl_store_tag_defaults(api->store, &ap);
     esl_channel_state_t ch;

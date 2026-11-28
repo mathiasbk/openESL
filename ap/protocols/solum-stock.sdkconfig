@@ -1,4 +1,8 @@
 # SoluM tags on their original firmware (protocols.json "solum-stock", esl_solum_stock.c): the AP
-# answers the vendor's own frames next to the openESL ones. Such a tag uses its own PAN and
-# channel, so the AP must be set to them (ap/README.md, "SoluM stock-firmware tags").
+# answers the vendor's own frames next to the openESL ones. Such a tag keeps the vendor's PAN
+# (ESL_SOLUM_STOCK_PAN_ID), which the radio hears as a second 802.15.4 interface (multi-PAN) on
+# the AP's channel (ap/README.md, "SoluM stock-firmware tags").
 CONFIG_ESL_SOLUM_STOCK_TAGS=y
+# The C6/C5's own radio: two interfaces (radio_ieee802154.c, add_pan). On an S3 there is no such
+# symbol (its radio is a C6 on the cable, whose firmware has it), and Kconfig leaves it out.
+CONFIG_IEEE802154_MULTI_PAN_ENABLE=y

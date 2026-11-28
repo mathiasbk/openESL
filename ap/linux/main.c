@@ -15,6 +15,7 @@
 #include "ap.h"
 #include "esl_clock.h"
 #include "esl_radio.h"
+#include "esl_solum_stock.h"
 
 #ifndef OPENESL_VERSION
 #define OPENESL_VERSION "dev"
@@ -86,6 +87,11 @@ typedef struct {
     unsigned next_poll_s;
     unsigned max_tags;
     char netradio[128];
+    unsigned solum_stock_pan; /* 0: off */
+    char solum_stock_gw[32];
+    char ble[16];             /* "": off */
+    char ble_tag[24];
+    unsigned ble_auto_add;
 } opts_t;
 
 static void usage(FILE *f)
@@ -103,6 +109,16 @@ static void usage(FILE *f)
             "                    --radio none the first is on the AP's channel\n"
             "  --channel N       built-in channel 11-26 (25); the API can move the AP to another\n"
             "  --pan HEX         PAN id (4553)\n"
+            "  --solum-stock-pan HEX  also serve SoluM tags on their original firmware, on their PAN\n"
+            "                    (1234 as they come), next to the openESL tags: the radio needs a second\n"
+            "                    PAN (a C6 on USB with radio firmware 1.0.1 or later), or --pan set to it.\n"
+            "                    Both kinds share the channel (off)\n"
+            "  --solum-stock-gw MAC  the gateway address those tags were attached to (default: one made at\n"
+            "                    the first start, kept in DIR/solum-stock-gw)\n"
+            "  --ble hciN        also serve Bluetooth tags with their maker's firmware (Gicisky 2.9\" BWRY)\n"
+            "                    on that adapter; needs root or cap_net_raw,cap_net_admin (off)\n"
+            "  --ble-tag MAC     a Bluetooth tag to add at the start (AA:BB:CC:DD:EE:FF)\n"
+            "  --ble-auto-add 0  do not add every Gicisky tag the scan hears (1)\n"
             "  --token TOKEN     API token (default: made at the first start, kept in DIR/token)\n"
             "  --next-poll S     default poll interval sent to tags, 0 = the tag keeps its own (0)\n"
             "  --max-tags N      (%d)\n"
@@ -140,6 +156,16 @@ static bool set_opt(opts_t *o, const char *name, const char *val)
         return NUM(channel, 10, 11, 26);
     if (!strcmp(name, "pan"))
         return NUM(pan, 16, 0, 0xFFFE);
+    if (!strcmp(name, "solum-stock-pan"))
+        return NUM(solum_stock_pan, 16, 1, 0xFFFE);
+    if (!strcmp(name, "solum-stock-gw"))
+        return STR(solum_stock_gw);
+    if (!strcmp(name, "ble"))
+        return STR(ble);
+    if (!strcmp(name, "ble-tag"))
+        return STR(ble_tag);
+    if (!strcmp(name, "ble-auto-add"))
+        return NUM(ble_auto_add, 10, 0, 1);
     if (!strcmp(name, "next-poll"))
         return NUM(next_poll_s, 10, 0, 3600);
     if (!strcmp(name, "max-tags"))
@@ -362,6 +388,124 @@ static void *housekeeping(void *arg)
     return NULL;
 }
 
+/* SoluM tags on their original firmware (--solum-stock-pan, esl_solum_stock.c), as
+ * ap/main/radio.c does on the C6: their frames go to esl_solum_stock_handle first */
+static esl_solum_stock_t solum_stock;
+static uint16_t solum_stock_pan; /* 0: off */
+
+static int hexval(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    if (c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
+
+/* 16 hex digits in the order the AP shows a MAC (00:11:22:FF:FE:33:44:55) to on-air order */
+static bool parse_gw(const char *s, uint8_t gw[8])
+{
+    uint8_t in[8];
+    int n = 0;
+    while (*s && n < 8) {
+        int hi = hexval(*s++);
+        if (hi < 0)
+            continue; /* a separator */
+        int lo = *s ? hexval(*s++) : -1;
+        if (lo < 0)
+            return false;
+        in[n++] = (uint8_t)(hi << 4 | lo);
+    }
+    if (n != 8)
+        return false;
+    for (int i = 0; i < 8; i++)
+        gw[i] = in[7 - i];
+    return true;
+}
+
+/* --solum-stock-gw, or the address kept in DIR/solum-stock-gw, made at the first start: a tag
+ * that is not attached yet learns it from the scan reply, and keeps answering only to it */
+static bool solum_stock_gw(const opts_t *o, uint8_t gw[8])
+{
+    char path[300], line[64];
+    if (o->solum_stock_gw[0])
+        return parse_gw(o->solum_stock_gw, gw);
+    snprintf(path, sizeof(path), "%s/solum-stock-gw", o->data);
+    FILE *f = fopen(path, "r");
+    if (f) {
+        bool ok = fgets(line, sizeof(line), f) && parse_gw(line, gw);
+        fclose(f);
+        return ok;
+    }
+    uint8_t in[8] = {0};
+    f = fopen("/dev/urandom", "rb");
+    if (!f || fread(in, sizeof(in), 1, f) != 1) {
+        if (f)
+            fclose(f);
+        return false;
+    }
+    fclose(f);
+    in[0] = (uint8_t)((in[0] & 0xFC) | 0x02); /* a locally administered, unicast EUI-64 */
+    f = fopen(path, "w");
+    if (!f)
+        return false;
+    fprintf(f, "%02X:%02X:%02X:%02X:%02X:%02X:%02X:%02X\n", in[0], in[1], in[2], in[3], in[4], in[5], in[6], in[7]);
+    fclose(f);
+    for (int i = 0; i < 8; i++)
+        gw[i] = in[7 - i];
+    return true;
+}
+
+typedef struct {
+    const esl_link_rx_t *req;
+} solum_stock_send_t;
+
+/* One frame of a burst, timed from now (ESL_LINK_REF_NOW) and not from the frame that started
+ * it; a stock tag does not acknowledge every fragment, so a refused one does not stop the burst */
+static bool solum_stock_send(void *ctx, const uint8_t *psdu, size_t len)
+{
+    solum_stock_send_t *s = ctx;
+    uint8_t tx[ESL_PSDU_MAX];
+    if (len + ESL_FCS_LEN > ESL_PSDU_MAX)
+        return false;
+    memcpy(tx, psdu, len);
+    memset(tx + len, 0, ESL_FCS_LEN);
+    esl_link_rx_t req = *s->req;
+    req.rx_us = ap_clock_us();
+    req.ref = ESL_LINK_REF_NOW;
+    if (ap.link.send(&ap.link, tx, len + ESL_FCS_LEN, &req) != 0)
+        solum_stock.dropped++;
+    return true;
+}
+
+/* A SoluM stock frame: answered (or a STATUS logged) and true, or false for esl_link_handle */
+static bool solum_stock_frame(const esl_link_rx_t *f, uint64_t now)
+{
+    if (!solum_stock_pan || f->len <= ESL_FCS_LEN)
+        return false;
+    esl_solum_stock_frame_t sf;
+    if (!esl_solum_stock_parse(f->psdu, f->len - ESL_FCS_LEN, &sf))
+        return false;
+    if (sf.msg == ESL_SOLUM_STOCK_MSG_STATUS) {
+        ap.link.stats.rx++;
+        bool shown = esl_solum_stock_status(&solum_stock, &ap.store, &sf);
+        ap_log("solum-stock: status job %08lX msg %02X code %02X%s", (unsigned long)sf.job, sf.status_msg, sf.code,
+               shown ? " (shown)" : "");
+        return true;
+    }
+    solum_stock_send_t s = {f};
+    unsigned n = esl_solum_stock_handle(&solum_stock, &ap.store, &ap.layouts, solum_stock_pan, f->psdu,
+                                        f->len - ESL_FCS_LEN, f->rssi, now, solum_stock_send, &s);
+    if (!n)
+        return false;
+    ap.link.stats.rx++;
+    ap.link.stats.replies += n;
+    ap_debug("solum-stock: answered with %u frame(s)", n);
+    return true;
+}
+
 static int radio_loop(const radio_backend_t *b)
 {
     uint8_t tx[ESL_PSDU_MAX];
@@ -376,6 +520,8 @@ static int radio_loop(const radio_backend_t *b)
             esl_radio_event_t ev;
             memset(&ev, 0, sizeof(ev));
             netradio_heard(f.psdu, f.len, now);
+            if (solum_stock_frame(&f, now))
+                continue;
             size_t n = esl_link_handle(&ap.link, &ap.store, &ap.layouts, ap.pan, &f, now, tx, &ev, ap_clock_us, NULL);
             if (ev.msg_type)
                 log_frame(&f, &ev, n);
@@ -390,6 +536,8 @@ static int radio_loop(const radio_backend_t *b)
             if (ch) {
                 int err = ap.link.set_channel ? ap.link.set_channel(&ap.link, ch) : -1;
                 ap_log("moved to channel %u: %s", ch, err ? "failed" : "ok");
+                if (!err)
+                    solum_stock.channel = ch; /* the stream head names the channel */
             }
         }
     }
@@ -398,7 +546,7 @@ static int radio_loop(const radio_backend_t *b)
 
 int main(int argc, char **argv)
 {
-    static opts_t o = {"/var/lib/openesl", ":80", "", "", ESL_DEFAULT_CHANNEL, ESL_DEFAULT_PAN_ID, 0, AP_MAX_TAGS, ""};
+    static opts_t o = {"/var/lib/openesl", ":80", "", "", ESL_DEFAULT_CHANNEL, ESL_DEFAULT_PAN_ID, 0, AP_MAX_TAGS, "", 0, "", "", "", 1};
     int rc = parse_args(&o, argc, argv);
     if (rc)
         return rc;
@@ -445,6 +593,31 @@ int main(int argc, char **argv)
         return 1;
     }
 
+    if (o.solum_stock_pan) {
+        uint8_t gw[8];
+        void *mem = malloc(esl_solum_stock_mem_size());
+        if (!mem || !solum_stock_gw(&o, gw)) {
+            fprintf(stderr, "openesl-ap: --solum-stock-pan: %s\n", mem ? "bad or unwritable gateway address" : "no memory");
+            return 1;
+        }
+        esl_solum_stock_init(&solum_stock, mem, gw, cs.channel);
+        solum_stock_pan = (uint16_t)o.solum_stock_pan;
+        int err = -1;
+        if (solum_stock_pan != ap.pan && ap.link.add_pan)
+            err = ap.link.add_pan(&ap.link, solum_stock_pan, gw);
+        else if (solum_stock_pan == ap.pan && ap.link.set_extended_addr)
+            err = ap.link.set_extended_addr(&ap.link, gw);
+        else if (solum_stock_pan == ap.pan)
+            err = 0; /* a radio that takes every frame to its PAN */
+        if (err) {
+            fprintf(stderr, "openesl-ap: --solum-stock-pan %04X: the radio %s has no second PAN; set --pan to it, or use "
+                            "a C6 on USB (--radio uart:...)\n", solum_stock_pan, ap.link.name);
+            return 2;
+        }
+        ap_log("solum-stock: on, PAN 0x%04X, gateway %02X%02X%02X%02X%02X%02X%02X%02X", solum_stock_pan, gw[7], gw[6],
+               gw[5], gw[4], gw[3], gw[2], gw[1], gw[0]);
+    }
+
     /* the API: as app_main, without WiFi or data sources */
     uint8_t rnd[4] = {0};
     FILE *r = fopen("/dev/urandom", "rb");
@@ -457,6 +630,10 @@ int main(int argc, char **argv)
     ap.api.store = &ap.store;
     ap.api.token = o.token;
     ap.api.fw_version = OPENESL_VERSION;
+    static char protocols[64];
+    snprintf(protocols, sizeof(protocols), "openesl%s%s", solum_stock_pan ? ",solum-stock" : "",
+             o.ble[0] ? ",gicisky" : "");
+    ap.api.protocols = protocols;
     ap.api.layouts = &ap.layouts;
     ap.api.reset_reason = "poweron";
     ap.api.sched = &ap.sched;
@@ -469,6 +646,8 @@ int main(int argc, char **argv)
     ap.api.jobs = &ap.jobs;
     ap.api.apid = store_files_apid();
     if (o.netradio[0] && !netradio_start(o.netradio, own))
+        return 1;
+    if (o.ble[0] && !ble_start(o.ble, o.data, o.ble_tag, o.ble_auto_add, 5000, store_files_images(), &stop))
         return 1;
     if (!http_start(o.listen))
         return 1;
@@ -491,6 +670,8 @@ int main(int argc, char **argv)
     stop = 1;
     if (hk_ok)
         pthread_join(hk, NULL);
+    if (o.ble[0])
+        ble_stop();
     esl_store_save_seen(&ap.store);
     store_files_sync();
     if (b->close)

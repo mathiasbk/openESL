@@ -79,7 +79,7 @@ are. What is new is how the picture gets to the tag.
 | ESP32-S3 + C6 (cable or WiFi) | yes, next to the 802.15.4 tags | the S3's own BLE radio is free (the C6 does 802.15.4), and its 3 MB app slots have room (about 195 KB more). `gicisky` is in the board's `protocols` (`board.json`, `ap/manifest.py`) |
 | ESP32-C6 (4 MB) | in its own build only (`python ap/build.py --ble c6-supermini`), without 802.15.4 | the image with BLE is about 1.6 MB and the normal table's app slots are 1.5 MB; the Bluetooth AP's table gives up the tag firmware partition for 1.75 MB slots. Both would also share one radio and 512 KB of RAM |
 | ESP32-C5 | in its own build only (`--ble`, the `ble` variant), not tried on a board | it has the flash and PSRAM, but WiFi, BLE and 802.15.4 share one radio, so a BLE transfer (several seconds per tag) would take air time from the 802.15.4 tags' 20 ms windows; to be tried on hardware before both go in one build |
-| Linux AP | not yet | needs a Bluetooth transport for the Linux host (BlueZ); the SoluM gateway has no Bluetooth |
+| Linux AP | yes, next to the 802.15.4 tags, with `--ble hci0` (not tried with a tag yet) | the kernel's Bluetooth sockets (`ap/linux/ble.c`): raw HCI for the scan, L2CAP/ATT for the transfer; the computer's Bluetooth is not its 802.15.4 radio. The SoluM gateway has no Bluetooth |
 
 On an AP with both, the 802.15.4 tags and the Bluetooth tags are in the same table, the
 same dashboard and the same API; the radio task and the BLE push task draw and record

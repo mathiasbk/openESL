@@ -48,7 +48,7 @@ Worst case from change to finished screen: about 1.5 minutes (60 s poll + drawin
 - The 1.54" display controller is confirmed on hardware. Neither tag has red.
 
 ### Tags still on the vendor's firmware (a second protocol)
-- Some SoluM labels in the field still run the vendor's own firmware and never speak the openESL protocol. The AP can answer them too: `esl_solum_stock` recognises their frames and replies in the vendor's own image format, so the store, the layouts, the drawing, the API and the dashboard are unchanged. It is off by default (`ESL_SOLUM_STOCK_TAGS`) and never writes to a tag, only answers the frames a tag sends. Such a tag uses the vendor's own PAN and channel, so the AP is set to match. This is one vendor's protocol: another brand's factory firmware needs its own handler next to it ([ap/README.md](../ap/README.md), "SoluM stock-firmware tags").
+- Some SoluM labels in the field still run the vendor's own firmware and never speak the openESL protocol. The AP can answer them too: `esl_solum_stock` recognises their frames and replies in the vendor's own image format, so the store, the layouts, the drawing, the API and the dashboard are unchanged. It is off by default (`ESL_SOLUM_STOCK_TAGS`) and never writes to a tag, only answers the frames a tag sends. Such a tag keeps the vendor's own PAN, which the radio hears as a second PAN next to openESL's (multi-PAN), on the AP's channel. This is one vendor's protocol: another brand's factory firmware needs its own handler next to it ([ap/README.md](../ap/README.md), "SoluM stock-firmware tags").
 
 ### The tag initiates all communication
 - The tag has its radio off almost all the time. It can only receive for the few milliseconds after it has sent something itself.
