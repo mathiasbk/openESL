@@ -442,3 +442,23 @@ test("the Bluetooth AP is offered its own image, and an 802.15.4 AP never that o
   assert.ok(!isBleAp({ ...plain, chip: "esp32s3", slot_size: 0x1c0000 }));
   assert.equal(apImageFor({ ...plain, app: "something_else" }, info), null);
 });
+
+test("the Bluetooth AP's image is AP firmware, and the question says when it does not fit the AP", () => {
+  const k = firmwareKind(apImage(4096, "1.0.1", 13, "esl_ap_ble"));
+  assert.equal(k.kind, "ap");
+  assert.equal(k.app, "esl_ap_ble");
+  assert.equal(firmwareKind(apImage(4096, "1.0.1")).app, "esl_ap");
+  assert.equal(firmwareKind(apImage(4096, "1.0.1", 13, "esl_other")).kind, null);
+  const ble = { version: "1.0.0", chip: "esp32c6", slot_size: 0x1c0000, app: "esl_ap_ble" };
+  const plain = { version: "1.0.0", chip: "esp32c6", slot_size: 0x180000, app: "esl_ap" };
+  const normal = firmwareKind(apImage(4096, "1.0.1"));
+  assert.doesNotMatch(apSendQuestion(k, ble), /refuse|USB/);
+  assert.doesNotMatch(apSendQuestion(normal, plain), /refuse|USB/);
+  assert.doesNotMatch(apSendQuestion(normal, { version: "0.11.0", chip: "esp32c6", slot_size: 0x180000 }), /refuse|USB/);
+  assert.match(apSendQuestion(k, plain), /Bluetooth AP's firmware, and this AP is not one/);
+  assert.match(apSendQuestion(k, { version: "0.11.0", slot_size: 0x180000 }), /not one/);   // older AP, does not say its app
+  assert.match(apSendQuestion(normal, ble), /this AP is a Bluetooth AP: it will refuse it/);
+  const old = { version: "1.0.0", chip: "esp32c6", slot_size: 0x1c0000 };   // a 1.0.0 Bluetooth AP
+  assert.match(apSendQuestion(normal, old), /would take it and stop serving its Bluetooth tags/);
+  assert.match(apSendQuestion(k, old), /flash it once over USB/);
+});

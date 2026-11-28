@@ -41,9 +41,11 @@ export function firmwareKind(data) {
     // would lose its radio with it, and the AP refuses it too
     if (project?.startsWith("esl_radio"))
       return { kind: null, error: `radio firmware for another link (${project}): the C6 on a Linux AP's USB port is flashed over USB from the Flash AP page, not through an AP` };
-    if (project && project !== "esl_ap")
+    // the 802.15.4 AP (esl_ap) or the Bluetooth AP (esl_ap_ble, docs/ble-tags.md): each takes
+    // only its own app, so app says which (apSendQuestion warns when it is not the AP's)
+    if (project && project !== "esl_ap" && project !== "esl_ap_ble")
       return { kind: null, error: `an app for the chip, but not AP firmware (${project})` };
-    return { kind: "ap", size: data.length, version: appVersion(data), chip };
+    return { kind: "ap", size: data.length, version: appVersion(data), chip, ...(project ? { app: project } : {}) };
   }
   // The AP as a Linux program (openesl-ap-linux-<arch>-<version>): an ELF; the AP checks that it
   // is for its machine and starts, and finds its version itself
@@ -187,6 +189,18 @@ export function apSendQuestion(kind, ota, lcd = null) {
   lines.push(kind.version && running ? `Send AP firmware ${kind.version} to the AP? It runs ${running} now.` : "Send new firmware to the AP?");
   if (kind.chip && ota?.chip && kind.chip !== ota.chip)
     lines.push(`This image is for the ${chipName(kind.chip)}, and this AP is an ${chipName(ota.chip)}: it will refuse it.`);
+  // the Bluetooth AP and the 802.15.4 AP each refuse the other's image (ap/main/ota.c); a 1.0.0
+  // Bluetooth AP does not say its app, but is told by its slot (isBleAp)
+  if (kind.app && ota) {
+    const old = isBleAp(ota) && !ota.app; // a 1.0.0 Bluetooth AP, built as esl_ap
+    if (old) lines.push(kind.app === BLE_APP
+      ? "This AP is a Bluetooth AP from 1.0.0, which refuses the new Bluetooth AP firmware over the air: flash it once over USB."
+      : "This is the 802.15.4 AP's firmware, and this AP is a Bluetooth AP from 1.0.0: it would take it and stop serving its Bluetooth tags. Flash it once over USB with the Bluetooth AP firmware instead.");
+    else if (kind.app === BLE_APP && !isBleAp(ota))
+      lines.push("This is the Bluetooth AP's firmware, and this AP is not one: it will refuse it.");
+    else if (kind.app !== BLE_APP && isBleAp(ota))
+      lines.push("This is the 802.15.4 AP's firmware, and this AP is a Bluetooth AP: it will refuse it.");
+  }
   if (c === 0) lines.push(`That is the version it already runs.`);
   else if (c < 0) lines.push(`That is older than what it runs.`);
   if (lcd !== null && typeof ota?.display === "boolean" && lcd !== ota.display)
