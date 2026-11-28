@@ -45,6 +45,26 @@ static void test_messages(void)
     feed(&p, f, n);
     CHECK(!esl_coproc_decode_config(p.payload, p.len, &c2)); /* no such channel */
 
+    /* a second PAN (multi-PAN, a SoluM stock tag's gateway) follows the 7 bytes */
+    esl_coproc_config_t m = {.channel = 20, .pan = PAN, .tx_power = 0, .flags = ESL_COPROC_CFG_PAN2, .pan2 = 0x1234,
+                             .ext2 = {1, 2, 3, 4, 5, 6, 7, 8}};
+    n = esl_coproc_encode_config(f, &m);
+    CHECK_INT(n, 17 + ESL_COPROC_OVERHEAD);
+    CHECK_INT(feed(&p, f, n), 1);
+    CHECK(esl_coproc_decode_config(p.payload, p.len, &c2));
+    CHECK_INT(c2.pan, PAN);
+    CHECK_INT(c2.pan2, 0x1234);
+    CHECK_INT(c2.ext2[0], 1);
+    CHECK_INT(c2.ext2[7], 8);
+    /* a radio from before it reads the first 7 bytes as they always were */
+    CHECK_INT(p.payload[0], 20);
+    CHECK_INT(p.payload[1] | p.payload[2] << 8, PAN);
+    /* the flag without the 10 bytes is a broken frame */
+    CHECK(!esl_coproc_decode_config(p.payload, 7, &c2));
+    /* without the flag, 7 bytes and no second PAN */
+    m.flags = 0;
+    CHECK_INT(esl_coproc_encode_config(f, &m), 7 + ESL_COPROC_OVERHEAD);
+
     esl_coproc_hello_t h = {.version = ESL_COPROC_VERSION, .configured = 1, .fw = 0x0102,
                           .ieee_addr = 0x0123456789ABCDEFull, .cfg = c, .app_version = "0.8.2-dev",
                           .features = ESL_COPROC_FEAT_DISPLAY}, h2;

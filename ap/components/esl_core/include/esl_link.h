@@ -33,6 +33,11 @@ typedef struct {
     uint32_t ref;               /* the driver's own (a coprocessor's id for the frame); the rest leave it alone */
 } esl_link_rx_t;
 
+/* ref in the req of a send() that answers no frame the radio still holds (one fragment of a
+ * burst, esl_solum_stock): a coprocessor times its resends from when it gets it, not from the
+ * frame's arrival, which the tag's listening window is counted from */
+#define ESL_LINK_REF_NOW 0xFFFFFFFFu
+
 typedef struct {
     uint32_t rx;        /* frames received */
     uint32_t polls;     /* POLLs answered */
@@ -79,6 +84,12 @@ struct esl_link {
      * if not possible. A SoluM stock-firmware tag (esl_solum_stock) addresses its
      * frames to the gateway's long address, so an AP that serves those needs one. */
     int (*set_extended_addr)(esl_link_t *l, const uint8_t addr[8]);
+    /* Also receives (and auto-acknowledges) the frames sent to PAN pan and the extended
+     * address ext_addr (on-air order), on the same channel, next to the PAN start() gave:
+     * a second 802.15.4 interface (multi-PAN). NULL if the radio cannot. A SoluM stock-
+     * firmware tag keeps the vendor's PAN, so an AP serves it next to the openESL tags with
+     * this. Call it after start(). Returns 0 or the driver's error. */
+    int (*add_pan)(esl_link_t *l, uint16_t pan, const uint8_t ext_addr[8]);
     void *ctx;          /* the driver's own */
     esl_link_stats_t stats;
 };

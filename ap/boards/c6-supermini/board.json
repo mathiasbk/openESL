@@ -7,9 +7,10 @@
   "flash_mb": 4,
   "psram_mb": 0,
   "antenna": "on the board",
-  "radios": { "802.15.4": {"via": "native"}, "ble": {"via": "native"} },
+  "radios": { "802.15.4": {"via": "native", "multipan": true}, "ble": {"via": "native"} },
   "protocols": ["openesl"],
   "variants": {
+    "solum-stock": { "protocols": ["openesl", "solum-stock"] },
     "ble": { "radios": {"ble": {"via": "native"}}, "protocols": ["gicisky"], "sdkconfig": "ble.sdkconfig.defaults", "app": "esl_ap_ble" },
     "sniffer": { "protocols": [], "sdkconfig": "sniffer.sdkconfig.defaults" }
   },

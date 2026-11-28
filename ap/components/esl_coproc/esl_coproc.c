@@ -72,10 +72,17 @@ static void get_config(const uint8_t *p, esl_coproc_config_t *c)
     c->flags = p[6];
 }
 
+/* With ESL_COPROC_CFG_PAN2 the second PAN follows: pan2, ext2 (10 bytes) */
+#define CONFIG_PAN2_LEN (CONFIG_LEN + 2 + 8)
+
 size_t esl_coproc_encode_config(uint8_t *out, const esl_coproc_config_t *c)
 {
-    uint8_t p[CONFIG_LEN];
+    uint8_t p[CONFIG_PAN2_LEN];
     put_config(p, c);
+    if (!(c->flags & ESL_COPROC_CFG_PAN2))
+        return esl_coproc_frame(out, ESL_COPROC_CONFIG, p, CONFIG_LEN);
+    put16(&p[CONFIG_LEN], c->pan2);
+    memcpy(&p[CONFIG_LEN + 2], c->ext2, 8);
     return esl_coproc_frame(out, ESL_COPROC_CONFIG, p, sizeof(p));
 }
 
@@ -84,6 +91,14 @@ bool esl_coproc_decode_config(const uint8_t *p, size_t len, esl_coproc_config_t 
     if (len < CONFIG_LEN)
         return false;
     get_config(p, c);
+    c->pan2 = 0;
+    memset(c->ext2, 0, sizeof(c->ext2));
+    if (c->flags & ESL_COPROC_CFG_PAN2) {
+        if (len < CONFIG_PAN2_LEN)
+            return false;
+        c->pan2 = get16(&p[CONFIG_LEN]);
+        memcpy(c->ext2, &p[CONFIG_LEN + 2], 8);
+    }
     return c->channel >= 11 && c->channel <= 26;
 }
 

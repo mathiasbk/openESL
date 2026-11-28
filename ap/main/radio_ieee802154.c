@@ -1,6 +1,7 @@
 #include <string.h>
 #include "app.h"
 #include "esp_coexist.h"
+#include "esp_bit_defs.h"
 #include "esp_ieee802154.h"
 #include "esp_log.h"
 #include "esp_rom_sys.h"
@@ -146,6 +147,10 @@ static int link_start(esl_link_t *l, uint8_t channel, uint16_t pan, uint16_t sho
     esp_ieee802154_set_txpower(CONFIG_ESL_TX_POWER_DBM);
     esp_ieee802154_set_panid(pan);
     esp_ieee802154_set_short_address(short_addr);
+#if CONFIG_IEEE802154_MULTI_PAN_ENABLE
+    /* Only the first interface (the PAN above) listens until add_pan asks for a second */
+    esp_ieee802154_set_multipan_enable(BIT(ESP_IEEE802154_MULTIPAN_0));
+#endif
     esp_ieee802154_set_promiscuous(promiscuous);
     esp_ieee802154_set_rx_when_idle(true);
     return esp_ieee802154_receive();
@@ -166,6 +171,19 @@ static int link_set_extended_addr(esl_link_t *l, const uint8_t addr[8])
     return esp_ieee802154_set_extended_address(addr);
 }
 
+#if CONFIG_IEEE802154_MULTI_PAN_ENABLE
+/* A second 802.15.4 interface (esl_link_t.add_pan): frames to PAN pan and ext_addr are
+ * received and auto-ACKed like those to the first one, on the same channel */
+static int link_add_pan(esl_link_t *l, uint16_t pan, const uint8_t ext_addr[8])
+{
+    (void)l;
+    esp_ieee802154_set_multipan_panid(ESP_IEEE802154_MULTIPAN_1, pan);
+    esp_ieee802154_set_multipan_short_address(ESP_IEEE802154_MULTIPAN_1, 0xFFFE); /* none */
+    esp_ieee802154_set_multipan_extended_address(ESP_IEEE802154_MULTIPAN_1, ext_addr);
+    return esp_ieee802154_set_multipan_enable(BIT(ESP_IEEE802154_MULTIPAN_0) | BIT(ESP_IEEE802154_MULTIPAN_1));
+}
+#endif
+
 esl_link_t radio_link = {
     .name = "802.15.4",
     .start = link_start,
@@ -173,4 +191,7 @@ esl_link_t radio_link = {
     .set_channel = link_set_channel,
     .set_tx_power = link_set_tx_power,
     .set_extended_addr = link_set_extended_addr,
+#if CONFIG_IEEE802154_MULTI_PAN_ENABLE
+    .add_pan = link_add_pan,
+#endif
 };
