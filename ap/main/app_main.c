@@ -41,6 +41,23 @@ static void jobs_unlock(void *ctx)
     (void)ctx;
     xSemaphoreGive(jobs_mutex);
 }
+#if CONFIG_ESL_BLE
+/* The image buffers' lock (esl_image_ops_t): the radio task and the BLE push task both draw */
+static SemaphoreHandle_t image_mutex;
+
+static void image_lock(void *ctx)
+{
+    (void)ctx;
+    xSemaphoreTake(image_mutex, portMAX_DELAY);
+}
+
+static void image_unlock(void *ctx)
+{
+    (void)ctx;
+    xSemaphoreGive(image_mutex);
+}
+#endif
+
 static char ssid[33], password[65], token[129], hostname[33];
 
 static const char *reset_reason_name(esp_reset_reason_t r)
@@ -162,13 +179,22 @@ void app_main(void)
     api.tagfw = tagfw_start();
     esl_radio_set_tagfw(api.tagfw);
     /* Images for tags that show what the AP draws: two buffers of the largest screen
-       (about 10 KB), drawn when a tag needs one and dropped again (esl_image.h). Only
-       the radio task uses them for now, so no lock. Without the memory the AP still
-       works, but those tags get no new content. */
+       (about 10 KB), drawn when a tag needs one and dropped again (esl_image.h). Without
+       Bluetooth only the radio task uses them, so no lock; the BLE push task draws too,
+       so with it they get one. Without the memory the AP still works, but those tags get
+       no new content. */
     static esl_image_t images;
     uint8_t *image_mem = malloc(esl_image_mem_size());
     if (image_mem) {
+#if CONFIG_ESL_BLE
+        static const esl_image_ops_t image_ops = {.lock = image_lock, .unlock = image_unlock};
+        image_mutex = xSemaphoreCreateMutex();
+        esl_image_init(&images, image_mem, image_mutex ? &image_ops : NULL);
+        if (!image_mutex)
+            ESP_LOGE(TAG, "no memory for the image lock");
+#else
         esl_image_init(&images, image_mem, NULL);
+#endif
         esl_radio_set_image(&images);
         /* Drawn after the reply, not in the tag's 20 ms listening window (requirement A3 in docs/requirements.md) */
         esl_radio_set_draw_later(true);
@@ -198,14 +224,16 @@ void app_main(void)
     ESL_CHECK(radio_start(&store, api.layouts, ch.channel, CONFIG_ESL_PAN_ID));
 #if CONFIG_ESL_BLE
     /* Bluetooth tags with their maker's firmware (docs/ble-tags.md): the BLE central and
-       the push task, on the AP's own BLE radio (CONFIG_ESL_BLE; the radio mode is the stub,
-       so 802.15.4 is off). */
-    if (image_mem) {
+       the push task, on the AP's own BLE radio (CONFIG_ESL_BLE). Next to the 802.15.4
+       radio where the board has room for both (the S3 with its C6 radio); in the
+       Bluetooth AP build (ble.sdkconfig.defaults) the radio mode is the stub, so BLE is the
+       only tag radio. Without the image lock the two would draw into the same buffers. */
+    if (image_mem && image_mutex) {
         esp_err_t ble_err = ble_start(&store, api.layouts, &images);
         if (ble_err != ESP_OK)
             ESP_LOGE(TAG, "BLE: %s", esp_err_to_name(ble_err));
     } else {
-        ESP_LOGE(TAG, "BLE: no image buffers, no tag can be sent to");
+        ESP_LOGE(TAG, "BLE: no image buffers or no lock for them, no tag can be sent to");
     }
 #endif
     /* The tag table is the one thing that grows with the number of tags (store_nvs.c

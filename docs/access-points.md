@@ -45,6 +45,7 @@ How the S3 and the C6 talk, and how to flash the C6: [ap-radio-link.md](ap-radio
 | Label designer on the AP (Design tab) | no: on the web page | yes | yes | yes | yes (when built with the renderer, as the releases are) |
 | Data sources (`/api/sources`) | no | yes | yes | yes | not yet |
 | Updates of the AP | OTA | OTA | OTA | OTA | replace the binary |
+| Bluetooth tags with their maker's firmware ([ble-tags.md](ble-tags.md#which-ap)) | separate BLE AP build, without 802.15.4 | not yet | yes, next to the 802.15.4 tags | yes, next to the 802.15.4 tags | not yet |
 
 Pictures need AP firmware 0.6.0 or newer (`PUT /api/tags/{mac}/image`): the web page's Dashboard tab, over USB or the bridge in `tools/esl-client`, sends them to any board with it, and the dashboard an AP serves itself has "A picture" from firmware 0.9.0. Each picture takes up to 5 KB of the AP's NVS, shared with the content of every tag, so how many fit depends on the AP; a full NVS answers "no room to save the picture". With the wireless C6 a picture goes over WiFi in pauses, like every screen ([ap-netradio.md](ap-netradio.md)).
 
