@@ -43,11 +43,17 @@ class Checks(unittest.TestCase):
         self.assertEqual(manifest.check_build(board(protocols=["openesl", "solum-stock"])), [])
 
     def test_conflicting_radio(self):
+        # ESL_BLE is not built next to the chip's own 802.15.4 radio (main/Kconfig.projbuild),
+        # only next to a C6 radio on a cable or over WiFi
+        b = board(radios={"802.15.4": {"via": "native"}, "ble": {"via": "native"}}, protocols=["openesl", "gicisky"])
+        self.assertIn("gicisky cannot be built with a 802.15.4/native radio", " ".join(manifest.check_build(b)))
+        for via in ("uart", "net"):
+            b = board(radios={"802.15.4": {"via": via, "radio_fw": ["c6"]}, "ble": {"via": "native"}},
+                      protocols=["openesl", "gicisky"])
+            self.assertEqual(manifest.check_build(b), [])
         protocols = manifest.load_protocols()
         protocols["gicisky"] = dict(protocols["gicisky"], conflicts=["802.15.4"])
-        b = board(radios={"802.15.4": {"via": "native"}, "ble": {"via": "native"}}, protocols=["openesl", "gicisky"])
-        self.assertIn("gicisky cannot be built with a 802.15.4 radio", " ".join(manifest.check_build(b, None, protocols)))
-        self.assertEqual(manifest.check_build(b), [])
+        self.assertTrue(manifest.check_build(b, None, protocols))
 
     def test_the_sniffer_has_no_protocols(self):
         b = board(variants={"sniffer": {"sdkconfig": "sniffer.sdkconfig.defaults"}})

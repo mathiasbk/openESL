@@ -82,5 +82,9 @@ are. What is new is how the picture gets to the tag.
 | Linux AP | not yet | needs a Bluetooth transport for the Linux host (BlueZ); the SoluM gateway has no Bluetooth |
 
 On an AP with both, the 802.15.4 tags and the Bluetooth tags are in the same table, the
-same dashboard and the same API; the radio task and the BLE push task draw into the same
-image buffers under a lock.
+same dashboard and the same API; the radio task and the BLE push task draw and record
+images under one lock. Next to 802.15.4 the S3 scans for Bluetooth tags 30 ms of every
+100 ms, so WiFi keeps most of the air time. The scan adds every Gicisky tag it hears
+(`CONFIG_ESL_BLE_AUTO_ADD`), a neighbour's too: such a tag takes a slot in the tag list,
+but is sent nothing until it is given content.
+The manifest and Kconfig refuse Bluetooth next to the chip's own 802.15.4 radio (C6, C5).

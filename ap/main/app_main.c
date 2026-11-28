@@ -180,8 +180,9 @@ void app_main(void)
     esl_radio_set_tagfw(api.tagfw);
     /* Images for tags that show what the AP draws: two buffers of the largest screen
        (about 10 KB), drawn when a tag needs one and dropped again (esl_image.h). Without
-       Bluetooth only the radio task uses them, so no lock; the BLE push task draws too,
-       so with it they get one. Without the memory the AP still works, but those tags get
+       Bluetooth only the radio task uses them, so no lock; with it the BLE push task draws
+       and records images too (esl_image_draw into its own buffer, esl_store_image_known),
+       so they get one. Without the memory the AP still works, but those tags get
        no new content. */
     static esl_image_t images;
     uint8_t *image_mem = malloc(esl_image_mem_size());
@@ -227,7 +228,7 @@ void app_main(void)
        the push task, on the AP's own BLE radio (CONFIG_ESL_BLE). Next to the 802.15.4
        radio where the board has room for both (the S3 with its C6 radio); in the
        Bluetooth AP build (ble.sdkconfig.defaults) the radio mode is the stub, so BLE is the
-       only tag radio. Without the image lock the two would draw into the same buffers. */
+       only tag radio. The image lock keeps the two tasks' drawing and image records in order. */
     if (image_mem && image_mutex) {
         esp_err_t ble_err = ble_start(&store, api.layouts, &images);
         if (ble_err != ESP_OK)

@@ -30,6 +30,7 @@ The release template has this list; tick it off in the release pull request. Cha
 AP (if the AP firmware changed):
 - [ ] OTA to a real AP (esl-client ota ... --wait); GET /api/ota says confirmed
 - [ ] The dashboard loads, tags check in, sending text to a tag works
+- [ ] An S3 with Bluetooth (gicisky in its protocols): with BLE scanning and one Gicisky tag being sent to, GET /api/tags stays fast, an 802.15.4 tag still gets an image, a C6 over WiFi keeps its sync times, and the internal heap after BLE start is logged
 Tags (for each model whose firmware changed: 2.9" and 1.54"):
 - [ ] OTA to one tag of the model (see Rollout); its start screen shows the new version
 - [ ] The tag shows its screen as the dashboard does and checks in for at least 10 polls
@@ -129,6 +130,8 @@ A fix for tags that stay "new content waiting" (#238). The AP drew a tag's scree
 ### Upgrading from 1.0.0 to 1.0.1
 
 Order: the AP over the air as usual, then nothing else: the tag images and the C6 radios have not changed. An 802.15.4 AP keeps everything. The Bluetooth AP is now a release file, `openesl-ap-esp32c6-ble-<version>.bin` (and `-ota.bin`), and a card in the Flash AP tab. It is its own app (`esl_ap_ble`): it takes only Bluetooth AP updates over the air, and an 802.15.4 AP refuses its image. A Bluetooth AP you built from 1.0.0 is the 802.15.4 app (`esl_ap`), so it refuses the new image over the air and its dashboard offers it nothing: flash it once over USB from the Flash AP tab ("C6 for Bluetooth tags"). It has the same partition table, so it keeps its WiFi, tags and settings; after that its dashboard updates it.
+
+An ESP32-S3 AP (with a C6 on a cable or over WiFi) now has Bluetooth too: after the update over the air it also serves Gicisky Bluetooth tags next to its 802.15.4 tags, with nothing to set. Its image is about 195 KB larger, with the same partition table, so no USB flash is needed and it keeps its WiFi, tags and settings. It listens for Bluetooth tags 30 % of the time and adds every Gicisky tag it hears to its tag list (each takes a slot, but gets nothing until you give it content).
 
 Never send the 802.15.4 image (`openesl-ap-esp32c6-<version>-ota.bin`) to a Bluetooth AP from 1.0.0 with esl-client or by hand: that version takes it and stops serving its Bluetooth tags until it is flashed again. Going back to 1.0.0 is a USB flash too, for the same reason.
 
@@ -269,7 +272,7 @@ Every release has a section "Summary of X.Y.Z" here: a few sentences on what the
 
 ### Summary of 1.0.1
 
-The Bluetooth AP for the Gicisky/PICKSMART 2.9" black, white, red and yellow label is now in the release and on the web page: flash an ESP32-C6 from the Flash AP tab ("C6 for Bluetooth tags") instead of building it yourself, and update it from its dashboard. It is its own app, so an 802.15.4 AP and a Bluetooth AP never take each other's update. A Bluetooth AP you built from 1.0.0 needs one USB flash; nothing else changes.
+The Bluetooth AP for the Gicisky/PICKSMART 2.9" black, white, red and yellow label is now in the release and on the web page: flash an ESP32-C6 from the Flash AP tab ("C6 for Bluetooth tags") instead of building it yourself, and update it from its dashboard. It is its own app, so an 802.15.4 AP and a Bluetooth AP never take each other's update. An ESP32-S3 AP now serves Gicisky Bluetooth tags next to its 802.15.4 tags, after the usual update over the air. A Bluetooth AP you built from 1.0.0 needs one USB flash; nothing else changes.
 
 ### Summary of 1.0.0
 

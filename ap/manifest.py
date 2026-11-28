@@ -29,8 +29,9 @@ Without an "802.15.4" entry the build has the stub radio mode with no simulated 
 off). The radio boards in "radio_fw" are built with the board (build.py).
 
 A protocol ("protocols.json") needs a radio of its "radio" kind, and every word of its "needs"
-in that radio's entry: a "via" value or a flag set to true on it. "conflicts" names radio kinds
-the build must not have with it (its Kconfig symbol depends on that, main/Kconfig.projbuild).
+in that radio's entry: a "via" value or a flag set to true on it. "conflicts" names radios
+the build must not have with it: a kind ("802.15.4"), or a kind reached one way ("802.15.4/native")
+(its Kconfig symbol depends on that, main/Kconfig.projbuild).
 The sniffer variant answers no tags, so it has no protocols. Kconfig has the last word: a
 symbol whose "depends on" is not met is dropped, and CMakeLists.txt then stops the build.
 
@@ -148,9 +149,11 @@ def check_build(b, variant=None, protocols=None):
         if not radio:
             errors.append("%s: protocol %s needs a %s radio" % (where, pid, p["radio"]))
             continue
-        for kind in p.get("conflicts", []):
-            if kind in r["radios"]:
-                errors.append("%s: protocol %s cannot be built with a %s radio" % (where, pid, kind))
+        for c in p.get("conflicts", []):
+            kind, _, via = c.partition("/")
+            other = r["radios"].get(kind)
+            if other and (not via or other.get("via") == via):
+                errors.append("%s: protocol %s cannot be built with a %s radio" % (where, pid, c))
         have = {radio.get("via")} | {k for k, v in radio.items() if v is True}
         for need in p.get("needs", []):
             if need not in have:
