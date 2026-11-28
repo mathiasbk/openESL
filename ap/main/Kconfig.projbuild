@@ -316,16 +316,20 @@ menu "OpenESL AP"
 
     config ESL_BLE
         bool "Bluetooth tags with the maker's firmware (BLE central)"
-        depends on ESL_RADIO_STUB && BT_ENABLED && BT_NIMBLE_ENABLED
+        depends on !ESL_RADIO_SNIFFER && (ESL_RADIO_STUB || !ESL_RADIO_DRIVER_IEEE802154) && BT_ENABLED && BT_NIMBLE_ENABLED
         default n
         help
-            The AP uses its BLE radio instead of 802.15.4 (the stub radio mode)
-            and sends pictures to Bluetooth price tags that keep their maker's
-            firmware, such as the Gicisky/PICKSMART 2.9" BWRY (docs/ble-tags.md,
-            docs/gicisky-296-bwry.md). Needs the NimBLE central and observer
-            roles; protocols/gicisky.sdkconfig has them, and a build reads it
-            when "gicisky" is in its board's protocols (board.json, manifest.py),
-            as in the "ble" variant: "python build.py --ble <board>".
+            The AP also uses its BLE radio and sends pictures to Bluetooth price
+            tags that keep their maker's firmware, such as the Gicisky/PICKSMART
+            2.9" BWRY (docs/ble-tags.md, docs/gicisky-296-bwry.md), next to the
+            802.15.4 tags of its radio driver. Needs the NimBLE central and
+            observer roles; protocols/gicisky.sdkconfig has them, and a build
+            reads it when "gicisky" is in its board's protocols (board.json,
+            manifest.py): the ESP32-S3 boards, whose BLE radio is not the C6's
+            802.15.4 radio. Not next to the chip's own 802.15.4 radio (C6, C5):
+            WiFi, BLE and 802.15.4 would share one radio, untried, and on the C6
+            with 4 MB both do not fit in one app slot, so their Bluetooth AP is
+            the "ble" variant without 802.15.4: "python build.py --ble <board>".
 
     config ESL_BLE_TAG_MAC
         string "Tag MAC to add at boot (AA:BB:CC:DD:EE:FF; empty = from the scan)"

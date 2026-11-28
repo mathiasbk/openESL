@@ -187,7 +187,7 @@ The AP keeps a few text fields per label and draws each label's screen from them
 
 OpenESL runs on real 2.9" and 1.54" labels, with the ESP32-C6 and the ESP32-S3 + C6 as access points; the ESP32-C5, the S3 with C6 radios over WiFi and the Linux AP are experimental. Labels [without flashing](https://github.com/mathiasbk/openESL/wiki/Labels-without-flashing) are experimental: a SoluM 2.9" on its original firmware joined an ESP32-C6 AP built with the SoluM option and showed a text layout, and a 1.54" has joined it and shown a picture sent in SoluM's format from a test program; the option is not in the ready-made AP firmware yet. The features are tested on a PC and in CI, and most of them on real labels; what has not been tried on hardware yet is marked experimental here, in the wiki and in the [release notes](https://github.com/mathiasbk/openESL/releases). Coming from an older version? See [Upgrading from older versions](https://github.com/mathiasbk/openESL/wiki/Upgrading-from-older-versions). What comes next is on the [Roadmap](https://github.com/mathiasbk/openESL/wiki/Roadmap).
 
-The Gicisky 2.9" BWRY Bluetooth tag is supported with a separate BLE AP build, tried on an ESP32-C6; it keeps its own firmware.
+The Gicisky 2.9" BWRY Bluetooth tag keeps its own firmware. An ESP32-S3 + C6 AP sends to it next to its 802.15.4 tags; on an ESP32-C6 it takes the separate BLE AP build, tried with two tags ([docs/ble-tags.md](docs/ble-tags.md#which-ap)).
 
 ## For developers
 

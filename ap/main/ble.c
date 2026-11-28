@@ -164,6 +164,14 @@ static void start_scan(void)
     struct ble_gap_disc_params p = {0};
     p.filter_duplicates = 0;
     p.passive = 1;
+#if !CONFIG_ESL_RADIO_STUB
+    /* Next to an 802.15.4 radio (the S3 with its C6) WiFi carries the API and, on a C6 over
+       WiFi, the tags' traffic, and it shares the S3's radio with BLE: listen 30 ms of every
+       100 ms instead of all the time. A tag advertises often enough to be heard within a few
+       seconds; the Bluetooth AP build (stub radio, BLE only) keeps NimBLE's full-time scan. */
+    p.itvl = 160;  /* 0.625 ms units: 100 ms */
+    p.window = 48; /* 30 ms */
+#endif
     int rc = ble_gap_disc(s->own_addr_type, BLE_HS_FOREVER, &p, gap_event, s);
     if (rc == 0 || rc == BLE_HS_EALREADY)
         s->scanning = true;
