@@ -18,6 +18,11 @@
 #ifndef ESL_BOARD_NAME
 #define ESL_BOARD_NAME "host"
 #endif
+/* The tag protocols this build has, comma-separated (ap/protocols.json; ap/CMakeLists.txt
+ * passes the board's manifest, ap/manifest.py) */
+#ifndef ESL_PROTOCOLS
+#define ESL_PROTOCOLS "openesl"
+#endif
 
 /* The paths, as ap/test/openapi/check_openapi.py reads them */
 #define PATH_TAGS "/api/tags"

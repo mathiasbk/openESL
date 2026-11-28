@@ -56,6 +56,10 @@ ROOT = os.path.dirname(HERE)
 _spec = importlib.util.spec_from_file_location("tag_build", os.path.join(ROOT, "tag", "tools", "build.py"))
 tag_build = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(tag_build)
+# the AP boards' manifest (ap/manifest.py: radios, protocols, variants in board.json)
+_spec = importlib.util.spec_from_file_location("ap_manifest", os.path.join(ROOT, "ap", "manifest.py"))
+ap_manifest_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(ap_manifest_mod)
 
 DIST = os.path.join(HERE, "dist")
 AP_CORE = os.path.join(ROOT, "ap", "components", "esl_core")
@@ -390,11 +394,9 @@ def ap_boards():
     base's), supported ones first"""
     bdir = os.path.join(ROOT, "ap", "boards")
     boards = {}
-    for name in sorted(os.listdir(bdir)):
-        path = os.path.join(bdir, name, "board.json")
-        if os.path.exists(path):
-            with open(path) as f:
-                boards[name] = json.load(f)
+    # with its manifest (ap/manifest.py): "radio" and "radio_fw" from its 802.15.4 radio
+    for b in ap_manifest_mod.load_boards():
+        boards[b["id"]] = b
 
     def sdkconfig(b):
         path = os.path.join(bdir, b["id"], "sdkconfig.defaults")
@@ -572,6 +574,8 @@ def add_firmware(*files):
                                   "manifest": manifest, "radio": b.get("radio", "native"),
                                   # the radio firmware this board takes, as keys in "radios"
                                   "radio_fw": ["%s-%s" % (b.get("radio"), r) for r in b.get("radio_fw", [])],
+                                  # the tag protocols its build has (ap/protocols.json), for the card
+                                  "protocols": b["protocols"],
                                   # what the card in step 1 tells a newcomer (board.json, optional)
                                   **{k: b[k] for k in ("recommended", "tags") if k in b},
                                   "designer": b["designer"]})

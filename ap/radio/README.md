@@ -20,7 +20,7 @@ screen and its pins for `c6-lcd`, Kconfig in `ap/components/esl_lcd`).
     cd ap/radio && idf.py -B build-c6-lcd -D RADIO_BOARD=c6-lcd build
     cd ap && python build.py s3-n16r8-c6     # the S3 and every radio board it names
 
-`ap/build.py` builds the radio boards a board names in `radio_fw` (`"radio": "uart"` in board.json),
+`ap/build.py` builds the radio boards a board names in `radio_fw` (`"radios": {"802.15.4": {"via": "uart", "radio_fw": [...]}}` in board.json),
 into `out/openesl-ap-radio-<id>.bin` (written at 0) and `out/openesl-ap-radio-<id>-ota.bin` (the
 app alone). The AP passes the latter on to the radio over the cable (`POST /api/ota`, see
 "Updating the radio over the cable" in docs/ap-radio-link.md). `partitions.csv` gives the radio

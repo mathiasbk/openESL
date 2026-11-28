@@ -98,7 +98,7 @@ jobs:
           (cd tools/esl-client && python3 -m unittest -v test_esl_client)
           (cd tools/power-budget && python3 -m unittest -v test_power_budget test_measure)
           (cd tools/ble-probe && python3 -m unittest -v test_btsnoop test_scan)
-          (cd tools && python3 -m unittest -v test_release_notes test_ap_budget)   # docs/release.md has a summary and upgrade instructions for VERSION; the AP flash budget
+          (cd tools && python3 -m unittest -v test_release_notes test_ap_budget test_ap_manifest)   # docs/release.md has a summary and upgrade instructions for VERSION; the AP flash budget; the AP manifest
           (cd tools/sniffer && python3 -m unittest -v test_sniff)
           (cd tools/flash-tui && python3 -m unittest discover -v -s tests)
 

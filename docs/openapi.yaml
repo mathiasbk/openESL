@@ -2231,6 +2231,11 @@ components:
         fw: { type: string, description: AP firmware version, example: "0.1.0" }
         board: { type: string, description: "The AP board the firmware was built for (`ap/boards/<board>/`), as `board` in `GET /api/layouts`; not sent by firmware 0.6.0 and older", example: s3-n16r8-c6 }
         board_name: { type: string, description: "The board's short name for people (`name` in its board.json); not sent by firmware 0.6.0 and older", example: ESP32-S3 + C6 on cable }
+        protocols:
+          type: array
+          items: { type: string, enum: [openesl, solum-stock, gicisky] }
+          description: "The tag protocols this AP's firmware speaks (`protocols` in its board.json, `ap/protocols.json`): `openesl` (tags with openESL's firmware, over 802.15.4), `solum-stock` (SoluM tags on their original firmware), `gicisky` (Gicisky Bluetooth tags). Empty on a sniffer. Not sent by firmware 1.0.0 and older"
+          example: [openesl]
         uptime_s: { type: integer, minimum: 0, description: Seconds since the AP started }
         radio:
           type: object
@@ -2414,7 +2419,7 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Tag" }
       example:
-        ap: { fw: "0.1.0", board: c6-supermini, board_name: ESP32-C6, uptime_s: 86400, channel: 25, max_tags: 64, table_full: false, poll_s: 0, reset: poweron }
+        ap: { fw: "0.1.0", board: c6-supermini, board_name: ESP32-C6, protocols: [openesl], uptime_s: 86400, channel: 25, max_tags: 64, table_full: false, poll_s: 0, reset: poweron }
         tags:
           - mac: "00000123456789A8"
             seen_s_ago: 12

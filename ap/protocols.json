@@ -1,0 +1,33 @@
+{
+  "_comment": "The tag protocols the AP firmware can speak, and what each needs. A board says which radios it has and which of these its build has (radios, protocols and variants in boards/<board>/board.json); manifest.py checks one against the other and turns them into the build's sdkconfig. See boards/README.md.",
+  "protocols": [
+    {
+      "id": "openesl",
+      "label": "openESL tag firmware",
+      "radio": "802.15.4",
+      "models": "protocol",
+      "kconfig": null,
+      "sdkconfig": null
+    },
+    {
+      "id": "solum-stock",
+      "label": "SoluM tags on their original firmware",
+      "radio": "802.15.4",
+      "needs": ["native"],
+      "models": ["29", "154"],
+      "kconfig": "ESL_SOLUM_STOCK_TAGS",
+      "sdkconfig": "protocols/solum-stock.sdkconfig",
+      "flash_kb": 5,
+      "ram_kb": 25
+    },
+    {
+      "id": "gicisky",
+      "label": "Gicisky Bluetooth tags",
+      "radio": "ble",
+      "models": "protocol",
+      "kconfig": "ESL_BLE",
+      "sdkconfig": "protocols/gicisky.sdkconfig",
+      "flash_kb": 195
+    }
+  ]
+}

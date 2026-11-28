@@ -134,7 +134,9 @@ class Jobs(unittest.TestCase):
         with mock.patch.object(sys, "argv", ["build.py", "--sniffer", "s3-n16r8-c6"]):
             with self.assertRaises(SystemExit) as e:
                 build.main()
-        self.assertIn("own 802.15.4 radio", str(e.exception))
+        # the boards with a sniffer variant in board.json (ap/manifest.py) are the native ones
+        self.assertIn("that variant", str(e.exception))
+        self.assertIn("c6-supermini", str(e.exception))
 
 
 class FreshSdkconfig(unittest.TestCase):
@@ -213,12 +215,14 @@ class FreshSdkconfig(unittest.TestCase):
         self.assertFalse(os.path.exists(os.path.join(self.proj, "build-b1", "CMakeCache.txt")))
 
     def test_sniffer_reads_its_own_defaults(self):
-        b = {"id": "c6-supermini-lcd", "base": "c6-supermini"}
-        self.assertEqual(build.defaults_files(b, sniffer=True),
+        by_id = {b["id"]: b for b in build.load_boards()}
+        self.assertEqual(build.defaults_files(by_id["c6-supermini-lcd"], "sniffer", "bd"),
                          ["sdkconfig.defaults", "boards/c6-supermini/sdkconfig.defaults",
-                          "boards/c6-supermini-lcd/sdkconfig.defaults", "sniffer.sdkconfig.defaults"])
-        self.assertEqual(build.defaults_files({"id": "c6-supermini"}),
-                         ["sdkconfig.defaults", "boards/c6-supermini/sdkconfig.defaults"])
+                          "boards/c6-supermini-lcd/sdkconfig.defaults", os.path.join("bd", "manifest.sdkconfig"),
+                          "sniffer.sdkconfig.defaults"])
+        self.assertEqual(build.defaults_files(by_id["c6-supermini"], None, "bd"),
+                         ["sdkconfig.defaults", "boards/c6-supermini/sdkconfig.defaults",
+                          os.path.join("bd", "manifest.sdkconfig")])
 
 
 class PagesOnly(unittest.TestCase):

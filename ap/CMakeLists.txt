@@ -23,27 +23,47 @@ if(NOT EXISTS "${board_json_file}")
 endif()
 file(READ "${board_json_file}" board_json)
 string(JSON board_target GET "${board_json}" target)
-string(JSON board_base ERROR_VARIABLE no_base GET "${board_json}" base)
-set(SDKCONFIG_DEFAULTS "sdkconfig.defaults")
-if(NOT no_base)
-    list(APPEND SDKCONFIG_DEFAULTS "boards/${board_base}/sdkconfig.defaults")
+# The build's variant (boards/README.md, "variants" in board.json): -DVARIANT=<name>, or the older
+# -DSNIFFER=1 (the sniffer, docs/radio-sniffer.md) and -DBLE=1 (the Bluetooth AP, docs/ble-tags.md).
+# Not kept in the cache: every configure has to ask for it again (build.py does), so a sniffer
+# sdkconfig built without it warns below.
+set(esl_variant "${VARIANT}")
+if(SNIFFER)
+    set(esl_variant sniffer)
+elseif(BLE)
+    set(esl_variant ble)
 endif()
-list(APPEND SDKCONFIG_DEFAULTS "boards/${BOARD}/sdkconfig.defaults")
-# -DSNIFFER=1: the same board as a sniffer that logs every frame and answers none
-# (sniffer.sdkconfig.defaults, docs/radio-sniffer.md). Not kept in the cache: every configure
-# has to ask for it again (build.py does), so a sniffer sdkconfig built without it warns below.
-set(esl_sniffer "${SNIFFER}")
+unset(VARIANT CACHE)
 unset(SNIFFER CACHE)
-if(esl_sniffer)
-    list(APPEND SDKCONFIG_DEFAULTS "sniffer.sdkconfig.defaults")
-endif()
-# -DBLE=1: the same board as a Bluetooth AP for tags with the maker's firmware
-# (ble.sdkconfig.defaults, docs/ble-tags.md). The radio mode is the stub, so 802.15.4 is off.
-set(esl_ble "${BLE}")
 unset(BLE CACHE)
-if(esl_ble)
-    list(APPEND SDKCONFIG_DEFAULTS "ble.sdkconfig.defaults")
+set(esl_sniffer OFF)
+if(esl_variant STREQUAL "sniffer")
+    set(esl_sniffer ON)
 endif()
+if(NOT esl_variant)
+    set(esl_variant "-")
+endif()
+# The sdkconfig.defaults this build reads come from the board's manifest (manifest.py): the common
+# ones, the "base" board's, the board's own, the manifest's (the radio driver and the protocols
+# that are off, written into the build folder), each protocol's (protocols/*.sdkconfig) and the
+# variant's. It also gives the protocols the build has, for GET /api/tags, and the app's name.
+execute_process(COMMAND python3 "${CMAKE_CURRENT_LIST_DIR}/manifest.py" cmake "${BOARD}" "${esl_variant}" "${CMAKE_BINARY_DIR}"
+                WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
+                OUTPUT_VARIABLE manifest_out ERROR_VARIABLE manifest_err RESULT_VARIABLE manifest_result)
+if(NOT manifest_result EQUAL 0)
+    message(FATAL_ERROR "manifest.py: ${manifest_err}")
+endif()
+string(REPLACE "\n" ";" manifest_lines "${manifest_out}")
+list(GET manifest_lines 0 manifest_files)
+string(REPLACE "|" ";" SDKCONFIG_DEFAULTS "${manifest_files}")
+list(GET manifest_lines 1 esl_protocols)
+if(esl_protocols STREQUAL "-")
+    set(esl_protocols "")
+endif()
+list(GET manifest_lines 2 esl_app)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+             "${CMAKE_CURRENT_LIST_DIR}/manifest.py" "${CMAKE_CURRENT_LIST_DIR}/protocols.json" "${board_json_file}")
+message(STATUS "OpenESL AP board ${BOARD}: variant ${esl_variant}, protocols ${esl_protocols}")
 # The chip comes from the board, not from a sdkconfig left in this folder by another build
 if(DEFINED ENV{IDF_TARGET} AND NOT "$ENV{IDF_TARGET}" STREQUAL "${board_target}")
     message(FATAL_ERROR "IDF_TARGET is $ENV{IDF_TARGET}, but board ${BOARD} is ${board_target}")
@@ -73,6 +93,7 @@ if(no_name OR board_name MATCHES "[\"\\]")
     message(FATAL_ERROR "${board_json_file}: no \"name\", or one with a quote or backslash")
 endif()
 idf_build_set_property(COMPILE_DEFINITIONS "ESL_BOARD_NAME=\"${board_name}\"" APPEND)
+idf_build_set_property(COMPILE_DEFINITIONS "ESL_PROTOCOLS=\"${esl_protocols}\"" APPEND)
 string(JSON board_limits ERROR_VARIABLE no_limits GET "${board_json}" limits)
 if(NOT no_limits)
     string(JSON n_limits LENGTH "${board_limits}")
@@ -98,7 +119,7 @@ if(NOT no_psram AND board_psram GREATER 0)
     idf_build_set_property(COMPILE_DEFINITIONS "ESL_LINK_HIST=32" APPEND)
 endif()
 
-project(esl_ap)
+project(${esl_app})
 # A build folder whose sdkconfig was made for the sniffer stays a sniffer: say so, so it is not
 # put on an AP that serves tags by mistake (docs/radio-sniffer.md)
 if(CONFIG_ESL_RADIO_SNIFFER AND NOT esl_sniffer)

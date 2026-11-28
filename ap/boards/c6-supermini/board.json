@@ -7,7 +7,12 @@
   "flash_mb": 4,
   "psram_mb": 0,
   "antenna": "on the board",
-  "radio": "native",
+  "radios": { "802.15.4": {"via": "native"}, "ble": {"via": "native"} },
+  "protocols": ["openesl"],
+  "variants": {
+    "ble": { "radios": {"ble": {"via": "native"}}, "protocols": ["gicisky"], "sdkconfig": "ble.sdkconfig.defaults" },
+    "sniffer": { "protocols": [], "sdkconfig": "sniffer.sdkconfig.defaults" }
+  },
   "artifact": "openesl-ap",
   "release": "openesl-ap-esp32c6",
   "status": "supported",
