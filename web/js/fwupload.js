@@ -41,9 +41,11 @@ export function firmwareKind(data) {
     // would lose its radio with it, and the AP refuses it too
     if (project?.startsWith("esl_radio"))
       return { kind: null, error: `radio firmware for another link (${project}): the C6 on a Linux AP's USB port is flashed over USB from the Flash AP page, not through an AP` };
-    if (project && project !== "esl_ap")
+    // the 802.15.4 AP (esl_ap) or the Bluetooth AP (esl_ap_ble, docs/ble-tags.md): each takes
+    // only its own app, so app says which (apSendQuestion warns when it is not the AP's)
+    if (project && project !== "esl_ap" && project !== "esl_ap_ble")
       return { kind: null, error: `an app for the chip, but not AP firmware (${project})` };
-    return { kind: "ap", size: data.length, version: appVersion(data), chip };
+    return { kind: "ap", size: data.length, version: appVersion(data), chip, ...(project ? { app: project } : {}) };
   }
   // The AP as a Linux program (openesl-ap-linux-<arch>-<version>): an ELF; the AP checks that it
   // is for its machine and starts, and finds its version itself
@@ -105,6 +107,21 @@ export function cmpVersion(a, b) {
 // release's version.
 export function apImageFor(ota, info) {
   if (isLinuxAp(ota)) return null; // a program, not an ESP32 image: linuxImageFor
+  // The Bluetooth AP (app esl_ap_ble, docs/ble-tags.md) takes only its own image, and an
+  // 802.15.4 AP only its own (ota.c): ble_aps in info.json for the one, ap_boards for the other.
+  // One that does not say its app (1.0.0) but has the Bluetooth AP's larger slot is a 1.0.0
+  // Bluetooth AP, built as esl_ap: it would take the 802.15.4 image and lose its partition
+  // table's purpose, and refuses the new Bluetooth image, so it is offered nothing (update it
+  // once over USB)
+  if (isBleAp(ota)) {
+    if (ota.app !== BLE_APP) return null;
+    const b = (info?.ble_aps || []).find((x) => info?.ota?.[x.file] && x.target === (ota.chip || "esp32c6"));
+    if (!b) return null;
+    const version = String(b.version || info.ap_version || info.version).replace(/^v/, "");
+    const c = cmpVersion(version, ota.version);
+    return { file: b.file + "-ota", version, newer: info.release === true && c !== null && c > 0, display: false, ble: true };
+  }
+  if (ota?.app && ota.app !== "esl_ap") return null; // an app this page has no image for
   const boards = (info?.ap_boards || [
     { file: "ap-openesl", target: "esp32c6", display: false },
     { file: "ap-openesl-lcd", target: "esp32c6", display: true },
@@ -115,6 +132,14 @@ export function apImageFor(ota, info) {
   const c = cmpVersion(version, ota?.version);
   return { file: b.file + "-ota", version, newer: info.release === true && c !== null && c > 0, display: !!b.display };
 }
+
+// The Bluetooth AP's app (ap/CMakeLists.txt), and its app slot on a 4 MB C6
+// (ap/ble.partitions.csv: 0x1C0000; the 802.15.4 AP's is 0x180000), which tells a 1.0.0
+// Bluetooth AP, which does not say its app, from an 802.15.4 one
+export const BLE_APP = "esl_ap_ble";
+const BLE_SLOT = 0x1c0000;
+export const isBleAp = (ota) => ota?.app === BLE_APP ||
+  (!ota?.app && (ota?.chip || "esp32c6") === "esp32c6" && ota?.slot_size === BLE_SLOT);
 
 // The AP runs as a Linux program (ap/linux): GET /api/ota says slot "binary"
 export const isLinuxAp = (ota) => ota?.slot === "binary";
@@ -164,6 +189,18 @@ export function apSendQuestion(kind, ota, lcd = null) {
   lines.push(kind.version && running ? `Send AP firmware ${kind.version} to the AP? It runs ${running} now.` : "Send new firmware to the AP?");
   if (kind.chip && ota?.chip && kind.chip !== ota.chip)
     lines.push(`This image is for the ${chipName(kind.chip)}, and this AP is an ${chipName(ota.chip)}: it will refuse it.`);
+  // the Bluetooth AP and the 802.15.4 AP each refuse the other's image (ap/main/ota.c); a 1.0.0
+  // Bluetooth AP does not say its app, but is told by its slot (isBleAp)
+  if (kind.app && ota) {
+    const old = isBleAp(ota) && !ota.app; // a 1.0.0 Bluetooth AP, built as esl_ap
+    if (old) lines.push(kind.app === BLE_APP
+      ? "This AP is a Bluetooth AP from 1.0.0, which refuses the new Bluetooth AP firmware over the air: flash it once over USB."
+      : "This is the 802.15.4 AP's firmware, and this AP is a Bluetooth AP from 1.0.0: it would take it and stop serving its Bluetooth tags. Flash it once over USB with the Bluetooth AP firmware instead.");
+    else if (kind.app === BLE_APP && !isBleAp(ota))
+      lines.push("This is the Bluetooth AP's firmware, and this AP is not one: it will refuse it.");
+    else if (kind.app !== BLE_APP && isBleAp(ota))
+      lines.push("This is the 802.15.4 AP's firmware, and this AP is a Bluetooth AP: it will refuse it.");
+  }
   if (c === 0) lines.push(`That is the version it already runs.`);
   else if (c < 0) lines.push(`That is older than what it runs.`);
   if (lcd !== null && typeof ota?.display === "boolean" && lcd !== ota.display)

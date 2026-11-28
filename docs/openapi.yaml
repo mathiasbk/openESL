@@ -2841,11 +2841,12 @@ components:
         display: { type: boolean, description: "The firmware has the status screen (openesl-ap-lcd); older firmware does not say" }
         chip: { type: string, description: "The chip the firmware is built for (esp32c6, esp32c5); an image for another chip is refused. Older firmware does not say" }
         uploading: { type: boolean, description: An upload in parts is in progress }
+        app: { type: string, description: "ESP32 APs: the app the firmware is, `esl_ap` or `esl_ap_ble` (the Bluetooth AP, docs/ble-tags.md). The AP takes only an image of its own app over the air, so the dashboard offers the one with this name. 1.0.0 and older do not say" }
         self_update: { type: boolean, description: "Linux AP only: this AP can update itself (`POST /api/ota`); `slot` is `binary` and `other_slot` is `prev` while the old program is kept" }
         self_update_blocked: { type: [string, "null"], description: "Linux AP only: why not: `unguarded` (not started by openesl-ap-run), `container`, or `unknown`" }
         arch: { type: [string, "null"], description: "Linux AP only: the machine the program is built for, as the release names its file (`openesl-ap-linux-<arch>-<version>`): `x86_64`, `aarch64` or `armv7`. The 0.11.0 release does not say it" }
         radio: { $ref: "#/components/schemas/RadioInfo" }
-      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, chip: esp32c6, uploading: false }
+      example: { slot: ota_0, version: 0.2.0, slot_size: 1572864, other_slot: ota_1, other_version: 0.1.0, confirmed: true, display: false, chip: esp32c6, app: esl_ap, uploading: false }
 
     RadioInfo:
       type: object

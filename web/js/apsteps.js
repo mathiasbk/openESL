@@ -9,6 +9,7 @@ export const shortChip = (family) => String(family || "").replace(/^ESP32-?/i, "
 // cable ("cable") or over WiFi ("wifi"), or the AP as a Linux program with a C6 radio ("linux").
 // It picks the card's picture and title.
 export function setupKind(board) {
+  if (board.ble) return "ble";
   if (board.radio === "linux") return "linux";
   if (board.radio === "uart") return "cable";
   if (board.radio === "net") return "wifi";
@@ -44,7 +45,7 @@ export function radiosFor(board, info) {
 }
 
 // What a setup takes, for the line on its card
-const PARTS = { single: "one board", screen: "one board", cable: "two boards and four wires", wifi: "two boards, no wire", linux: "a Linux computer and a C6" };
+const PARTS = { single: "one board", screen: "one board", cable: "two boards and four wires", wifi: "two boards, no wire", linux: "a Linux computer and a C6", ble: "one board, Bluetooth tags only" };
 
 // The line under a card's title for a newcomer: "Up to about 1000 tags · two boards and four
 // wires · dashboard with the label designer", from "tags" in the board's board.json and
@@ -68,23 +69,27 @@ export function card(board, info) {
     screen: `${chip} with screen`,
     single: `ESP32-${chip}`,
     linux: "Linux + C6 radio",
+    ble: `${chip} for Bluetooth tags`,
   }[kind];
   const radio = kind === "cable" || kind === "wifi" || kind === "linux";
   return {
     board,
     title,
-    chips: kind === "linux" ? ["Linux", "C6 radio"] : radio ? [chip, "C6 radio"] : [chip],
+    chips: kind === "linux" ? ["Linux", "C6 radio"] : radio ? [chip, "C6 radio"] : kind === "ble" ? [chip, "Bluetooth"] : [chip],
     status: board.status || "supported",
     recommended: !!board.recommended,
     line: summary(board),
-    pic: kind,
+    // one board, drawn like the plain one
+    pic: kind === "ble" ? "single" : kind,
     chip,
     ready: !radio || radiosFor(board, info).length > 0,
   };
 }
 
-// The Linux AP's card comes last, and only when the page has a radio for it on USB
-export const cards = (info) => [...boardsOf(info), ...(info?.linux_radios?.length ? [LINUX] : [])].map((b) => card(b, info));
+// The Bluetooth AP (ble_aps in info.json, docs/ble-tags.md) comes after the 802.15.4 boards; the
+// Linux AP's card comes last, and only when the page has a radio for it on USB
+export const cards = (info) => [...boardsOf(info), ...(info?.ble_aps || []),
+  ...(info?.linux_radios?.length ? [LINUX] : [])].map((b) => card(b, info));
 
 // Boards with two USB ports (DevKitC-style S3 and C5 boards): the AP's serial API and the
 // WiFi step answer only on the one marked USB (the chip's own USB Serial/JTAG), not on the

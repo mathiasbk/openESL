@@ -16,7 +16,7 @@ import { initLayouts } from "./aplayouts.js";
 import { initDashNav, showPart, navBadge, navNote } from "./dashnav.js";
 import { openRenderer, draw, LAYOUT_TEXT, FLAG_FRAME } from "./renderframe.js";
 import { trackRollout, modelTrial, firstTag, apCanChoose, rolloutQuestion, verNum, ROLLOUT_POLLS } from "./rollout.js";
-import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack, isLinuxAp, linuxImageFor, linuxBlocked, linuxSendQuestion, sendLinuxAp, waitLinuxBack } from "./fwupload.js";
+import { firmwareKind, sendTagFirmware, chooseTagFirmware, sendApFirmware, tagFirmwareRows, tagUpdate, tagFirmwarePlan, waitApBack, apImageFor, isBleAp, apSendQuestion, cmpVersion, radioImageFor, radioSendQuestion, sendRadioFirmware, waitRadioBack, isLinuxAp, linuxImageFor, linuxBlocked, linuxSendQuestion, sendLinuxAp, waitLinuxBack } from "./fwupload.js";
 
 const $ = (id) => document.getElementById(id);
 const REFRESH_MS = 10000;
@@ -1328,6 +1328,11 @@ export function initDashboard({ sameOrigin = false, firmwareBase = "", rendererB
     ];
     const blocked = linuxBlocked(ota);
     if (blocked) facts.push(["Updates from here", blocked]);
+    // the Bluetooth AP (docs/ble-tags.md); one from 1.0.0 was built as the 802.15.4 app and
+    // refuses the new Bluetooth image over the air, so this page offers it none
+    if (isBleAp(ota)) facts.push(["Tags", "Bluetooth (Gicisky)"]);
+    if (isBleAp(ota) && !ota.app)
+      facts.push(["Updates from here", "none for a Bluetooth AP from 1.0.0: flash it once over USB with openesl-ap-esp32c6-ble from a newer release (Flash AP tab), then it updates here"]);
     if (ota && typeof ota.display === "boolean") facts.push(["Status screen", ota.display ? "yes" : "no"]);
     // An AP with a C6 radio on UART: what the radio runs, and whether the AP hears it
     const radio = ota?.radio;
