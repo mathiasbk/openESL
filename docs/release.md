@@ -137,6 +137,8 @@ Never send the 802.15.4 image (`openesl-ap-esp32c6-<version>-ota.bin`) to a Blue
 
 SoluM labels on their original firmware (experimental, not in the release images) are now served next to the labels flashed with OpenESL: the radio listens on SoluM's PAN as a second PAN. Build `python build.py --variant solum-stock <board>` for a C6, C5 or S3 + C6, or start the Linux AP with `--solum-stock-pan 1234`, and put the AP on channel 20. An AP built for these labels with 1.0.0 (`ESL_PAN_ID` 0x1234) keeps working as it is. An S3 + C6 needs the C6's radio firmware from 1.0.1 for this; otherwise the C6 needs no update.
 
+The Linux AP can serve Gicisky Bluetooth tags too (experimental): start it with `--ble hci0` on a computer with Bluetooth; it needs `CAP_NET_RAW` and `CAP_NET_ADMIN` (docs/linux-ap.md, "Other tags"). Without `--ble` nothing changes.
+
 ### Upgrading from 0.11.0 to 1.0.0
 
 Order: `esl-client backup ap.json`, the AP over the air, then the tags, one of each model first. Nothing has to be set after the update, no tag draws again, and a C6 radio (on a cable or over WiFi) needs nothing. The new features (SoluM tags on their original firmware, Bluetooth tags) are separate AP builds you make yourself and are off in the release images.
